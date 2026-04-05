@@ -1,0 +1,8 @@
+.po-social {
+  gap: 12px;
+  font-weight: 600;
+}
+
+.po-social__icon {
+  flex-shrink: 0;
+}

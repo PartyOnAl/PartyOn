@@ -1,0 +1,44 @@
+.po-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.po-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.po-btn:not(:disabled):hover {
+  opacity: 0.95;
+}
+
+.po-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.po-btn--primary {
+  color: #ffffff;
+  background: linear-gradient(to right, #b16cea, #ff5ead);
+}
+
+.po-btn--outline {
+  color: #ffffff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.po-btn--outline:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
