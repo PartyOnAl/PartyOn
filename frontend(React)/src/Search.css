@@ -1,0 +1,206 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+#root {
+  min-height: 100%;
+}
+
+.search-page {
+  position: relative;
+  min-height: 100svh;
+  font-family: Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+.search-page__blur-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 85% 55% at 18% 28%, rgba(109, 40, 217, 0.45), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 85% 75%, rgba(236, 72, 153, 0.35), transparent 50%),
+    radial-gradient(circle at 50% 100%, rgba(30, 64, 175, 0.25), transparent 45%),
+    linear-gradient(165deg, #12121a 0%, #060608 50%, #0a0a0f 100%);
+}
+
+.search-page__dim-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.search-page__content {
+  position: relative;
+  z-index: 2;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 48px 20px 40px;
+  box-sizing: border-box;
+}
+
+/* Pill search bar */
+.search-page__bar-wrap {
+  margin-bottom: 20px;
+}
+
+.search-page__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 9999px;
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 24px rgba(255, 255, 255, 0.12),
+    0 0 48px rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.search-page__bar svg:first-of-type {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.search-page__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  outline: none;
+}
+
+.search-page__input::placeholder {
+  color: #6b7280;
+}
+
+.search-page__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #a78bfa;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.search-page__clear:hover {
+  background: rgba(167, 139, 250, 0.12);
+}
+
+.search-page__clear svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Results panel */
+.search-page__results {
+  border-radius: 16px;
+  padding: 8px 0 16px;
+  background: rgba(12, 12, 14, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.search-page__category {
+  margin: 0;
+  padding: 16px 18px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.search-page__category:not(:first-child) {
+  padding-top: 20px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.search-page__row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 18px;
+  align-items: flex-start;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.search-page__row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.search-page__thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.search-page__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.search-page__title {
+  margin: 0 0 6px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.25;
+}
+
+.search-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.search-page__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-page__meta-item svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: #9ca3af;
+  opacity: 0.9;
+}
+
+.search-page__meta-sep {
+  color: #4b5563;
+  font-weight: 400;
+  user-select: none;
+}
