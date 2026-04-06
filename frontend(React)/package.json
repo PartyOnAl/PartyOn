@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@nestjs/typeorm": "^11.0.1",
+    "pg": "^8.20.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "typeorm": "^0.3.28"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
