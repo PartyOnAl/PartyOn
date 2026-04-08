@@ -424,8 +424,16 @@ export default function SignupPage() {
         password,
       })
       navigate('/home')
-    } catch {
-      setApiError('Email already exists')
+    } catch (error: unknown) {
+      const status =
+        typeof error === 'object' && error !== null && 'status' in error
+          ? (error as { status?: number }).status
+          : undefined
+      setApiError(
+        status === 409
+          ? 'Email already exists'
+          : 'Signup failed. Please check your data and try again.',
+      )
     } finally {
       setIsSubmitting(false)
     }
