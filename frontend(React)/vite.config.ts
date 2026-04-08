@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         home: path.resolve(__dirname, 'home.html'),
+        homeTopMenu: path.resolve(__dirname, 'home-top-menu.html'),
         topClubs: path.resolve(__dirname, 'top-clubs.html'),
         promotions: path.resolve(__dirname, 'promotions.html'),
         getTheApp: path.resolve(__dirname, 'get-the-app.html'),
