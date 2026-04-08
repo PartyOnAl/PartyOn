@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { signup } from './services/auth.service'
 import styles from './SignupPage.module.css'
 
 const TERMS_SECTIONS = [
@@ -135,6 +136,39 @@ function AppleIcon() {
   )
 }
 
+function EyeIcon({ open }: { open: boolean }) {
+  if (open) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+          d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10.4 10.4 0 0 1 12 5c6 0 10 7 10 7a18.5 18.5 0 0 1-4.2 4.8M6.3 6.3A18.5 18.5 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 4.5-1.1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.9 9.9A3 3 0 0 0 12 15a3 3 0 0 0 2.1-5.1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function isAtLeast18(dateString: string): boolean {
   if (!dateString) return false
   const today = new Date()
@@ -161,6 +195,13 @@ function formatDisplayDate(isoDate: string): string {
   return `${day}/${month}/${year}`
 }
 
+function splitFullName(fullName: string): { name: string; surname: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  const name = parts[0] ?? ''
+  const surname = parts.length > 1 ? parts.slice(1).join(' ') : name
+  return { name, surname }
+}
+
 export default function SignupPage() {
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
@@ -173,11 +214,15 @@ export default function SignupPage() {
   const [countrySearch, setCountrySearch] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [calendarView, setCalendarView] = useState<'days' | 'months' | 'years'>('days')
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const fullNameErrorId = useId()
   const dateOfBirthErrorId = useId()
@@ -189,6 +234,7 @@ export default function SignupPage() {
   const termsCheckboxId = useId()
   const termsModalTitleId = useId()
   const countrySearchId = useId()
+  const apiErrorId = useId()
   const countryMenuRef = useRef<HTMLDivElement | null>(null)
   const datePickerRef = useRef<HTMLDivElement | null>(null)
   const maxAllowedBirthDate = useMemo(() => {
@@ -345,9 +391,10 @@ export default function SignupPage() {
       ? 'You must accept the Terms and Conditions to continue.'
       : null
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitAttempted(true)
+    setApiError(null)
 
     const valid =
       fullName.trim().length > 0 &&
@@ -361,17 +408,26 @@ export default function SignupPage() {
       confirmPassword === password &&
       termsAccepted
 
-    if (valid) {
-      console.log({
-        fullName,
-        dateOfBirth,
-        email,
-        phoneCountry: selectedCountry,
-        phoneLocalNumber,
-        phoneFull: `${selectedCountry.dialCode}${phoneLocalNumber}`,
+    if (!valid) return
+
+    const { name, surname } = splitFullName(fullName)
+    const phoneNumber = `${selectedCountry.dialCode}${phoneLocalNumber}`
+
+    setIsSubmitting(true)
+    try {
+      await signup({
+        name,
+        surname,
+        phoneNumber,
+        email: email.trim(),
+        birthDate: dateOfBirth,
         password,
-        termsAccepted,
       })
+      navigate('/home')
+    } catch {
+      setApiError('Email already exists')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -707,18 +763,29 @@ export default function SignupPage() {
 
             {/* Password */}
             <div className={styles.field}>
-              <input
-                className={`${styles.input} ${passwordError ? styles.inputInvalid : ''}`}
-                type="password"
-                name="password"
-                autoComplete="new-password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                aria-label="Password"
-                aria-invalid={passwordError ? true : undefined}
-                aria-describedby={passwordError ? passwordErrorId : undefined}
-              />
+              <div className={styles.passwordInputWrap}>
+                <input
+                  id="signup-password"
+                  className={`${styles.input} ${styles.inputWithToggle} ${passwordError ? styles.inputInvalid : ''}`}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  autoComplete="new-password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-label="Password"
+                  aria-invalid={passwordError ? true : undefined}
+                  aria-describedby={passwordError ? passwordErrorId : undefined}
+                />
+                <button
+                  type="button"
+                  className={styles.togglePassword}
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <EyeIcon open={showPassword} />
+                </button>
+              </div>
               {passwordError ? (
                 <p id={passwordErrorId} className={styles.error} role="alert">
                   {passwordError}
@@ -728,18 +795,31 @@ export default function SignupPage() {
 
             {/* Confirm Password */}
             <div className={styles.field}>
-              <input
-                className={`${styles.input} ${confirmPasswordError ? styles.inputInvalid : ''}`}
-                type="password"
-                name="confirmPassword"
-                autoComplete="new-password"
-                placeholder="Confirm Password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                aria-label="Confirm Password"
-                aria-invalid={confirmPasswordError ? true : undefined}
-                aria-describedby={confirmPasswordError ? confirmPasswordErrorId : undefined}
-              />
+              <div className={styles.passwordInputWrap}>
+                <input
+                  id="signup-confirm-password"
+                  className={`${styles.input} ${styles.inputWithToggle} ${confirmPasswordError ? styles.inputInvalid : ''}`}
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  name="confirmPassword"
+                  autoComplete="new-password"
+                  placeholder="Confirm Password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  aria-label="Confirm Password"
+                  aria-invalid={confirmPasswordError ? true : undefined}
+                  aria-describedby={confirmPasswordError ? confirmPasswordErrorId : undefined}
+                />
+                <button
+                  type="button"
+                  className={styles.togglePassword}
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  aria-label={
+                    showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
+                  }
+                >
+                  <EyeIcon open={showConfirmPassword} />
+                </button>
+              </div>
               {confirmPasswordError ? (
                 <p id={confirmPasswordErrorId} className={styles.error} role="alert">
                   {confirmPasswordError}
@@ -780,8 +860,19 @@ export default function SignupPage() {
               ) : null}
             </div>
 
-            <button type="submit" className={styles.submit}>
-              Create Account
+            {apiError ? (
+              <p id={apiErrorId} className={styles.error} role="alert">
+                {apiError}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              className={styles.submit}
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              {isSubmitting ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
 

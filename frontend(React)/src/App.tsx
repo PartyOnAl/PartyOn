@@ -5,6 +5,7 @@ import LoginPage from './LoginPage'
 import Payment from './Payment'
 import PaymentMethod from './PaymentMethod'
 import Promotions from './Promotions'
+import ProtectedRoute from './ProtectedRoute'
 import PurchasedTicket from './PurchasedTicket'
 import Search from './Search'
 import SignupPage from './SignupPage'
@@ -16,7 +17,14 @@ function App() {
       <Routes>
         <Route path="/" element={<SignupPage />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/home" element={<Home />} />
+        <Route
+          path="/home"
+          element={
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/search" element={<Search />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/payment-method" element={<PaymentMethod />} />

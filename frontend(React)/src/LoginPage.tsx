@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { login } from './services/auth.service'
 import styles from './LoginPage.module.css'
 
 function GoogleIcon() {
@@ -127,9 +128,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const emailErrorId = useId()
   const passwordErrorId = useId()
+  const apiErrorId = useId()
 
   const emailError =
     submitAttempted && !email.trim()
@@ -141,17 +145,26 @@ export default function LoginPage() {
   const passwordError =
     submitAttempted && !password.trim() ? 'Please enter your password.' : null
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitAttempted(true)
+    setApiError(null)
 
     const valid =
       email.trim().length > 0 &&
       isValidEmail(email) &&
       password.trim().length > 0
 
-    if (valid) {
-      console.log({ email, password })
+    if (!valid) return
+
+    setIsSubmitting(true)
+    try {
+      await login(email.trim(), password)
+      navigate('/home')
+    } catch {
+      setApiError('Invalid email or password')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -237,8 +250,19 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <button type="submit" className={styles.submit}>
-              Log in
+            {apiError ? (
+              <p id={apiErrorId} className={styles.error} role="alert">
+                {apiError}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              className={styles.submit}
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              {isSubmitting ? 'Logging in…' : 'Log in'}
             </button>
           </form>
 
