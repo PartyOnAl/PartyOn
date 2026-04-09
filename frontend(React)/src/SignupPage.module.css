@@ -494,6 +494,41 @@
   min-width: 0;
 }
 
+.passwordWrap {
+  position: relative;
+}
+
+.passwordInput {
+  padding-right: 52px;
+}
+
+.togglePassword {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #9a9a9a;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  cursor: pointer;
+}
+
+.togglePassword:hover {
+  color: #e040fb;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.togglePassword:focus-visible {
+  outline: 2px solid rgba(224, 64, 251, 0.45);
+  outline-offset: 1px;
+}
+
 .termsRow {
   display: flex;
   align-items: flex-start;
@@ -569,6 +604,14 @@
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.success {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #66bb6a;
+  line-height: 1.35;
 }
 
 .submit:hover {

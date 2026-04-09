@@ -101,6 +101,14 @@
   line-height: 1.35;
 }
 
+.success {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #66bb6a;
+  line-height: 1.35;
+}
+
 .inputInvalid {
   border-color: #b71c1c;
 }
@@ -131,6 +139,18 @@
 .input:focus {
   border-color: #444444;
   box-shadow: 0 0 0 2px rgba(224, 64, 251, 0.15);
+}
+
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus,
+.input:autofill {
+  -webkit-text-fill-color: #b0b0b0;
+  caret-color: #b0b0b0;
+  box-shadow: 0 0 0 1000px #2a2a2a inset;
+  -webkit-box-shadow: 0 0 0 1000px #2a2a2a inset;
+  border: 1px solid #333333;
+  transition: background-color 9999s ease-in-out 0s;
 }
 
 .inputWithIcons {
