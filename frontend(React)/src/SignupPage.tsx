@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { signup } from './services/auth.service'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 import styles from './SignupPage.module.css'
 
 const TERMS_SECTIONS = [
@@ -195,13 +195,6 @@ function formatDisplayDate(isoDate: string): string {
   return `${day}/${month}/${year}`
 }
 
-function splitFullName(fullName: string): { name: string; surname: string } {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean)
-  const name = parts[0] ?? ''
-  const surname = parts.length > 1 ? parts.slice(1).join(' ') : name
-  return { name, surname }
-}
-
 export default function SignupPage() {
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
@@ -221,7 +214,7 @@ export default function SignupPage() {
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [calendarView, setCalendarView] = useState<'days' | 'months' | 'years'>('days')
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
+  const [requestError, setRequestError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const fullNameErrorId = useId()
@@ -234,7 +227,6 @@ export default function SignupPage() {
   const termsCheckboxId = useId()
   const termsModalTitleId = useId()
   const countrySearchId = useId()
-  const apiErrorId = useId()
   const countryMenuRef = useRef<HTMLDivElement | null>(null)
   const datePickerRef = useRef<HTMLDivElement | null>(null)
   const maxAllowedBirthDate = useMemo(() => {
@@ -394,7 +386,12 @@ export default function SignupPage() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitAttempted(true)
-    setApiError(null)
+    setRequestError(null)
+
+    if (!supabase || !isSupabaseConfigured) {
+      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      return
+    }
 
     const valid =
       fullName.trim().length > 0 &&
@@ -408,34 +405,44 @@ export default function SignupPage() {
       confirmPassword === password &&
       termsAccepted
 
-    if (!valid) return
-
-    const { name, surname } = splitFullName(fullName)
-    const phoneNumber = `${selectedCountry.dialCode}${phoneLocalNumber}`
-
-    setIsSubmitting(true)
-    try {
-      await signup({
-        name,
-        surname,
-        phoneNumber,
-        email: email.trim(),
-        birthDate: dateOfBirth,
+    if (valid) {
+      setIsSubmitting(true)
+      const { error } = await supabase.auth.signUp({
+        email,
         password,
+        options: {
+          data: {
+            full_name: fullName,
+            date_of_birth: dateOfBirth,
+            phone_number: `${selectedCountry.dialCode}${phoneLocalNumber}`,
+          },
+        },
       })
-      navigate('/home')
-    } catch (error: unknown) {
-      const status =
-        typeof error === 'object' && error !== null && 'status' in error
-          ? (error as { status?: number }).status
-          : undefined
-      setApiError(
-        status === 409
-          ? 'Email already exists'
-          : 'Signup failed. Please check your data and try again.',
-      )
-    } finally {
       setIsSubmitting(false)
+
+      if (error) {
+      setRequestError(error.message)
+        return
+      }
+
+      navigate('/home')
+    }
+  }
+
+  async function handleSocialLogin(provider: 'google' | 'apple') {
+    setRequestError(null)
+    if (!supabase || !isSupabaseConfigured) {
+      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      return
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/home`,
+      },
+    })
+    if (error) {
+      setRequestError(error.message)
     }
   }
 
@@ -771,10 +778,9 @@ export default function SignupPage() {
 
             {/* Password */}
             <div className={styles.field}>
-              <div className={styles.passwordInputWrap}>
+              <div className={styles.passwordWrap}>
                 <input
-                  id="signup-password"
-                  className={`${styles.input} ${styles.inputWithToggle} ${passwordError ? styles.inputInvalid : ''}`}
+                  className={`${styles.input} ${styles.passwordInput} ${passwordError ? styles.inputInvalid : ''}`}
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   autoComplete="new-password"
@@ -803,10 +809,9 @@ export default function SignupPage() {
 
             {/* Confirm Password */}
             <div className={styles.field}>
-              <div className={styles.passwordInputWrap}>
+              <div className={styles.passwordWrap}>
                 <input
-                  id="signup-confirm-password"
-                  className={`${styles.input} ${styles.inputWithToggle} ${confirmPasswordError ? styles.inputInvalid : ''}`}
+                  className={`${styles.input} ${styles.passwordInput} ${confirmPasswordError ? styles.inputInvalid : ''}`}
                   type={showConfirmPassword ? 'text' : 'password'}
                   name="confirmPassword"
                   autoComplete="new-password"
@@ -821,9 +826,7 @@ export default function SignupPage() {
                   type="button"
                   className={styles.togglePassword}
                   onClick={() => setShowConfirmPassword((v) => !v)}
-                  aria-label={
-                    showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
-                  }
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
                   <EyeIcon open={showConfirmPassword} />
                 </button>
@@ -868,19 +871,13 @@ export default function SignupPage() {
               ) : null}
             </div>
 
-            {apiError ? (
-              <p id={apiErrorId} className={styles.error} role="alert">
-                {apiError}
+            {requestError ? (
+              <p className={styles.error} role="alert">
+                {requestError}
               </p>
             ) : null}
-
-            <button
-              type="submit"
-              className={styles.submit}
-              disabled={isSubmitting}
-              aria-busy={isSubmitting}
-            >
-              {isSubmitting ? 'Creating account…' : 'Create Account'}
+            <button type="submit" className={styles.submit} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating account...' : 'Create Account'}
             </button>
           </form>
 
@@ -890,11 +887,11 @@ export default function SignupPage() {
             <span className={styles.dividerLine} aria-hidden />
           </div>
 
-          <button type="button" className={styles.social}>
+          <button type="button" className={styles.social} onClick={() => handleSocialLogin('google')}>
             <span className={styles.socialIcon}><GoogleIcon /></span>
             <span className={styles.socialLabel}>Continue with Google</span>
           </button>
-          <button type="button" className={styles.social}>
+          <button type="button" className={styles.social} onClick={() => handleSocialLogin('apple')}>
             <span className={styles.socialIcon}><AppleIcon /></span>
             <span className={styles.socialLabel}>Continue with Apple</span>
           </button>

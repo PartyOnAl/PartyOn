@@ -1,21 +1,49 @@
-import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
-import { User } from '../entities/entities/User';
 
 @Controller('users')
+@UseGuards(SupabaseAuthGuard)
 export class UsersController {
-    constructor(private readonly usersService: UsersService) {}
-    @Get()
-    getAll(): Promise<User[]> {
-      return this.usersService.findAll();//the corresponding controller for the findAll() function in services 
-    }
-    @Get(':id')
-   // getOne(@Param('id') id: number): Promise<User> {  //parametrised controller for the findOne(id) 
-   //                                                  // if we had declared it at the services
-   //   return this.usersService.findOne(+id);
-   // }
-    @Post()
-    create(@Body() userData: Partial<User>): Promise<User> {//the corresponding controller for the create function at services 
-      return this.usersService.create(userData);
-    }
+  constructor(private readonly usersService: UsersService) {}
+
+  @Get()
+  findAll() {
+    return this.usersService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.findOne(id);
+  }
+
+  @Post()
+  create(@Body() payload: CreateUserDto) {
+    return this.usersService.create(payload);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() payload: UpdateUserDto,
+  ) {
+    return this.usersService.update(id, payload);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.remove(id);
+  }
 }

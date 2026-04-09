@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from './services/auth.service'
+import ForgotPasswordModal from './ForgotPasswordModal'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 import styles from './LoginPage.module.css'
 
 function GoogleIcon() {
@@ -128,12 +129,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
+  const [requestError, setRequestError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(false)
 
   const emailErrorId = useId()
   const passwordErrorId = useId()
-  const apiErrorId = useId()
 
   const emailError =
     submitAttempted && !email.trim()
@@ -148,23 +149,58 @@ export default function LoginPage() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitAttempted(true)
-    setApiError(null)
+    setRequestError(null)
+
+    if (!supabase || !isSupabaseConfigured) {
+      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      return
+    }
 
     const valid =
       email.trim().length > 0 &&
       isValidEmail(email) &&
       password.trim().length > 0
 
-    if (!valid) return
-
-    setIsSubmitting(true)
-    try {
-      await login(email.trim(), password)
-      navigate('/home')
-    } catch {
-      setApiError('Invalid email or password')
-    } finally {
+    if (valid) {
+      setIsSubmitting(true)
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
       setIsSubmitting(false)
+
+      if (error) {
+        setRequestError(error.message)
+        return
+      }
+
+      navigate('/home')
+    }
+  }
+
+  function handleOpenForgot() {
+    setRequestError(null)
+    if (!supabase || !isSupabaseConfigured) {
+      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      return
+    }
+    setForgotOpen(true)
+  }
+
+  async function handleSocialLogin(provider: 'google' | 'apple') {
+    setRequestError(null)
+    if (!supabase || !isSupabaseConfigured) {
+      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      return
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/home`,
+      },
+    })
+    if (error) {
+      setRequestError(error.message)
     }
   }
 
@@ -245,24 +281,18 @@ export default function LoginPage() {
             </div>
 
             <div className={styles.forgotRow}>
-              <button type="button" className={styles.forgotLink}>
+              <button type="button" className={styles.forgotLink} onClick={handleOpenForgot}>
                 Forgot password?
               </button>
             </div>
 
-            {apiError ? (
-              <p id={apiErrorId} className={styles.error} role="alert">
-                {apiError}
+            {requestError ? (
+              <p className={styles.error} role="alert">
+                {requestError}
               </p>
             ) : null}
-
-            <button
-              type="submit"
-              className={styles.submit}
-              disabled={isSubmitting}
-              aria-busy={isSubmitting}
-            >
-              {isSubmitting ? 'Logging in…' : 'Log in'}
+            <button type="submit" className={styles.submit} disabled={isSubmitting}>
+              {isSubmitting ? 'Logging in...' : 'Log in'}
             </button>
           </form>
 
@@ -272,13 +302,13 @@ export default function LoginPage() {
             <span className={styles.dividerLine} aria-hidden />
           </div>
 
-          <button type="button" className={styles.social}>
+          <button type="button" className={styles.social} onClick={() => handleSocialLogin('google')}>
             <span className={styles.socialIcon}>
               <GoogleIcon />
             </span>
             <span className={styles.socialLabel}>Continue with Google</span>
           </button>
-          <button type="button" className={styles.social}>
+          <button type="button" className={styles.social} onClick={() => handleSocialLogin('apple')}>
             <span className={styles.socialIcon}>
               <AppleIcon />
             </span>
@@ -290,13 +320,19 @@ export default function LoginPage() {
             <button
               type="button"
               className={styles.footerLink}
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/signup')}
             >
               Sign up
             </button>
           </p>
         </div>
       </div>
+
+      <ForgotPasswordModal
+        open={forgotOpen}
+        onClose={() => setForgotOpen(false)}
+        initialEmail={email}
+      />
     </div>
   )
 }
