@@ -1,0 +1,32 @@
+/* Themed scrollbar for filter dropdowns (matches primary pink/purple, not system white). */
+.search-hero-dropdown-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--primary) / 0.75) hsl(0 0% 100% / 0.06);
+}
+
+.search-hero-dropdown-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.search-hero-dropdown-scroll::-webkit-scrollbar-track {
+  background: hsl(0 0% 100% / 0.06);
+  border-radius: 999px;
+}
+
+.search-hero-dropdown-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--primary)),
+    hsl(var(--primary) / 0.55)
+  );
+  border-radius: 999px;
+}
+
+.search-hero-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+.search-hero-typeahead {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--primary) / 0.75) hsl(0 0% 100% / 0.06);
+}

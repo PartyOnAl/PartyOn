@@ -12,9 +12,13 @@ import PaymentMethod from './PaymentMethod'
 import Promotions from './Promotions'
 import PurchasedTicket from './PurchasedTicket'
 import Search from './Search'
+import ClubDetail from './ClubDetail'
+import DjDetail from './DjDetail'
 import SignupPage from './SignupPage'
 import TopClubs from './TopClubs'
 import { AuthProvider } from './contexts/AuthContext'
+import { CatalogProvider } from './contexts/CatalogContext'
+import { SavedEventsProvider } from './contexts/SavedEventsContext'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -29,6 +33,8 @@ function App() {
     <BrowserRouter>
       <ScrollToTop />
       <AuthProvider>
+      <CatalogProvider>
+      <SavedEventsProvider>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/signup" element={<SignupPage />} />
@@ -36,6 +42,8 @@ function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/home" element={<Home />} />
         <Route path="/search" element={<Search />} />
+        <Route path="/club/:id" element={<ClubDetail />} />
+        <Route path="/dj/:id" element={<DjDetail />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/payment-method" element={<PaymentMethod />} />
         <Route path="/promotions" element={<Promotions />} />
@@ -56,6 +64,8 @@ function App() {
         <Route path="/purchasedticket" element={<PurchasedTicket />} />
         <Route path="/paymentmethod" element={<PaymentMethod />} />
       </Routes>
+      </SavedEventsProvider>
+      </CatalogProvider>
       </AuthProvider>
     </BrowserRouter>
   )

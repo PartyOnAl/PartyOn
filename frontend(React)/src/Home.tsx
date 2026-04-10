@@ -1,64 +1,76 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
-import { SearchHero, type SearchFilters } from '@/components/SearchHero'
+import { SearchHero } from '@/components/SearchHero'
+import {
+  type SearchFilters,
+  eventMatchesSearchFilters,
+} from '@/lib/searchFilters'
 import { PromotionsSection } from '@/components/PromotionsSection'
 import { EventsSection } from '@/components/EventsSection'
 import { ClubsSection } from '@/components/ClubsSection'
 import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
-import { mockEvents } from '@/data/mockData'
-
+import { useCatalog } from '@/contexts/CatalogContext'
 export default function Home() {
+  const { events, promotions, loading, error } = useCatalog()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  const goToEventsSection = () => {
+    const scroll = () => {
+      document.getElementById('events')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+    if (location.pathname !== '/' && location.pathname !== '/home') {
+      navigate('/')
+      window.setTimeout(scroll, 150)
+    } else {
+      scroll()
+    }
+  }
   const [filters, setFilters] = useState<SearchFilters>({
     query: '',
+    clubQuery: '',
     city: 'all',
     musicType: 'all',
     time: 'all',
+    category: 'all',
   })
 
-  const filteredEvents = useMemo(() => {
-    const query = filters.query.trim().toLowerCase()
-    return mockEvents.filter((event) => {
-      const matchesQuery =
-        query.length === 0 ||
-        event.title.toLowerCase().includes(query) ||
-        event.club.toLowerCase().includes(query) ||
-        event.city.toLowerCase().includes(query) ||
-        event.musicType.toLowerCase().includes(query)
-
-      const matchesCity =
-        filters.city === 'all' || event.city.toLowerCase() === filters.city.toLowerCase()
-
-      const matchesMusic =
-        filters.musicType === 'all' ||
-        event.musicType.toLowerCase() === filters.musicType.toLowerCase()
-
-      const hour = Number(event.date.split('·')[1]?.trim().split(':')[0] ?? NaN)
-      const isTonight = Number.isFinite(hour) && hour >= 20
-      const isWeekend = event.date.startsWith('Fri') || event.date.startsWith('Sat')
-      const matchesTime =
-        filters.time === 'all' ||
-        (filters.time === 'tonight' && isTonight) ||
-        (filters.time === 'weekend' && isWeekend)
-
-      return matchesQuery && matchesCity && matchesMusic && matchesTime
-    })
-  }, [filters])
+  const filteredEvents = useMemo(
+    () => events.filter((event) => eventMatchesSearchFilters(event, filters)),
+    [filters, events],
+  )
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
       <main>
         <HeroSection
-          onExplore={() => navigate('/search')}
+          onExplore={goToEventsSection}
           onBrowseClubs={() => navigate('/nearby-clubs')}
         />
-        <SearchHero events={mockEvents} value={filters} onChange={setFilters} />
-        <EventsSection events={filteredEvents} />
-        <PromotionsSection />
+        <SearchHero events={events} value={filters} onChange={setFilters} />
+        {error ? (
+          <p className="po-container py-4 text-sm text-destructive">
+            Could not load catalog: {error}. Ensure the API is running (
+            <code className="rounded bg-muted px-1">backend/</code>{' '}
+            <code className="rounded bg-muted px-1">npm run start:dev</code>
+            ) and{' '}
+            <code className="rounded bg-muted px-1">DATABASE_URL</code> is set. In dev, leave{' '}
+            <code className="rounded bg-muted px-1">VITE_API_URL</code> empty so Vite proxies{' '}
+            <code className="rounded bg-muted px-1">/catalog</code> to port 3000.
+          </p>
+        ) : null}
+        <EventsSection
+          events={filteredEvents}
+          catalogLoading={loading && events.length === 0}
+        />
+        <PromotionsSection promotions={promotions} />
         <ClubsSection />
         <GetAppSection />
       </main>

@@ -7,44 +7,6 @@
   flex-direction: column;
 }
 
-.clubs-map-page__topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 0;
-}
-
-.clubs-map-page__title {
-  margin: 0;
-  font-size: clamp(1.4rem, 3vw, 2rem);
-  font-weight: 800;
-}
-
-.clubs-map-page__subtitle {
-  margin: 6px 0 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.95rem;
-}
-
-.clubs-map-page__locate-btn {
-  border: 1px solid rgba(236, 72, 153, 0.45);
-  background: rgba(236, 72, 153, 0.12);
-  color: #f9a8d4;
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.clubs-map-page__locate-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
 .clubs-map-page__error {
   margin: 6px 0 0;
   color: #fca5a5;
@@ -78,15 +40,124 @@
   background: #090d18;
 }
 
-.clubs-map-iframe {
-  border: 0;
-  width: 100%;
+.clubs-map-leaflet {
   flex: 1 1 0;
   min-height: 0;
-  height: 100%;
-  display: block;
-  /* Dark-mode treatment over standard map tiles to match app theme */
-  filter: grayscale(0.25) invert(0.9) hue-rotate(190deg) saturate(0.72) contrast(0.88);
+  width: 100%;
+  z-index: 1;
+  border-radius: 0;
+}
+
+.clubs-map-leaflet .leaflet-container {
+  font-family: inherit;
+  background: #090d18;
+}
+
+.clubs-map-leaflet--placeholder {
+  flex: 1 1 0;
+  min-height: 320px;
+  background: linear-gradient(180deg, #0c1220, #090d18);
+}
+
+.leaflet-popup-content-wrapper {
+  background: #12131a !important;
+  color: #f8fafc !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px !important;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.leaflet-popup-tip {
+  background: #12131a !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.clubs-map-pin-shell,
+.clubs-map-user-shell {
+  background: transparent !important;
+  border: none !important;
+}
+
+.clubs-map-pin {
+  width: 18px;
+  height: 18px;
+  background: hsl(var(--primary));
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  margin: 4px auto;
+}
+
+.clubs-map-pin--active {
+  box-shadow:
+    0 0 0 3px hsl(var(--primary) / 0.4),
+    0 2px 12px rgba(0, 0, 0, 0.5);
+  filter: brightness(1.08);
+}
+
+.clubs-map-user-marker {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.clubs-map-user-marker__pulse {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.42);
+  animation: clubs-map-user-pulse 2.2s ease-out infinite;
+}
+
+.clubs-map-user-marker__dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 12px rgba(37, 99, 235, 0.55);
+}
+
+@keyframes clubs-map-user-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+.clubs-map-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  max-width: min(92vw, 420px);
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fef2f2;
+  background: rgba(127, 29, 29, 0.95);
+  border: 1px solid rgba(252, 165, 165, 0.35);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
 }
 
 .clubs-map-open-link {
@@ -180,8 +251,8 @@
 }
 
 .clubs-nearby-card--active {
-  border-color: rgba(125, 211, 252, 0.7);
-  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.35);
+  border-color: hsl(var(--primary) / 0.65);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
 }
 
 .clubs-nearby-card__img {
@@ -206,8 +277,13 @@
 .clubs-nearby-card__distance {
   margin: 6px 0 0;
   font-size: 0.78rem;
-  color: #f9a8d4;
+  color: hsl(var(--primary));
   font-weight: 600;
+}
+
+.clubs-nearby-card__distance--muted {
+  color: rgba(148, 163, 184, 0.95);
+  font-weight: 500;
 }
 
 .clubs-nearby-card__actions {
@@ -265,6 +341,11 @@
   background: rgba(125, 211, 252, 0.16);
 }
 
+.clubs-nearby-card__show-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 768px) {
   .clubs-map-layout {
     grid-template-columns: 1fr;
@@ -278,10 +359,9 @@
     max-height: 350px;
   }
 
-  .clubs-map-iframe {
-    min-height: 0;
-    flex: 1 1 0;
-    height: auto;
+  .clubs-map-leaflet,
+  .clubs-map-leaflet--placeholder {
+    min-height: 280px;
   }
 
   .clubs-nearby-list {

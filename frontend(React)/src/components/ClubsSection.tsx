@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
-import { mockClubs } from '@/data/mockData'
 import { motion } from 'framer-motion'
+import { ClubCoverImage } from '@/components/ClubCoverImage'
+import { useCatalog } from '@/contexts/CatalogContext'
 
 export function ClubsSection() {
-  const clubs = mockClubs.slice(0, 5)
+  const { clubs: allClubs, loading } = useCatalog()
+  const clubs = allClubs.slice(0, 5)
 
   return (
     <section id="clubs" className="py-16 border-t border-border/30">
@@ -17,6 +19,10 @@ export function ClubsSection() {
           Hot Venues
         </motion.h2>
 
+        {loading && clubs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Loading venues…</p>
+        ) : null}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 auto-rows-[200px] md:auto-rows-[240px]">
           {clubs[0] && (
             <motion.div
@@ -29,7 +35,7 @@ export function ClubsSection() {
                 to="/nearby-clubs"
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
-                <img
+                <ClubCoverImage
                   src={clubs[0].imageUrl}
                   alt={clubs[0].name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -54,7 +60,7 @@ export function ClubsSection() {
                 to="/nearby-clubs"
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
-                <img
+                <ClubCoverImage
                   src={clubs[1].imageUrl}
                   alt={clubs[1].name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -79,7 +85,7 @@ export function ClubsSection() {
                 to="/nearby-clubs"
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
-                <img
+                <ClubCoverImage
                   src={clubs[2].imageUrl}
                   alt={clubs[2].name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -104,7 +110,7 @@ export function ClubsSection() {
                 to="/nearby-clubs"
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
-                <img
+                <ClubCoverImage
                   src={clubs[3].imageUrl}
                   alt={clubs[3].name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

@@ -1,18 +1,57 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import './Payment.css'
 
-const PRICE_PER_TICKET = 20
+type PaymentEventState = {
+  id: string
+  title: string
+  date: string
+  club: string
+  city: string
+  price: number
+  currency: string
+  imageUrl?: string
+}
 
 export default function Payment() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const eventFromNav = (location.state as { event?: PaymentEventState } | null)
+    ?.event
+
+  const unitPrice = useMemo(() => {
+    if (eventFromNav) {
+      return Math.max(0, eventFromNav.price)
+    }
+    return 20
+  }, [eventFromNav])
+
   const [quantity, setQuantity] = useState(1)
   const [organizerUpdates, setOrganizerUpdates] = useState(false)
 
-  const total = quantity * PRICE_PER_TICKET
+  const total = quantity * unitPrice
+
+  const eventTitle = eventFromNav?.title ?? 'ECHOES: Underground Techno Night'
+  const eventMeta =
+    eventFromNav != null
+      ? [eventFromNav.date, eventFromNav.club, eventFromNav.city]
+          .filter(Boolean)
+          .join(' · ')
+      : 'Sat, Mar 29 • 23:00 • Warehouse Roma'
+  const currency = eventFromNav?.currency?.trim() || '€'
+  const thumbUrl = eventFromNav?.imageUrl?.trim()
 
   return (
     <div className="payment-page">
       <div className="payment-page__bg" aria-hidden={true} />
       <div className="payment-page__shell">
+        <button
+          type="button"
+          className="payment-page__back"
+          onClick={() => navigate(-1)}
+        >
+          ← Back
+        </button>
         <header className="payment-page__top">
           <p className="payment-page__label">payment</p>
           <nav className="payment-page__crumbs" aria-label="Checkout progress">
@@ -32,12 +71,22 @@ export default function Payment() {
         </header>
 
         <div className="payment-page__event">
-          <div className="payment-page__event-thumb" aria-hidden={true} />
+          <div
+            className="payment-page__event-thumb"
+            style={
+              thumbUrl
+                ? {
+                    backgroundImage: `url(${thumbUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }
+                : undefined
+            }
+            aria-hidden={true}
+          />
           <div>
-            <h2 className="payment-page__event-title">ECHOES: Underground Techno Night</h2>
-            <p className="payment-page__event-meta">
-              Sat, Mar 29 • 23:00 • Warehouse Rom
-            </p>
+            <h2 className="payment-page__event-title">{eventTitle}</h2>
+            <p className="payment-page__event-meta">{eventMeta}</p>
           </div>
         </div>
 
@@ -48,7 +97,10 @@ export default function Payment() {
           </p>
 
           <div className="payment-page__price-row">
-            <span className="payment-page__price">€{PRICE_PER_TICKET}</span>
+            <span className="payment-page__price">
+              {currency}
+              {unitPrice}
+            </span>
             <span className="payment-page__price-unit">per ticket</span>
           </div>
 
@@ -82,7 +134,10 @@ export default function Payment() {
 
           <div className="payment-page__total-row">
             <span className="payment-page__total-label">Total</span>
-            <span className="payment-page__total-amount">€{total}</span>
+            <span className="payment-page__total-amount">
+              {currency}
+              {total}
+            </span>
           </div>
           <p className="payment-page__total-note">No booking fees • Final price</p>
 

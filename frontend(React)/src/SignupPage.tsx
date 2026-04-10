@@ -389,7 +389,9 @@ export default function SignupPage() {
     setRequestError(null)
 
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
 
@@ -432,7 +434,9 @@ export default function SignupPage() {
   async function handleSocialLogin(provider: 'google' | 'apple') {
     setRequestError(null)
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
     const { error } = await supabase.auth.signInWithOAuth({

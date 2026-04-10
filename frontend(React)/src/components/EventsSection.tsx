@@ -16,13 +16,45 @@ import './EventsSection.css'
 
 type EventsSectionProps = {
   events: Event[]
+  /** While catalog is loading, show placeholders instead of an empty “no matches” state. */
+  catalogLoading?: boolean
 }
 
-export function EventsSection({ events }: EventsSectionProps) {
+function EventsCarouselSkeleton() {
+  return (
+    <div className="events-track flex -ml-4 items-stretch">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="events-slide min-w-0 shrink-0 grow-0 basis-[72%] sm:basis-[46%] md:basis-[32%] lg:basis-[24%] pl-4 flex"
+        >
+          <div className="mx-auto flex w-full max-w-[18rem] flex-col gap-3">
+            <div className="aspect-[4/5] max-h-[18.5rem] w-full animate-pulse rounded-lg bg-white/[0.06]" />
+            <div className="h-4 w-[85%] max-w-[14rem] animate-pulse rounded bg-white/[0.06]" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-white/[0.05]" />
+            <div className="h-3 w-2/3 animate-pulse rounded bg-white/[0.05]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function EventsSection({
+  events,
+  catalogLoading = false,
+}: EventsSectionProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: true,
     slidesToScroll: 1,
+    /**
+     * Embla’s drag handler adds a capture-phase `click` listener that can call
+     * stopPropagation() when `preventClick` is set (after a swipe). That blocks
+     * clicks on bookmark buttons inside slides. We disable built-in drag; this
+     * section still scrolls via arrows, autoplay, wheel, and touch swipe handlers below.
+     */
+    watchDrag: false,
     breakpoints: {
       '(min-width: 768px)': { slidesToScroll: 2 },
       '(min-width: 1024px)': { slidesToScroll: 3 },
@@ -178,21 +210,25 @@ export function EventsSection({ events }: EventsSectionProps) {
             onWheel={handleWheel}
           >
             <div className="events-track flex -ml-4 items-stretch">
-              {events.map((event, i) => (
-                <div
-                  key={event.id}
-                  className="events-slide min-w-0 shrink-0 grow-0 basis-[72%] sm:basis-[46%] md:basis-[32%] lg:basis-[24%] pl-4 flex"
-                >
-                  <div className="min-h-0 w-full flex">
-                    <EventCard event={event} index={i} />
+              {catalogLoading && events.length === 0 ? (
+                <EventsCarouselSkeleton />
+              ) : (
+                events.map((event, i) => (
+                  <div
+                    key={event.id}
+                    className="events-slide min-w-0 shrink-0 grow-0 basis-[72%] sm:basis-[46%] md:basis-[32%] lg:basis-[24%] pl-4 flex"
+                  >
+                    <div className="min-h-0 w-full flex">
+                      <EventCard event={event} index={i} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
 
-        {events.length === 0 ? (
+        {!catalogLoading && events.length === 0 ? (
           <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-muted-foreground">
             No events match your filters.
           </div>
