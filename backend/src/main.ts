@@ -1,12 +1,21 @@
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
-dotenv.config();
+import { AppModule } from './app.module';
 
+dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT || 3000;
+
+  app.enableCors({
+    origin: 'http://localhost:5173',
+    credentials: true,
+  });
+
+  await app.listen(port);
+  console.log(`Backend is running on http://localhost:${port}`);
 }
+
 bootstrap();

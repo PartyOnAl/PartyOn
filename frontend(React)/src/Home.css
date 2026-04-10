@@ -56,6 +56,17 @@ body {
   position: relative;
 }
 
+.home__status {
+  margin: 0 0 20px;
+  text-align: center;
+  color: var(--home-muted);
+  font-size: 0.95rem;
+}
+
+.home__status--error {
+  color: #fda4af;
+}
+
 .home__carousel {
   display: flex;
   gap: 20px;
@@ -109,6 +120,11 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.home__carousel-arrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 /* ——— Event cards ——— */
 .home-event-card {
   flex: 0 0 200px;
@@ -117,6 +133,22 @@ body {
   display: flex;
   flex-direction: column;
   text-align: left;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.home-event-card:hover {
+  transform: translateY(-2px);
+}
+
+.home-event-card:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 3px;
 }
 
 @media (min-width: 640px) {
@@ -133,6 +165,13 @@ body {
   overflow: hidden;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: #111827;
+  background-size: cover;
+  background-position: center;
+}
+
+.home-event-card__poster--fallback {
+  background-image: linear-gradient(145deg, #581c87 0%, #ec4899 50%, #f472b6 100%);
 }
 
 .home-event-card__poster-inner {
