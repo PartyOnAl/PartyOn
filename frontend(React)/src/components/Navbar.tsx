@@ -123,16 +123,16 @@ export function Navbar() {
           <button
             type="button"
             className="navbar-link text-sm font-medium text-foreground/70 hover:text-foreground transition-colors"
-            onClick={() => scrollToSection('clubs')}
+            onClick={() => scrollToSection('promotions')}
           >
-            Clubs
+            Promotions
           </button>
           <button
             type="button"
             className="navbar-link text-sm font-medium text-foreground/70 hover:text-foreground transition-colors"
-            onClick={() => scrollToSection('promotions')}
+            onClick={() => scrollToSection('clubs')}
           >
-            Promotions
+            Clubs
           </button>
         </div>
 
@@ -314,16 +314,16 @@ export function Navbar() {
               <button
                 type="button"
                 className="text-sm font-medium py-2"
-                onClick={() => scrollToSection('clubs')}
+                onClick={() => scrollToSection('promotions')}
               >
-                Clubs
+                Promotions
               </button>
               <button
                 type="button"
                 className="text-sm font-medium py-2"
-                onClick={() => scrollToSection('promotions')}
+                onClick={() => scrollToSection('clubs')}
               >
-                Promotions
+                Clubs
               </button>
               {user ? (
                 <>

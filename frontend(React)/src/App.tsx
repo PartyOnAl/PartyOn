@@ -1,4 +1,5 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import EventClicked from './EventClicked'
 import Footer from './Footer'
 import GetTheApp from './GetTheApp'
@@ -15,9 +16,18 @@ import SignupPage from './SignupPage'
 import TopClubs from './TopClubs'
 import { AuthProvider } from './contexts/AuthContext'
 
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [pathname])
+  return null
+}
+
 function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <AuthProvider>
       <Routes>
         <Route path="/" element={<Home />} />
@@ -31,6 +41,8 @@ function App() {
         <Route path="/promotions" element={<Promotions />} />
         <Route path="/purchased-ticket" element={<PurchasedTicket />} />
         <Route path="/top-clubs" element={<TopClubs />} />
+        <Route path="/nearby-clubs" element={<TopClubs />} />
+        <Route path="/clubs/nearby" element={<TopClubs />} />
         <Route path="/event/:id" element={<EventClicked />} />
         <Route path="/events/:eventId" element={<EventClicked />} />
         <Route path="/event" element={<EventClicked />} />
