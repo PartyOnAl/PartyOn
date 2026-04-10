@@ -9,15 +9,19 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { EventCard } from '@/components/EventCard'
-import { mockEvents } from '@/data/mockData'
 import { motion } from 'framer-motion'
 import useEmblaCarousel from 'embla-carousel-react'
+import type { Event } from '@/types'
 import './EventsSection.css'
 
-export function EventsSection() {
+type EventsSectionProps = {
+  events: Event[]
+}
+
+export function EventsSection({ events }: EventsSectionProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
-    loop: false,
+    loop: true,
     slidesToScroll: 1,
     breakpoints: {
       '(min-width: 768px)': { slidesToScroll: 2 },
@@ -26,15 +30,13 @@ export function EventsSection() {
   })
 
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [canScrollPrev, setCanScrollPrev] = useState(false)
-  const [canScrollNext, setCanScrollNext] = useState(true)
   const [isHovered, setIsHovered] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const autoPlayRef = useRef<number | null>(null)
   const wheelLockUntilRef = useRef(0)
 
-  const restartAutoPlay = useCallback(() => {
+  const restartAutoSlide = useCallback(() => {
     if (autoPlayRef.current !== null) {
       window.clearInterval(autoPlayRef.current)
       autoPlayRef.current = null
@@ -49,8 +51,6 @@ export function EventsSection() {
   const onSelect = useCallback(() => {
     if (!emblaApi) return
     setSelectedIndex(emblaApi.selectedScrollSnap())
-    setCanScrollPrev(emblaApi.canScrollPrev())
-    setCanScrollNext(emblaApi.canScrollNext())
   }, [emblaApi])
 
   useEffect(() => {
@@ -66,44 +66,15 @@ export function EventsSection() {
 
   useEffect(() => {
     if (!emblaApi) return
-
-    const onPointerDown = () => {
-      setIsDragging(true)
-    }
-
-    const onPointerUp = () => {
-      setIsDragging(false)
-    }
-
+    const onPointerDown = () => setIsDragging(true)
+    const onPointerUp = () => setIsDragging(false)
     emblaApi.on('pointerDown', onPointerDown)
     emblaApi.on('pointerUp', onPointerUp)
-
     return () => {
       emblaApi.off('pointerDown', onPointerDown)
       emblaApi.off('pointerUp', onPointerUp)
     }
   }, [emblaApi])
-
-  useEffect(() => {
-    restartAutoPlay()
-    return () => {
-      if (autoPlayRef.current !== null) {
-        window.clearInterval(autoPlayRef.current)
-      }
-    }
-  }, [restartAutoPlay])
-
-  const scrollSnaps = emblaApi?.scrollSnapList() ?? []
-
-  const scrollPrev = () => {
-    emblaApi?.scrollPrev()
-    restartAutoPlay()
-  }
-
-  const scrollNext = () => {
-    emblaApi?.scrollNext()
-    restartAutoPlay()
-  }
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     setTouchStartX(event.touches[0]?.clientX ?? null)
@@ -125,17 +96,35 @@ export function EventsSection() {
     const horizontalIntent =
       Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : 0
     if (Math.abs(horizontalIntent) <= 8) return
-
     if (Date.now() < wheelLockUntilRef.current) return
     wheelLockUntilRef.current = Date.now() + 300
-
     event.preventDefault()
-
     if (horizontalIntent > 0) {
       scrollNext()
     } else {
       scrollPrev()
     }
+  }
+
+  useEffect(() => {
+    restartAutoSlide()
+    return () => {
+      if (autoPlayRef.current !== null) {
+        window.clearInterval(autoPlayRef.current)
+      }
+    }
+  }, [restartAutoSlide])
+
+  const scrollSnaps = emblaApi?.scrollSnapList() ?? []
+
+  const scrollPrev = () => {
+    emblaApi?.scrollPrev()
+    restartAutoSlide()
+  }
+
+  const scrollNext = () => {
+    emblaApi?.scrollNext()
+    restartAutoSlide()
   }
 
   return (
@@ -159,13 +148,15 @@ export function EventsSection() {
         <div
           className="relative"
           onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
+          onMouseLeave={() => {
+            setIsHovered(false)
+            restartAutoSlide()
+          }}
         >
           <Button
             variant="outline"
             size="icon"
             className="events-side-arrow events-side-arrow-left hidden md:inline-flex"
-            disabled={!canScrollPrev}
             onClick={scrollPrev}
           >
             <ChevronLeft className="h-5 w-5" />
@@ -174,7 +165,6 @@ export function EventsSection() {
             variant="outline"
             size="icon"
             className="events-side-arrow events-side-arrow-right hidden md:inline-flex"
-            disabled={!canScrollNext}
             onClick={scrollNext}
           >
             <ChevronRight className="h-5 w-5" />
@@ -188,10 +178,10 @@ export function EventsSection() {
             onWheel={handleWheel}
           >
             <div className="events-track flex -ml-4 items-stretch">
-              {mockEvents.map((event, i) => (
+              {events.map((event, i) => (
                 <div
                   key={event.id}
-                  className="min-w-0 shrink-0 grow-0 basis-[85%] sm:basis-[45%] md:basis-[30%] lg:basis-[23%] pl-4 flex"
+                  className="events-slide min-w-0 shrink-0 grow-0 basis-[72%] sm:basis-[46%] md:basis-[32%] lg:basis-[24%] pl-4 flex"
                 >
                   <div className="min-h-0 w-full flex">
                     <EventCard event={event} index={i} />
@@ -202,7 +192,13 @@ export function EventsSection() {
           </div>
         </div>
 
-        {scrollSnaps.length > 1 && (
+        {events.length === 0 ? (
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-muted-foreground">
+            No events match your filters.
+          </div>
+        ) : null}
+
+        {scrollSnaps.length > 1 && events.length > 1 && (
           <div className="flex items-center justify-center gap-2 pt-2">
             {scrollSnaps.map((_, index) => (
               <button

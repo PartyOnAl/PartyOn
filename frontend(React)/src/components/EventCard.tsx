@@ -18,9 +18,9 @@ export function EventCard({ event, index = 0 }: EventCardProps) {
     >
       <Link
         to={`/event/${event.id}`}
-        className="group flex h-full min-h-[26rem] sm:min-h-[28rem] w-full flex-col"
+        className="group mx-auto flex h-full min-h-[20.5rem] sm:min-h-[22rem] w-full max-w-[18rem] flex-col"
       >
-        <div className="relative aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg">
+        <div className="relative aspect-[4/5] max-h-[18.5rem] w-full shrink-0 overflow-hidden rounded-lg">
           <img
             src={event.imageUrl}
             alt={event.title}

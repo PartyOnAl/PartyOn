@@ -17,6 +17,10 @@
   width: 100%;
 }
 
+.partyon-logo--text-only {
+  gap: 0;
+}
+
 .partyon-logo--sm {
   --logo-font-size: clamp(1.6rem, 3.4vw, 2.05rem);
   --ball-size: clamp(2.25rem, 4.3vw, 2.55rem);
