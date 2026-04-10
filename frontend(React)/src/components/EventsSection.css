@@ -1,0 +1,35 @@
+.events-side-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 20;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  transform: translateY(-50%);
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.events-side-arrow:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.8);
+  border-color: hsl(var(--primary) / 0.4);
+}
+
+.events-side-arrow:disabled {
+  opacity: 0.4;
+}
+
+.events-side-arrow-left {
+  left: -20px;
+}
+
+.events-side-arrow-right {
+  right: -20px;
+}
+
+.events-track {
+  transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}

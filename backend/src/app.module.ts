@@ -5,29 +5,36 @@ import * as dotenv from 'dotenv';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EventModule } from './event/event.module';
-import { UsersModule } from './users/users.module';
 
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 dotenv.config();
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      envFilePath: './src/credentials.env',
-      isGlobal: true,
-    }),
+  imports:[
     TypeOrmModule.forRootAsync({
-      useFactory: () => ({
-        type: 'postgres',
-        url: `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
-        autoLoadEntities: true,
-        synchronize: true,
-        logging: true,
-        ssl: {
-          rejectUnauthorized: false,
-        },
-      }),
+      useFactory: () => {
+        const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+        return {
+          type: 'postgres' as const,
+          ...(hasDatabaseUrl
+            ? {
+                url: process.env.DATABASE_URL,
+                ssl: { rejectUnauthorized: false },
+              }
+            : {
+                host: process.env.DB_HOST,
+                port: Number(process.env.DB_PORT),
+                username: process.env.DB_USER,
+                password: process.env.DB_PASSWORD,
+                database: process.env.DB_NAME,
+              }),
+          autoLoadEntities: true,
+          synchronize: true, // dev only
+        };
+      },
     }),
-    EventModule,
+    AuthModule,
     UsersModule,
   ],
   controllers: [AppController],

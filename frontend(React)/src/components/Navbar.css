@@ -1,0 +1,41 @@
+.navbar-link {
+  position: relative;
+  overflow: visible;
+}
+
+.navbar-link::after {
+  content: '';
+  display: block;
+  height: 2px;
+  width: 0;
+  margin-top: 3px;
+  background: hsl(var(--primary));
+  transition: width 0.25s ease;
+}
+
+.navbar-link:hover::after {
+  width: 100%;
+}
+
+.navbar-tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 6px);
+  transform: translateX(-50%) translateY(-4px);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(10, 10, 12, 0.92);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.1;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 60;
+}
+
+.group:hover .navbar-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
