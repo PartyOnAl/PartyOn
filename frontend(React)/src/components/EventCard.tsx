@@ -39,7 +39,13 @@ export function EventCard({ event, index = 0 }: EventCardProps) {
             {event.price.toFixed(2)}{' '}
             {event.currency === '€' ? 'EUR' : ''}
           </p>
-          <p className="text-xs text-muted-foreground line-clamp-1">{event.date}</p>
+          <p className="text-xs text-muted-foreground line-clamp-1">{event.date ? new Date(event.date).toLocaleDateString('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+}) : ''}</p>
           <p className="mt-auto text-xs text-muted-foreground font-semibold flex items-center gap-1 line-clamp-1">
             <MapPin className="h-3 w-3 shrink-0" /> {event.club}
           </p>

@@ -4,9 +4,11 @@ import * as dotenv from 'dotenv';
 import { AppModule } from './app.module';
 
 dotenv.config();
-
+console.log("test",process.env.DATABASE_URL);
 async function bootstrap() {
+  console.log(process.env.DATABASE_URL);
   const app = await NestFactory.create(AppModule);
+  
   const port = process.env.PORT || 3000;
 
   app.enableCors({

@@ -1,7 +1,7 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 @Index("Event_pkey", ["eventId"], { unique: true })
-@Entity("events", { schema: "public" })
+@Entity("Event", { schema: "public" })
 export class Event {
   @PrimaryGeneratedColumn({ type: "integer", name: "event_id" })
   eventId: number;
@@ -21,17 +21,32 @@ export class Event {
   @Column("text", { name: "event_type" })
   eventType: string;
 
-  @Column("varchar", { length: 1 })
+  @Column("character varying", { name: "eventStatus", length: 1 })
   eventStatus: string;
 
-  @Column("numeric", { precision: 10, scale: 2, default: 0 })
-  ticketPrice: number;
+  @Column("numeric", {
+    name: "ticketPrice",
+    precision: 10,
+    scale: 2,
+    default: () => "'0'",
+  })
+  ticketPrice: string;
 
-  @Column("numeric", { precision: 10, scale: 2, default: 0 })
-  ticketDiscount: number;
+  @Column("numeric", {
+    name: "ticketDiscount",
+    precision: 10,
+    scale: 2,
+    default: () => "'0'",
+  })
+  ticketDiscount: string;
 
-  @Column("numeric", { precision: 10, scale: 2, default: 0 })
-  finalTicketPrice: number;
+  @Column("numeric", {
+    name: "finalTicketPrice",
+    precision: 10,
+    scale: 2,
+    default: () => "'0'",
+  })
+  finalTicketPrice: string;
 
   @Column("text", { name: "event_image" })
   eventImage: string;

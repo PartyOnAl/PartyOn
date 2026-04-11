@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom'
 import { mockClubs } from '@/data/mockData'
 import { motion } from 'framer-motion'
 
-export function ClubsSection() {
-  const clubs = mockClubs.slice(0, 5)
+export function ClubsSection({ club }: { club: any[] }) {
 
   return (
     <section id="clubs" className="py-16 border-t border-border/30">
@@ -18,7 +17,7 @@ export function ClubsSection() {
         </motion.h2>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 auto-rows-[200px] md:auto-rows-[240px]">
-          {clubs[0] && (
+          {club.map((club) => (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -30,92 +29,17 @@ export function ClubsSection() {
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
                 <img
-                  src={clubs[0].imageUrl}
-                  alt={clubs[0].name}
+                  src={club.image}
+                  alt={club.name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                 <span className="absolute top-4 left-4 font-display font-bold text-sm uppercase tracking-widest text-white drop-shadow-lg">
-                  {clubs[0].name}
+                  {club.name}
                 </span>
               </Link>
             </motion.div>
-          )}
-
-          {clubs[1] && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.1 }}
-              className="col-span-1 md:col-span-2 row-span-1"
-            >
-              <Link
-                to="/top-clubs"
-                className="group block h-full relative rounded-xl overflow-hidden"
-              >
-                <img
-                  src={clubs[1].imageUrl}
-                  alt={clubs[1].name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <span className="absolute top-4 left-4 font-display font-bold text-sm uppercase tracking-widest text-white drop-shadow-lg">
-                  {clubs[1].name}
-                </span>
-              </Link>
-            </motion.div>
-          )}
-
-          {clubs[2] && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.2 }}
-              className="col-span-1 row-span-1"
-            >
-              <Link
-                to="/top-clubs"
-                className="group block h-full relative rounded-xl overflow-hidden"
-              >
-                <img
-                  src={clubs[2].imageUrl}
-                  alt={clubs[2].name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <span className="absolute top-4 left-4 font-display font-bold text-sm uppercase tracking-widest text-white drop-shadow-lg">
-                  {clubs[2].name}
-                </span>
-              </Link>
-            </motion.div>
-          )}
-
-          {clubs[3] && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.3 }}
-              className="col-span-1 row-span-1"
-            >
-              <Link
-                to="/top-clubs"
-                className="group block h-full relative rounded-xl overflow-hidden"
-              >
-                <img
-                  src={clubs[3].imageUrl}
-                  alt={clubs[3].name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <span className="absolute top-4 left-4 font-display font-bold text-sm uppercase tracking-widest text-white drop-shadow-lg">
-                  {clubs[3].name}
-                </span>
-              </Link>
-            </motion.div>
-          )}
+          ))}
         </div>
       </div>
     </section>

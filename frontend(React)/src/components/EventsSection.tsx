@@ -6,15 +6,15 @@ import {
   type TouchEvent,
   type WheelEvent,
 } from 'react'
+import type { Event } from '@/types';
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { EventCard } from '@/components/EventCard'
-import { mockEvents } from '@/data/mockData'
 import { motion } from 'framer-motion'
 import useEmblaCarousel from 'embla-carousel-react'
 import './EventsSection.css'
 
-export function EventsSection() {
+export function EventsSection({ events }: { events: Event[] }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: false,
@@ -185,12 +185,11 @@ export function EventsSection() {
             className="overflow-hidden"
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
-            onWheel={handleWheel}
           >
             <div className="events-track flex -ml-4 items-stretch">
-              {mockEvents.map((event, i) => (
+              {events.map((event, i) => (
                 <div
-                  key={event.id}
+                key={`${event.id}-${i}`}
                   className="min-w-0 shrink-0 grow-0 basis-[85%] sm:basis-[45%] md:basis-[30%] lg:basis-[23%] pl-4 flex"
                 >
                   <div className="min-h-0 w-full flex">

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { Event } from 'src/entities/entities/Event';
+import { Events } from 'generated-entities/entities/Events';
 import { EventListItem, EventService } from './event.service';
 
 @Controller('event')
@@ -12,7 +12,7 @@ export class EventController {
   }
 
   @Post()
-  create(@Body() eventData: Partial<Event>): Promise<Event> {
+  create(@Body() eventData: Partial<Events>): Promise<Events> {
     return this.eventService.create(eventData);
   }
 }

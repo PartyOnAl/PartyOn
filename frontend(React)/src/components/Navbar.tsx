@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useAuth } from '@/contexts/AuthContext'
 import { PartyOnLogo } from '@/components/PartyOnLogo'
-import { mockEvents } from '@/data/mockData'
 import type { Event } from '@/types'
 import './Navbar.css'
 
@@ -23,7 +22,7 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [savedOpen, setSavedOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
-  const [savedEvents, setSavedEvents] = useState<Event[]>(mockEvents.slice(0, 3))
+  const [savedEvents, setSavedEvents] = useState<Event[]>([])
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()

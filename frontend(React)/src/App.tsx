@@ -14,6 +14,7 @@ import Search from './Search'
 import SignupPage from './SignupPage'
 import TopClubs from './TopClubs'
 import { AuthProvider } from './contexts/AuthContext'
+import EventPage from './data/EventPage';
 
 function App() {
   return (

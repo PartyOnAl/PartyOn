@@ -1,46 +1,45 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Event } from 'src/entities/entities/Event';
+import { Events } from 'generated-entities/entities/Events';
 
 export type EventListItem = {
-  event_id: number;
+  event_id: string;
   event_name: string;
-  event_description: string;
-  event_starting_date: string;
-  event_ending_date: string;
-  event_type: string;
-  event_status: string;
+  event_description: string | null;
+  event_starting_date: Date;
+  event_ending_date: Date | null;
+  event_type: string | null;
+  event_status: string | null;
   ticket_price: number;
   ticket_discount: number;
   final_ticket_price: number;
-  event_image: string;
-  event_capacity: number;
+  event_image: string | null;
+  event_capacity: number | null;
+  club: string | null;
 };
 
 @Injectable()
 export class EventService {
   constructor(
-    @InjectRepository(Event)
-    private readonly eventRepository: Repository<Event>,
+    @InjectRepository(Events)
+    private readonly eventRepository: Repository<Events>,
   ) {}
 
   async findAll(): Promise<EventListItem[]> {
+  
     const events = await this.eventRepository.find({
-      order: {
-        eventStartingDate: 'ASC',
-      },
+      relations: ['club'],
     });
-
+  
     return events.map((event) => this.toListItem(event));
   }
-
-  create(eventData: Partial<Event>): Promise<Event> {
+  create(eventData: Partial<Events>): Promise<Events> {
     const event = this.eventRepository.create(eventData);
     return this.eventRepository.save(event);
   }
 
-  private toListItem(event: Event): EventListItem {
+  private toListItem(event: Events): EventListItem {
     return {
       event_id: event.eventId,
       event_name: event.eventName,
@@ -54,6 +53,7 @@ export class EventService {
       final_ticket_price: Number(event.finalTicketPrice ?? 0),
       event_image: event.eventImage,
       event_capacity: event.eventCapacity,
+      club: event.club.clubName,
     };
   }
 }

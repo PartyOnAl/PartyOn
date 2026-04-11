@@ -4,59 +4,14 @@ import { Button } from '@/components/ui/Button'
 import useEmblaCarousel from 'embla-carousel-react'
 import { useCallback, useEffect, useState } from 'react'
 
-const promos = [
-  {
-    id: 1,
-    badge: '30% OFF',
-    badgeColor: 'bg-primary',
-    image:
-      'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=800&q=80',
-    title: 'VIP Table Package',
-    description:
-      'Premium table with bottle service and priority entry',
-    venue: 'Folie Terrace',
-    city: 'Tirana',
-    rating: 4.9,
-  },
-  {
-    id: 2,
-    badge: '2 for 1',
-    badgeColor: 'bg-accent',
-    image:
-      'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=800&q=80',
-    title: 'Happy Hour Special',
-    description: 'Buy one get one free on all signature cocktails',
-    venue: 'Dua Club',
-    city: 'Tirana',
-    rating: 4.7,
-  },
-  {
-    id: 3,
-    badge: 'Free',
-    badgeColor: 'bg-emerald-500',
-    image:
-      'https://images.unsplash.com/photo-1543007630-971699e9a83d?w=800&q=80',
-    title: 'Ladies Night',
-    description: 'Free entry and welcome drink for ladies before midnight',
-    venue: 'Radio Bar',
-    city: 'Tirana',
-    rating: 4.8,
-  },
-  {
-    id: 4,
-    badge: '30% OFF',
-    badgeColor: 'bg-primary',
-    image:
-      'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&q=80',
-    title: 'Student Night',
-    description: '30% off entry with valid student ID every Wednesday',
-    venue: 'Blok Tirana',
-    city: 'Tirana',
-    rating: 4.5,
-  },
-]
+const getBadgeColor = (badge: string) => {
+  if (badge === 'Free Entry' || badge === 'free_entry') return 'bg-primary';
+  if (badge === 'VIP') return 'bg-accent';
+  if (badge === 'discount') return 'bg-emerald-500';
+  return 'bg-gray-500';
+};
 
-export function PromotionsSection() {
+export function PromotionsSection({ promos }: { promos: any[] }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: false,
@@ -125,7 +80,7 @@ export function PromotionsSection() {
                       className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                     <span
-                      className={`absolute top-3 left-3 z-10 ${promo.badgeColor} text-white text-xs font-bold px-3 py-1 rounded-full`}
+                      className={`absolute top-3 left-3 z-10 ${getBadgeColor(promo.badge)} text-white text-xs font-bold px-3 py-1 rounded-full`}
                     >
                       {promo.badge}
                     </span>
