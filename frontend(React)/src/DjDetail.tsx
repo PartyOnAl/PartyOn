@@ -9,10 +9,10 @@ export default function DjDetail() {
       <Navbar />
       <main className="po-container max-w-lg py-10">
         <Link
-          to="/search"
+          to={{ pathname: '/', hash: 'events' }}
           className="mb-6 inline-block text-sm text-muted-foreground hover:text-primary"
         >
-          ← Back to search
+          ← Back to events
         </Link>
         <p className="text-4xl" aria-hidden>
           🎧

@@ -46,13 +46,16 @@ function getGoogleMapsUrl(
     name: string
     address?: string
     city?: string
-    lat?: number
-    lng?: number
+    club_lat?: number
+    club_lng?: number
   },
   userCoords: Coordinates | null,
 ): string {
-  if (typeof club.lat === 'number' && typeof club.lng === 'number') {
-    const destination = `${club.lat},${club.lng}`
+  if (
+    typeof club.club_lat === 'number' &&
+    typeof club.club_lng === 'number'
+  ) {
+    const destination = `${club.club_lat},${club.club_lng}`
     if (userCoords) {
       const origin = `${userCoords.lat},${userCoords.lng}`
       return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`
@@ -103,11 +106,11 @@ export default function TopClubs() {
     return catalogClubs
       .map((club) => {
         const coords =
-          typeof club.lat === 'number' &&
-          typeof club.lng === 'number' &&
-          Number.isFinite(club.lat) &&
-          Number.isFinite(club.lng)
-            ? normalizeLatLngPair(club.lat, club.lng)
+          typeof club.club_lat === 'number' &&
+          typeof club.club_lng === 'number' &&
+          Number.isFinite(club.club_lat) &&
+          Number.isFinite(club.club_lng)
+            ? normalizeLatLngPair(club.club_lat, club.club_lng)
             : null
         const distanceKm =
           userCoords && coords
@@ -118,10 +121,10 @@ export default function TopClubs() {
                 coords.lng,
               )
             : null
-        // Map, links, and bounds must use the same normalized lat/lng as distances.
-        const lat = coords?.lat ?? club.lat
-        const lng = coords?.lng ?? club.lng
-        return { ...club, lat, lng, coords, distanceKm }
+        // Map, links, and bounds must use the same normalized club_lat/club_lng as distances.
+        const club_lat = coords?.lat ?? club.club_lat
+        const club_lng = coords?.lng ?? club.club_lng
+        return { ...club, club_lat, club_lng, coords, distanceKm }
       })
       .sort((a, b) => {
         if (a.distanceKm != null && b.distanceKm != null) {

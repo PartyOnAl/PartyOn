@@ -34,8 +34,8 @@ import 'leaflet/dist/leaflet.css'
 export type MapClub = {
   id: string
   name: string
-  lat?: number
-  lng?: number
+  club_lat?: number
+  club_lng?: number
 }
 
 type Coordinates = { lat: number; lng: number }
@@ -82,11 +82,17 @@ function FitInitialBounds({
       const uLng = userCoords.lng
       const nearbySorted = [...clubsWithCoords]
         .filter(
-          (c) => typeof c.lat === 'number' && typeof c.lng === 'number',
+          (c) =>
+            typeof c.club_lat === 'number' && typeof c.club_lng === 'number',
         )
         .map((c) => ({
           c,
-          km: haversineKm(uLat, uLng, c.lat as number, c.lng as number),
+          km: haversineKm(
+            uLat,
+            uLng,
+            c.club_lat as number,
+            c.club_lng as number,
+          ),
         }))
         .filter(({ km }) => km <= MAX_CLUB_KM_FOR_USER_FIT)
         .sort((a, b) => a.km - b.km)
@@ -95,7 +101,9 @@ function FitInitialBounds({
 
       const pts: L.LatLngTuple[] = [toLeafletLatLng(uLat, uLng)]
       for (const c of nearbySorted) {
-        pts.push(toLeafletLatLng(c.lat as number, c.lng as number))
+        pts.push(
+          toLeafletLatLng(c.club_lat as number, c.club_lng as number),
+        )
       }
       if (pts.length === 1) {
         map.setView(pts[0], 13, { animate: true })
@@ -110,7 +118,7 @@ function FitInitialBounds({
     if (!userCoords && !didDefault.current && clubsWithCoords.length > 0) {
       didDefault.current = true
       const pts: L.LatLngTuple[] = clubsWithCoords.map((c) =>
-        toLeafletLatLng(c.lat as number, c.lng as number),
+        toLeafletLatLng(c.club_lat as number, c.club_lng as number),
       )
       if (pts.length === 1) {
         map.setView(pts[0], 13, { animate: false })
@@ -140,13 +148,17 @@ function FlyToClub({
     const club = clubsWithCoords.find((c) => c.id === targetId)
     if (
       !club ||
-      typeof club.lat !== 'number' ||
-      typeof club.lng !== 'number'
+      typeof club.club_lat !== 'number' ||
+      typeof club.club_lng !== 'number'
     ) {
       onDone()
       return
     }
-    map.setView(toLeafletLatLng(club.lat, club.lng), 15, { animate: true })
+    map.setView(
+      toLeafletLatLng(club.club_lat, club.club_lng),
+      15,
+      { animate: true },
+    )
     const t = window.setTimeout(onDone, 550)
     return () => window.clearTimeout(t)
   }, [targetId, clubsWithCoords, map, onDone])
@@ -160,7 +172,7 @@ function ClubMarker({
   onSelect,
   onPopupOpened,
 }: {
-  club: MapClub & { lat: number; lng: number }
+  club: MapClub & { club_lat: number; club_lng: number }
   selected: boolean
   openPopupSignal: number
   onSelect: () => void
@@ -182,7 +194,7 @@ function ClubMarker({
   return (
     <Marker
       ref={ref}
-      position={toLeafletLatLng(club.lat, club.lng)}
+      position={toLeafletLatLng(club.club_lat, club.club_lng)}
       icon={clubDivIcon(selected)}
       eventHandlers={{
         click: () => onSelect(),
@@ -225,8 +237,9 @@ export function ClubsNearMap({
   const clubsWithCoords = useMemo(
     () =>
       clubs.filter(
-        (c) => typeof c.lat === 'number' && typeof c.lng === 'number',
-      ) as (MapClub & { lat: number; lng: number })[],
+        (c) =>
+          typeof c.club_lat === 'number' && typeof c.club_lng === 'number',
+      ) as (MapClub & { club_lat: number; club_lng: number })[],
     [clubs],
   )
 

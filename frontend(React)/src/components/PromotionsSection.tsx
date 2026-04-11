@@ -1,8 +1,16 @@
 import { motion } from 'framer-motion'
 import { Star, ChevronLeft, ChevronRight } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { Link } from 'react-router-dom'
 import useEmblaCarousel from 'embla-carousel-react'
-import { useCallback, useEffect, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type TouchEvent,
+  type WheelEvent,
+} from 'react'
 import type { Promotion } from '@/types'
 
 const FALLBACK_PROMO_IMAGE =
@@ -19,7 +27,7 @@ function PromoImage({ src, alt }: { src: string; alt: string }) {
       alt={alt}
       loading="lazy"
       onError={() => setUrl(FALLBACK_PROMO_IMAGE)}
-      className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+      className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
     />
   )
 }
@@ -34,12 +42,21 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
     loop: false,
     slidesToScroll: 1,
     containScroll: 'trimSnaps',
+    /** Custom touch + wheel + keyboard match Events carousel; avoids drag/click conflicts on cards. */
+    watchDrag: false,
   })
   const [canScrollPrev, setCanScrollPrev] = useState(false)
   const [canScrollNext, setCanScrollNext] = useState(false)
+  const [touchStartX, setTouchStartX] = useState<number | null>(null)
+  const wheelLockUntilRef = useRef(0)
 
-  const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi])
-  const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi])
+  const scrollPrev = useCallback(() => {
+    emblaApi?.scrollPrev()
+  }, [emblaApi])
+
+  const scrollNext = useCallback(() => {
+    emblaApi?.scrollNext()
+  }, [emblaApi])
 
   useEffect(() => {
     if (!emblaApi) return
@@ -56,6 +73,46 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
     }
   }, [emblaApi])
 
+  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    setTouchStartX(event.touches[0]?.clientX ?? null)
+  }
+
+  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    if (touchStartX === null) return
+    const endX = event.changedTouches[0]?.clientX ?? touchStartX
+    const deltaX = touchStartX - endX
+    if (deltaX > 50) {
+      scrollNext()
+    } else if (deltaX < -50) {
+      scrollPrev()
+    }
+    setTouchStartX(null)
+  }
+
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const horizontalIntent =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : 0
+    if (Math.abs(horizontalIntent) <= 8) return
+    if (Date.now() < wheelLockUntilRef.current) return
+    wheelLockUntilRef.current = Date.now() + 300
+    event.preventDefault()
+    if (horizontalIntent > 0) {
+      scrollNext()
+    } else {
+      scrollPrev()
+    }
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      scrollPrev()
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      scrollNext()
+    }
+  }
+
   return (
     <section id="promotions" className="py-20 border-t border-border/30">
       <div className="po-container space-y-10">
@@ -66,15 +123,15 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
             viewport={{ once: true }}
           >
             <h2 className="font-display text-3xl md:text-4xl font-bold">
-              Don&apos;t Miss Tonight
+              Exclusive offers
             </h2>
           </motion.div>
-          <Button
-            variant="outline"
-            className="hidden md:flex border-border/50 rounded-full px-6"
+          <Link
+            to="/promotions"
+            className="hidden md:inline-flex h-10 items-center justify-center rounded-full border border-border/50 px-6 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 hover:border-foreground/30"
           >
             More offers
-          </Button>
+          </Link>
         </div>
 
         {promotions.length === 0 ? (
@@ -86,7 +143,17 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
           </p>
         ) : (
           <>
-            <div className="overflow-hidden" ref={emblaRef}>
+            <div
+              ref={emblaRef}
+              className="overflow-hidden rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              tabIndex={0}
+              role="region"
+              aria-label="Promotion offers carousel. Use arrow keys, swipe, or horizontal scroll to move between offers."
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onWheel={handleWheel}
+              onKeyDown={handleKeyDown}
+            >
               <div className="flex gap-4 items-stretch">
                 {promotions.map((promo, i) => (
                   <motion.div
@@ -97,7 +164,10 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                     transition={{ delay: i * 0.1 }}
                     className="min-w-0 shrink-0 grow-0 basis-[75%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] flex h-auto"
                   >
-                    <div className="group flex h-full min-h-[28rem] sm:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 hover:border-primary/30 transition-all">
+                    <Link
+                      to={`/promotions/offer/${encodeURIComponent(promo.id)}`}
+                      className="group flex h-full min-h-[28rem] sm:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 text-inherit no-underline transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    >
                       <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden">
                         <PromoImage src={promo.image} alt={promo.title} />
                         <span
@@ -127,15 +197,12 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                           </span>
                         </div>
                         <div className="mt-auto pt-4">
-                          <Button
-                            variant="outline"
-                            className="w-full rounded-full border-border/50 text-sm"
-                          >
+                          <span className="flex w-full items-center justify-center rounded-full border border-primary/50 bg-transparent px-4 py-2.5 text-sm font-semibold text-primary transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground group-hover:shadow-[0_0_10px_hsl(var(--primary)/0.12),0_0_22px_hsl(var(--primary)/0.06)]">
                             View Offer
-                          </Button>
+                          </span>
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   </motion.div>
                 ))}
               </div>

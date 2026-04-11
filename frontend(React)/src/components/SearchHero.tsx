@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ChevronDown, MapPin, Search, Ticket, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { Event } from '@/types'
@@ -7,7 +7,6 @@ import { uniqueCanonicalCities } from '@/lib/cityNormalize'
 import {
   defaultSearchFilters,
   type SearchFilters,
-  searchFiltersToQueryString,
 } from '@/lib/searchFilters'
 import { fetchSuggestions, type SuggestionItem } from '@/api/suggestions'
 import { MatchHighlight } from '@/components/MatchHighlight'
@@ -177,6 +176,7 @@ function SuggestionLeadingIcon({ type }: { type: SuggestionItem['type'] }) {
 
 export function SearchHero({ events, value, onChange }: SearchHeroProps) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [focused, setFocused] = useState(false)
   const [suggestions, setSuggestions] = useState<{
     events: SuggestionItem[]
@@ -188,17 +188,31 @@ export function SearchHero({ events, value, onChange }: SearchHeroProps) {
   const typeaheadRootRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
+  /** Full `/search` page is disabled; keep user on home and scroll to the events list (filters stay in Home state). */
   const goSearchPage = useCallback(() => {
-    const qs = searchFiltersToQueryString(value)
-    navigate(qs ? `/search?${qs}` : '/search')
-  }, [navigate, value])
+    const scrollToEvents = () => {
+      document.getElementById('events')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+    if (location.pathname !== '/' && location.pathname !== '/home') {
+      void navigate({ pathname: '/', hash: 'events' })
+      return
+    }
+    const base = location.pathname === '/home' ? '/home' : '/'
+    void navigate({ pathname: base, hash: 'events' }, { replace: true })
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEvents)
+    })
+  }, [navigate, location.pathname])
 
   const selectSuggestion = useCallback(
     (item: SuggestionItem) => {
       if (item.type === 'event') {
         navigate(`/event/${encodeURIComponent(item.id)}`)
       } else if (item.type === 'club') {
-        navigate(`/club/${encodeURIComponent(item.id)}`)
+        navigate(`/clubs/${encodeURIComponent(item.id)}`)
       } else {
         navigate(`/dj/${encodeURIComponent(item.id)}`)
       }

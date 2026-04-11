@@ -13,33 +13,58 @@ type PaymentEventState = {
   imageUrl?: string
 }
 
+type PaymentOfferState = {
+  id: string
+  title: string
+  venue: string
+  city: string
+  image: string
+  price: number
+  currency: string
+}
+
 export default function Payment() {
   const navigate = useNavigate()
   const location = useLocation()
-  const eventFromNav = (location.state as { event?: PaymentEventState } | null)
-    ?.event
+  const navState = location.state as
+    | { event?: PaymentEventState; offer?: PaymentOfferState }
+    | null
+  const eventFromNav = navState?.event
+  const offerFromNav = navState?.offer
 
   const unitPrice = useMemo(() => {
+    if (offerFromNav) {
+      return Math.max(0, offerFromNav.price)
+    }
     if (eventFromNav) {
       return Math.max(0, eventFromNav.price)
     }
     return 20
-  }, [eventFromNav])
+  }, [eventFromNav, offerFromNav])
 
   const [quantity, setQuantity] = useState(1)
   const [organizerUpdates, setOrganizerUpdates] = useState(false)
 
   const total = quantity * unitPrice
 
-  const eventTitle = eventFromNav?.title ?? 'ECHOES: Underground Techno Night'
+  const eventTitle =
+    offerFromNav?.title ??
+    eventFromNav?.title ??
+    'ECHOES: Underground Techno Night'
   const eventMeta =
-    eventFromNav != null
-      ? [eventFromNav.date, eventFromNav.club, eventFromNav.city]
-          .filter(Boolean)
-          .join(' · ')
-      : 'Sat, Mar 29 • 23:00 • Warehouse Roma'
-  const currency = eventFromNav?.currency?.trim() || '€'
-  const thumbUrl = eventFromNav?.imageUrl?.trim()
+    offerFromNav != null
+      ? [offerFromNav.venue, offerFromNav.city].filter(Boolean).join(' · ')
+      : eventFromNav != null
+        ? [eventFromNav.date, eventFromNav.club, eventFromNav.city]
+            .filter(Boolean)
+            .join(' · ')
+        : 'Sat, Mar 29 • 23:00 • Warehouse Roma'
+  const currency =
+    offerFromNav?.currency?.trim() ||
+    eventFromNav?.currency?.trim() ||
+    '€'
+  const thumbUrl =
+    offerFromNav?.image?.trim() || eventFromNav?.imageUrl?.trim()
 
   return (
     <div className="payment-page">

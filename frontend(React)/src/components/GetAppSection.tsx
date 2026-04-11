@@ -2,7 +2,7 @@ import { motion } from 'framer-motion'
 import { Download, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 const APP_MOCKUP =
   'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=520&q=80'
@@ -328,6 +328,25 @@ function PhoneMockup() {
 
 export function GetAppSection() {
   const navigate = useNavigate()
+  const location = useLocation()
+
+  function goToEventsSection() {
+    const scrollToEvents = () => {
+      document.getElementById('events')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+    if (location.pathname !== '/' && location.pathname !== '/home') {
+      void navigate({ pathname: '/', hash: 'events' })
+      return
+    }
+    const base = location.pathname === '/home' ? '/home' : '/'
+    void navigate({ pathname: base, hash: 'events' }, { replace: true })
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEvents)
+    })
+  }
 
   return (
     <section
@@ -375,7 +394,7 @@ export function GetAppSection() {
               <Button
                 type="button"
                 className="h-12 rounded-full border-0 bg-gradient-to-r from-primary to-accent px-7 font-semibold text-primary-foreground shadow-[0_0_24px_-4px_hsl(330_81%_60%/0.55)] transition-shadow duration-200 hover:shadow-[0_0_36px_0_hsl(330_81%_60%/0.45)]"
-                onClick={() => navigate('/search')}
+                onClick={goToEventsSection}
               >
                 <Sparkles className="h-4 w-4" />
                 Explore Events

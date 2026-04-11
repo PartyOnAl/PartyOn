@@ -160,7 +160,10 @@ export function EventsSection({
   }
 
   return (
-    <section id="events" className="py-20 border-t border-border/30">
+    <section
+      id="events"
+      className="scroll-mt-24 py-20 border-t border-border/30"
+    >
       <div className="po-container space-y-8">
         <div className="flex items-end justify-between">
           <motion.div

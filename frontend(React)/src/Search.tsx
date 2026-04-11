@@ -1,3 +1,7 @@
+/**
+ * Standalone `/search` page — route is disabled in `App.tsx` (visitors are sent to `/#events`).
+ * Restore: uncomment `import Search` and the `<Route path="/search" element={<Search />} />` in `App.tsx`, and remove the `<Navigate …>` route for `/search`.
+ */
 import { useMemo, useState, type ReactNode, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useCatalog } from '@/contexts/CatalogContext'
@@ -278,7 +282,7 @@ export default function Search() {
               key={club.id}
               title={club.name}
               thumb={eventThumb(club.imageUrl)}
-              onActivate={() => navigate(`/club/${encodeURIComponent(club.id)}`)}
+              onActivate={() => navigate(`/clubs/${encodeURIComponent(club.id)}`)}
             >
               <span className="search-page__meta-item">
                 <CalendarIcon />

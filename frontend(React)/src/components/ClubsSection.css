@@ -1,0 +1,20 @@
+/* Hot Venues: no horizontal scrollbar from grid bleed / subpixel overflow. */
+.clubs-hot-venues-root {
+  max-width: 100%;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.clubs-hot-venues-root::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Mosaic line placement only applies on large screens; tablet/mobile use auto flow. */
+@media (max-width: 1023px) {
+  .clubs-mosaic-cell {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}

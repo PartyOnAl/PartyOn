@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
@@ -19,18 +19,21 @@ export default function Home() {
   const location = useLocation()
 
   const goToEventsSection = () => {
-    const scroll = () => {
+    const scrollToEvents = () => {
       document.getElementById('events')?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
       })
     }
     if (location.pathname !== '/' && location.pathname !== '/home') {
-      navigate('/')
-      window.setTimeout(scroll, 150)
-    } else {
-      scroll()
+      void navigate({ pathname: '/', hash: 'events' })
+      return
     }
+    const base = location.pathname === '/home' ? '/home' : '/'
+    void navigate({ pathname: base, hash: 'events' }, { replace: true })
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEvents)
+    })
   }
   const [filters, setFilters] = useState<SearchFilters>({
     query: '',
@@ -40,6 +43,18 @@ export default function Home() {
     time: 'all',
     category: 'all',
   })
+
+  useEffect(() => {
+    const id = location.hash.replace(/^#/, '')
+    if (id !== 'promotions' && id !== 'events') return
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 100)
+    return () => window.clearTimeout(t)
+  }, [location.pathname, location.hash])
 
   const filteredEvents = useMemo(
     () => events.filter((event) => eventMatchesSearchFilters(event, filters)),

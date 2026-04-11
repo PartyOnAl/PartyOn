@@ -4,6 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import type {
   CatalogBundleDto,
   CatalogClubDto,
+  CatalogClubPageDto,
   CatalogEventDto,
   CatalogPromotionDto,
 } from './catalog.types';
@@ -17,9 +18,10 @@ const DEFAULT_PROMO_IMAGE =
 
 function promotionBadgeColor(category: string): string {
   const c = category.toLowerCase();
-  if (c.includes('free') || c.includes('ladies')) return 'bg-emerald-500';
   if (c.includes('vip')) return 'bg-primary';
-  if (c.includes('student')) return 'bg-accent';
+  /** Keep promo chips pink (primary), not purple (accent), site-wide */
+  if (c.includes('student')) return 'bg-primary';
+  if (c.includes('free') || c.includes('ladies')) return 'bg-primary';
   return 'bg-primary';
 }
 
@@ -65,6 +67,81 @@ function pickOptionalBoolean(
     const s = String(v).toLowerCase().trim();
     if (s === 'true' || s === '1' || s === 'yes') return true;
     if (s === 'false' || s === '0' || s === 'no') return false;
+  }
+  return undefined;
+}
+
+/** One cell from a JSON/text[] list: string, number, or `{ title, description }`-like row. */
+function lineFromPromotionListCell(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).trim();
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const o = value as Record<string, unknown>;
+    const title = pickString(o, [
+      'title',
+      'headline',
+      'label',
+      'heading',
+    ]);
+    const sub = pickString(o, [
+      'subtitle',
+      'description',
+      'body',
+      'text',
+      'copy',
+      'detail',
+    ]);
+    if (title && sub) return `${title} — ${sub}`;
+    if (title) return title;
+    if (sub) return sub;
+  }
+  return '';
+}
+
+/** JSON array, newline list, or comma-separated string → string[]. */
+function pickStringList(
+  row: Record<string, unknown>,
+  keys: string[],
+): string[] | undefined {
+  for (const k of keys) {
+    const v = row[k];
+    if (v == null) continue;
+    if (Array.isArray(v)) {
+      const out = v
+        .map((x) => lineFromPromotionListCell(x))
+        .filter((s) => s.length > 0);
+      if (out.length) return out;
+    }
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (!s) continue;
+      if (s.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(s) as unknown;
+          if (Array.isArray(parsed)) {
+            const out = parsed
+              .map((x) => lineFromPromotionListCell(x))
+              .filter((t) => t.length > 0);
+            if (out.length) return out;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      const byLine = s
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (byLine.length > 1) return byLine;
+      const byComma = s
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (byComma.length > 1) return byComma;
+      if (byLine.length === 1) return byLine;
+    }
   }
   return undefined;
 }
@@ -494,12 +571,157 @@ export class CatalogService {
         ? Number(discRaw)
         : NaN;
 
-    let badge = category || 'Offer';
-    const catLower = category.toLowerCase();
-    if (catLower.includes('free')) {
-      badge = 'Free';
-    } else if (!Number.isNaN(disc) && disc > 0) {
-      badge = `${Math.round(disc)}% OFF`;
+    const explicitBadge = pickString(row, [
+      'badge',
+      'badge_text',
+      'badge_label',
+      'discount_label',
+    ]);
+    let badge: string;
+    if (explicitBadge) {
+      badge = explicitBadge;
+    } else {
+      badge = category || 'Offer';
+      const catLower = category.toLowerCase();
+      if (catLower.includes('free')) {
+        badge = 'Free';
+      } else if (!Number.isNaN(disc) && disc > 0) {
+        badge = `${Math.round(disc)}% OFF`;
+      }
+    }
+
+    const clubIdRaw = row.club_id;
+    const clubId =
+      clubIdRaw != null && String(clubIdRaw).trim() !== ''
+        ? String(clubIdRaw)
+        : undefined;
+    const address =
+      club?.address ||
+      pickString(row, ['address', 'venue_address', 'location']) ||
+      undefined;
+    const listPrice = pickOptionalNumber(row, [
+      'original_price',
+      'list_price',
+      'regular_price',
+    ]);
+    const promoPrice = pickOptionalNumber(row, [
+      'price',
+      'discounted_price',
+      'promo_price',
+      'sale_price',
+    ]);
+
+    const validUntilRaw = row.valid_until;
+    const validUntil =
+      validUntilRaw != null && String(validUntilRaw).trim() !== ''
+        ? String(validUntilRaw)
+        : undefined;
+
+    const shortDesc = pickString(row, [
+      'short_description',
+      'summary',
+      'teaser',
+      'excerpt',
+    ]);
+    const mainDesc = pickString(row, ['description', 'details']);
+    const longDesc = pickString(row, [
+      'long_description',
+      'full_description',
+      'body',
+      'additional_details',
+      'about',
+    ]);
+    const description =
+      shortDesc || mainDesc || longDesc || '';
+
+    const subtitle = pickString(row, ['subtitle', 'tagline', 'headline']);
+    const longDescription = longDesc || undefined;
+    const eventDateRaw =
+      row.event_date ?? row.event_starting_date ?? row.starts_at;
+    const eventDate =
+      eventDateRaw != null && String(eventDateRaw).trim() !== ''
+        ? String(eventDateRaw)
+        : undefined;
+    const eventTime = pickString(row, [
+      'event_time',
+      'doors_open',
+      'doors_time',
+      'start_time',
+    ]);
+    const offerTypeRaw = pickString(row, [
+      'offer_type',
+      'promotion_type',
+      'venue_type',
+      'segment',
+      'kind',
+    ]);
+    const offerType =
+      offerTypeRaw ||
+      (category
+        ? category.charAt(0).toUpperCase() + category.slice(1).toLowerCase()
+        : 'Club');
+    const currency = pickString(row, ['currency', 'price_currency']) || undefined;
+    const whyWorthIt = pickStringList(row, [
+      'why_worth_it',
+      'why_worth_it_lines',
+      'whyWorthIt',
+      'whyWorthItLines',
+      'highlights',
+      'value_props',
+      'value_propositions',
+      'benefits',
+      'offer_highlights',
+      'worth_it',
+      'why_it_matters',
+    ]);
+    const termsBullets = pickStringList(row, [
+      'terms_bullets',
+      'termsBullets',
+      'terms_summary',
+      'termsSummary',
+      'terms_points',
+      'termsPoints',
+      'legal_points',
+    ]);
+    const redemptionSteps = pickStringList(row, [
+      'redemption_steps',
+      'how_to_redeem',
+      'redeem_steps',
+    ]);
+    const included = pickStringList(row, [
+      'included_items',
+      'included',
+      'includes',
+      'whats_included',
+    ]);
+    const excluded = pickStringList(row, [
+      'excluded_items',
+      'excluded',
+      'excludes',
+      'not_included',
+    ]);
+    const termsAndConditions = pickString(row, [
+      'terms_conditions',
+      'terms_and_conditions',
+      'termsAndConditions',
+      'terms_full',
+      'legal_terms',
+      'fine_print',
+    ]);
+
+    let termsBulletsOut = termsBullets;
+    if (!termsBulletsOut || termsBulletsOut.length === 0) {
+      const full = termsAndConditions.trim();
+      if (full) {
+        const lines = full
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        /** One paragraph or one line per promo still beats generic UI defaults. */
+        if (lines.length > 0) {
+          termsBulletsOut = lines;
+        }
+      }
     }
 
     return {
@@ -510,10 +732,29 @@ export class CatalogService {
         pickString(row, ['image_url', 'promo_image', 'cover_image']) ||
         DEFAULT_PROMO_IMAGE,
       title: pickString(row, ['title', 'name']) || 'Promotion',
-      description: pickString(row, ['description', 'details']) || '',
+      description,
       venue: club?.name || pickString(row, ['venue_name']) || 'Venue',
       city: club?.city || pickString(row, ['city']) || '',
-      rating: 4.8,
+      rating: pickNumber(row, ['rating', 'venue_rating', 'event_rating', 'score'], 4.8),
+      clubId,
+      address,
+      lat: club?.club_lat,
+      lng: club?.club_lng,
+      listPrice,
+      promoPrice,
+      validUntil,
+      subtitle: subtitle || undefined,
+      longDescription,
+      eventDate,
+      eventTime: eventTime || undefined,
+      offerType,
+      currency,
+      whyWorthIt,
+      termsBullets: termsBulletsOut,
+      redemptionSteps,
+      included,
+      excluded,
+      termsAndConditions: termsAndConditions || undefined,
     };
   }
 
@@ -656,7 +897,12 @@ export class CatalogService {
   }
 
   private mapClubRow(row: Record<string, unknown>): CatalogClubDto {
-    const name = pickString(row, ['name', 'club_name', 'title', 'venue_name']);
+    const name = pickString(row, [
+      'club_name',
+      'name',
+      'title',
+      'venue_name',
+    ]);
     const address =
       pickString(row, [
         'club_address',
@@ -667,33 +913,317 @@ export class CatalogService {
     const cityFromCol =
       pickString(row, ['city', 'location_city', 'club_city']) || undefined;
     const city = cityFromCol || inferCityFromClubAddress(address);
+    /** Prefer `club_lat` / `club_lng`; `latitude` / `longitude` are legacy/numeric fallbacks. */
     let lat = pickOptionalNumber(row, [
-      'lat',
-      'latitude',
       'club_lat',
       'club_latitude',
+      'latitude',
+      'lat',
       'geo_lat',
     ]);
     let lng = pickOptionalNumber(row, [
-      'lng',
-      'lon',
-      'longitude',
       'club_lng',
       'club_longitude',
+      'longitude',
+      'lng',
+      'lon',
       'geo_lng',
     ]);
     const fixed = normalizeWesternBalkansClubLatLng(lat, lng);
     lat = fixed.lat;
     lng = fixed.lng;
+    const descriptionRaw = pickString(row, [
+      'club_description',
+      'description',
+      'venue_description',
+      'about',
+      'details',
+    ]).trim();
+    const description = descriptionRaw || undefined;
+    const rating = pickOptionalNumber(row, [
+      'rating',
+      'venue_rating',
+      'club_rating',
+      'score',
+    ]);
+    const venueTypeRaw = pickString(row, [
+      'venue_type',
+      'category',
+      'club_type',
+      'type',
+      'segment',
+    ]).trim();
+    const venueType = venueTypeRaw || undefined;
+    const openingHoursRaw = pickString(row, [
+      'opening_hours',
+      'hours',
+      'business_hours',
+      'opening_times',
+    ]).trim();
+    const openingHours = openingHoursRaw || undefined;
+    const phoneRaw = pickString(row, [
+      'club_phone_number',
+      'phone',
+      'telephone',
+      'contact_phone',
+      'club_phone',
+      'mobile',
+    ]).trim();
+    const phone = phoneRaw || undefined;
+    const emailRaw = pickString(row, [
+      'club_email_id',
+      'email',
+      'contact_email',
+      'club_email',
+    ]).trim();
+    const email = emailRaw || undefined;
+    const websiteRaw = pickString(row, [
+      'website',
+      'website_url',
+      'url',
+      'club_website',
+      'web',
+    ]).trim();
+    const website = websiteRaw || undefined;
     return {
       id: rowId(row) || name || Math.random().toString(36).slice(2),
       name: name || 'Venue',
       imageUrl: this.resolveClubImageUrl(row),
       city: city || undefined,
       address: address || undefined,
-      lat,
-      lng,
+      club_lat: lat,
+      club_lng: lng,
+      description,
+      rating,
+      venueType,
+      openingHours,
+      phone,
+      website,
+      email,
     };
+  }
+
+  /** Keys used to match `events.club_id` / `promotions.club_id` to a club row. */
+  private clubIdCandidatesFromRow(row: Record<string, unknown>): string[] {
+    const s = new Set<string>();
+    /** `club_id` is the usual PK on `clubs`; `id` may duplicate or be absent. */
+    for (const key of ['club_id', 'id', 'uuid'] as const) {
+      const v = row[key];
+      if (v != null && String(v).trim() !== '') {
+        s.add(String(v).trim());
+      }
+    }
+    return [...s];
+  }
+
+  /** Calendar-day comparison: event occurs today or later. */
+  private isEventUpcomingRow(row: Record<string, unknown>): boolean {
+    const raw =
+      row.event_starting_date ??
+      row.starts_at ??
+      row.start_date ??
+      row.event_date ??
+      row.date ??
+      row.start_time;
+    if (raw == null) return false;
+    const d = new Date(String(raw));
+    if (Number.isNaN(d.getTime())) return false;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const day = new Date(d);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime() >= start.getTime();
+  }
+
+  private eventRowSortMs(row: Record<string, unknown>): number {
+    const raw =
+      row.event_starting_date ??
+      row.starts_at ??
+      row.start_date ??
+      row.event_date ??
+      row.date ??
+      row.start_time;
+    if (raw == null) return Number.MAX_SAFE_INTEGER;
+    const t = new Date(String(raw)).getTime();
+    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+  }
+
+  async getClubPage(clubId: string): Promise<CatalogClubPageDto | null> {
+    const id = clubId.trim();
+    if (!id) return null;
+    if (this.canUseSupabaseRest()) {
+      return this.getClubPageSupabase(id);
+    }
+    return this.getClubPagePg(id);
+  }
+
+  private async getClubPageSupabase(
+    clubId: string,
+  ): Promise<CatalogClubPageDto | null> {
+    const url = process.env.SUPABASE_URL!.trim();
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
+    const supabase = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const clubTable = this.clubTable();
+    const eventTable = this.eventTable();
+    const promoTable = this.promotionTable();
+
+    /** Many `clubs` tables use `club_id` only (no `id`); PostgREST rejects `.or('id.eq…')` if `id` is missing. */
+    const { data: clubRowsRaw, error: clubErr } = await supabase
+      .from(clubTable)
+      .select('*')
+      .eq('club_id', clubId);
+    if (clubErr) {
+      throw new ServiceUnavailableException(
+        `Supabase clubs (${clubTable}): ${clubErr.message}`,
+      );
+    }
+    const clubRows = (clubRowsRaw ?? []) as Record<string, unknown>[];
+    const clubRow = clubRows[0];
+    if (!clubRow) {
+      return null;
+    }
+
+    const candidates = this.clubIdCandidatesFromRow(clubRow);
+    const clubByIdForMerge = new Map<string, Record<string, unknown>>();
+    for (const c of candidates) {
+      clubByIdForMerge.set(c, clubRow);
+    }
+
+    const { data: eventRowsRaw, error: eventErr } = await supabase
+      .from(eventTable)
+      .select('*')
+      .in('club_id', candidates);
+    if (eventErr) {
+      throw new ServiceUnavailableException(
+        `Supabase events (${eventTable}): ${eventErr.message}`,
+      );
+    }
+
+    let eventRows = (eventRowsRaw ?? []) as Record<string, unknown>[];
+    const evSample = eventRows[0];
+    if (evSample && Object.prototype.hasOwnProperty.call(evSample, 'event_status')) {
+      eventRows = eventRows.filter(
+        (e) => e.event_status === 'published' || e.event_status == null,
+      );
+    } else if (evSample && Object.prototype.hasOwnProperty.call(evSample, 'status')) {
+      eventRows = eventRows.filter(
+        (e) => e.status === 'published' || e.status == null,
+      );
+    }
+    eventRows = eventRows.filter((e) => this.isEventUpcomingRow(e));
+    eventRows.sort((a, b) => this.eventRowSortMs(a) - this.eventRowSortMs(b));
+
+    const { data: promoRaw, error: promoErr } = await supabase
+      .from(promoTable)
+      .select('*')
+      .in('club_id', candidates)
+      .eq('status', 'active');
+    if (promoErr) {
+      throw new ServiceUnavailableException(
+        `Supabase promotions (${promoTable}): ${promoErr.message}`,
+      );
+    }
+    const nowMs = Date.now();
+    let promoRows = (promoRaw ?? []) as Record<string, unknown>[];
+    promoRows = promoRows.filter((r) => {
+      const u = r.valid_until;
+      if (u == null) return true;
+      const t = new Date(String(u)).getTime();
+      return !Number.isNaN(t) && t >= nowMs;
+    });
+
+    const clubDto = this.mapClubRow(clubRow);
+    const events = eventRows.map((e) =>
+      this.mapEventRow(this.mergeEventRowWithClub(e, clubByIdForMerge)),
+    );
+    const promotions = promoRows.map((row) =>
+      this.mapPromotionRow(row, clubDto),
+    );
+
+    return { club: clubDto, events, promotions };
+  }
+
+  private async getClubPagePg(
+    clubId: string,
+  ): Promise<CatalogClubPageDto | null> {
+    const schema = 'public';
+    const clubTable = this.clubTable();
+    const eventTable = this.eventTable();
+    const promoTable = this.promotionTable();
+
+    const hasClubs = await this.tableExists(schema, clubTable);
+    if (!hasClubs) {
+      return null;
+    }
+
+    const { rows: clubFound } = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM public.${clubTable}
+       WHERE club_id::text = $1
+       LIMIT 1`,
+      [clubId],
+    );
+    const clubRow = clubFound[0];
+    if (!clubRow) {
+      return null;
+    }
+
+    const candidates = this.clubIdCandidatesFromRow(clubRow);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const clubByIdForMerge = new Map<string, Record<string, unknown>>();
+    for (const c of candidates) {
+      clubByIdForMerge.set(c, clubRow);
+    }
+
+    const clubDto = this.mapClubRow(clubRow);
+
+    const hasEvents = await this.tableExists(schema, eventTable);
+    let events: CatalogEventDto[] = [];
+    if (hasEvents) {
+      const eventCols = await this.columnSet(schema, eventTable);
+      const statusClause =
+        eventCols.has('event_status')
+          ? `AND (e.event_status = 'published' OR e.event_status IS NULL)`
+          : eventCols.has('status')
+            ? `AND (e.status = 'published' OR e.status IS NULL)`
+            : '';
+
+      const { rows: eventRows } = await this.db.query<Record<string, unknown>>(
+        `SELECT e.* FROM public.${eventTable} e
+         WHERE e.club_id IS NOT NULL
+           AND e.club_id::text = ANY($1::text[])
+           ${statusClause}`,
+        [candidates],
+      );
+
+      const upcoming = eventRows.filter((e) => this.isEventUpcomingRow(e));
+      upcoming.sort((a, b) => this.eventRowSortMs(a) - this.eventRowSortMs(b));
+      events = upcoming.map((e) =>
+        this.mapEventRow(this.mergeEventRowWithClub(e, clubByIdForMerge)),
+      );
+    }
+
+    const hasPromotionsTable = await this.tableExists(schema, promoTable);
+    let promotions: CatalogPromotionDto[] = [];
+    if (hasPromotionsTable) {
+      const { rows: promoRows } = await this.db.query<Record<string, unknown>>(
+        `SELECT * FROM public.${promoTable}
+         WHERE status = 'active'
+           AND (valid_until IS NULL OR valid_until >= NOW())
+           AND club_id IS NOT NULL
+           AND club_id::text = ANY($1::text[])`,
+        [candidates],
+      );
+      promotions = promoRows.map((row) =>
+        this.mapPromotionRow(row, clubDto),
+      );
+    }
+
+    return { club: clubDto, events, promotions };
   }
 
   /** Load event cards by id (e.g. user saved list). Order matches `eventIds`. */

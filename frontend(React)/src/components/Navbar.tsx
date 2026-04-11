@@ -70,7 +70,7 @@ function NavbarClubSearchField({
 
   const goClub = useCallback(
     (id: string) => {
-      navigate(`/club/${encodeURIComponent(id)}`)
+      navigate(`/clubs/${encodeURIComponent(id)}`)
       onQueryChange('')
       onAfterClubNavigate?.()
       setFocused(false)
@@ -331,6 +331,10 @@ export function Navbar() {
     return 'U'
   }
 
+  /** Same hover pink as promotion “View Offer” (`bg-primary` + glow). */
+  const headerGhostIconClass =
+    'text-foreground/70 hover:!bg-primary hover:text-primary-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12),0_0_22px_hsl(var(--primary)/0.06)]'
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-md border-b border-border/30">
       <div className="po-container flex items-center justify-between h-16 gap-4">
@@ -377,7 +381,7 @@ export function Navbar() {
             <Button
               variant="ghost"
               size="icon"
-              className="text-foreground/70 hover:text-foreground"
+              className={headerGhostIconClass}
               asChild
             >
               <Link
@@ -452,7 +456,7 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-foreground/70 hover:text-foreground"
+                className={headerGhostIconClass}
                 onClick={() => navigate('/login')}
               >
                 <UserCircle className="h-[26px] w-[26px]" />
@@ -466,7 +470,7 @@ export function Navbar() {
             <Button
               variant="ghost"
               size="icon"
-              className="text-foreground/70 hover:text-foreground"
+              className={headerGhostIconClass}
               onClick={() => setSavedOpen((open) => !open)}
             >
               <Bookmark className="h-5 w-5" />
@@ -543,7 +547,7 @@ export function Navbar() {
           <Button
             variant="ghost"
             size="icon"
-            className="text-foreground/70 hover:text-foreground"
+            className={headerGhostIconClass}
             asChild
           >
             <Link
@@ -557,7 +561,7 @@ export function Navbar() {
           <Button
             variant="ghost"
             size="icon"
-            className="text-foreground/70 hover:text-foreground"
+            className={headerGhostIconClass}
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
