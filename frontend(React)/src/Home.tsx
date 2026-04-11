@@ -1,14 +1,16 @@
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
-import { SearchHero } from '@/components/SearchHero'
+import { SearchHero, type SearchFilters } from '@/components/SearchHero'
 import { PromotionsSection } from '@/components/PromotionsSection'
 import { EventsSection } from '@/components/EventsSection'
 import { ClubsSection } from '@/components/ClubsSection'
 import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
 import type { Club, Event } from '@/types'
-import { useEffect, useState } from 'react';
+import { useEffect} from 'react';
+
 
 export default function Home() {
   const navigate = useNavigate()
@@ -75,9 +77,9 @@ export default function Home() {
       <main>
         <HeroSection
           onExplore={() => navigate('/search')}
-          onBrowseClubs={() => navigate('/top-clubs')}
+          onBrowseClubs={() => navigate('/nearby-clubs')}
         />
-        <SearchHero />
+        <SearchHero events={events} value={} onChange={}  />
         <EventsSection events={events} />
         <PromotionsSection promos={promos} />
         <ClubsSection club={clubs}/>
