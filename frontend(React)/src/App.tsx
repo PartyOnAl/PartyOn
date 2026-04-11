@@ -14,6 +14,8 @@ import PurchasedTicket from './PurchasedTicket'
 import Search from './Search'
 import SignupPage from './SignupPage'
 import TopClubs from './TopClubs'
+import Success from './Success'
+import Cancel from './Cancel'
 import { AuthProvider } from './contexts/AuthContext'
 import EventPage from './data/EventPage';
 
@@ -56,6 +58,8 @@ function App() {
         <Route path="/topclubs" element={<TopClubs />} />
         <Route path="/purchasedticket" element={<PurchasedTicket />} />
         <Route path="/paymentmethod" element={<PaymentMethod />} />
+        <Route path="/success" element={<Success />} />
+        <Route path="/cancel" element={<Cancel />} />
       </Routes>
       </AuthProvider>
     </BrowserRouter>

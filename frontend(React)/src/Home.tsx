@@ -17,6 +17,43 @@ export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [promos, setPromos] = useState<any[]>([]);
   const [clubs, setClubs] = useState<any[]>([]);
+  const [filters, setFilters] = useState<SearchFilters>({
+    query: '',
+    city: 'all',
+    musicType: 'all',
+    time: 'all',
+  });
+  const cities = useMemo(() => {
+    return Array.from(new Set(events.map(e => e.city)))
+  }, [events])
+  const musicTypes = useMemo(() => {
+    return Array.from(new Set(events.map(e => e.musicType)))
+  }, [events])
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (filters.query) params.append('query', filters.query)
+      if (filters.city) params.append('city', filters.city)
+      if (filters.musicType) params.append('musicType', filters.musicType)
+      if (filters.time) params.append('time', filters.time)
+
+const query = filters.query || 'latin'
+fetch(`http://localhost:3000/event?query=${encodeURIComponent(query)}`)
+  .then(res => res.json())
+  .then(data => {
+    const formatted = data.map((d: any) => ({
+      id: d.event_id,
+      title: d.event_name,
+      currency: '€',
+      price: d.final_ticket_price,
+      date: d.event_starting_date,
+      club: d.club,
+      imageUrl: d.event_image,
+    }))
+
+    setEvents(formatted)
+  })
+}, [filters]);
 
   useEffect(() => {
     fetch('http://localhost:3000/event')
@@ -79,7 +116,7 @@ export default function Home() {
           onExplore={() => navigate('/search')}
           onBrowseClubs={() => navigate('/nearby-clubs')}
         />
-        <SearchHero events={events} value={} onChange={}  />
+        <SearchHero  value={filters} onChange={setFilters} cities={cities} musicTypes={musicTypes}/>
         <EventsSection events={events} />
         <PromotionsSection promos={promos} />
         <ClubsSection club={clubs}/>

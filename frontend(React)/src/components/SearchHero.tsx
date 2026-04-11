@@ -3,15 +3,8 @@ import { ChevronDown, Search } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { Event } from '@/types'
 
-const FILTERS = [
-  'All',
-  'Tonight',
-  'This Weekend',
-  'Free Entry',
-  'Live Music',
-  'Clubs',
-  'Festivals',
-] as const
+
+
 
 export type SearchFilters = {
   query: string
@@ -21,9 +14,10 @@ export type SearchFilters = {
 }
 
 type SearchHeroProps = {
-  events: Event[]
   value: SearchFilters
   onChange: (next: SearchFilters) => void
+  cities: string[]
+  musicTypes: string[]
 }
 
 type DropdownOption = {
@@ -105,11 +99,44 @@ function FilterDropdown({ value, options, onChange }: FilterDropdownProps) {
   )
 }
 
-export function SearchHero({ events, value, onChange }: SearchHeroProps) {
+export function SearchHero({ value, onChange , cities , musicTypes }: SearchHeroProps) {
   const [focused, setFocused] = useState(false)
   const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>('All')
-  const cities = Array.from(new Set(events.map((event) => event.city))).sort()
-  const musicTypes = Array.from(new Set(events.map((event) => event.musicType))).sort()
+  const FILTERS = [ 'All', 'Tonight', 'This Weekend', 'Free Entry', 'Live Music', 'Clubs', 'Festivals', ] as const
+  const dropdownConfig = [
+    {
+      key: 'city',
+      value: value.city,
+      options: [
+        { value: 'all', label: 'All cities' },
+        ...cities.map((c) => ({ value: c, label: c })),
+      ],
+      onChange: (v: string) => onChange({ ...value, city: v }),
+    },
+    {
+      key: 'musicType',
+      value: value.musicType,
+      options: [
+        { value: 'all', label: 'All music types' },
+        ...musicTypes.map((m) => ({ value: m, label: m })),
+      ],
+      onChange: (v: string) => onChange({ ...value, musicType: v }),
+    },
+    {
+      key: 'time',
+      value: value.time,
+      options: [
+        { value: 'all', label: 'Any time' },
+        { value: 'tonight', label: 'Tonight' },
+        { value: 'weekend', label: 'This weekend' },
+      ],
+      onChange: (v: string) =>
+        onChange({
+          ...value,
+          time: v as SearchFilters['time'],
+        }),
+    },
+  ]
   const cityOptions: DropdownOption[] = [
     { value: 'all', label: 'All cities' },
     ...cities.map((city) => ({ value: city, label: city })),
@@ -161,26 +188,14 @@ export function SearchHero({ events, value, onChange }: SearchHeroProps) {
           </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <FilterDropdown
-              value={value.city}
-              options={cityOptions}
-              onChange={(nextCity) => onChange({ ...value, city: nextCity })}
-            />
-            <FilterDropdown
-              value={value.musicType}
-              options={musicOptions}
-              onChange={(nextMusicType) => onChange({ ...value, musicType: nextMusicType })}
-            />
-            <FilterDropdown
-              value={value.time}
-              options={timeOptions}
-              onChange={(nextTime) =>
-                onChange({
-                  ...value,
-                  time: nextTime as SearchFilters['time'],
-                })
-              }
-            />
+          {dropdownConfig.map((dropdown) => (
+    <FilterDropdown
+      key={dropdown.key}
+      value={dropdown.value}
+      options={dropdown.options}
+      onChange={dropdown.onChange}
+    />
+  ))}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-[10px]">

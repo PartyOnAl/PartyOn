@@ -1,4 +1,11 @@
+import { useParams } from 'react-router-dom'
 import './EventClicked.css'
+import { useEffect} from 'react';
+import { useMemo, useState } from 'react'
+import Stripe from 'stripe';
+import type { Club, Event } from '@/types'
+import { loadStripe } from '@stripe/stripe-js';
+
 
 function HeartIcon() {
   return (
@@ -153,46 +160,100 @@ function PlayIcon() {
   )
 }
 
+function formatEventDate(dateString: string) {
+  const date = new Date(dateString)
+
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+
+  return `${formattedDate} • ${time}`
+}
+
 export default function EventClicked() {
+  const {id} = useParams()
+
+  const [events, setEvents] = useState<any>(null);
+  useEffect(() => {
+    if (!id) return
+
+    fetch(`http://localhost:3000/event/${id}`)
+      .then(res => res.json())
+      .then(data => setEvents(data))
+  }, [id])  
+
+  
+  const handleBuy= async () => {
+    const res=await fetch('http://localhost:3000/event/pay',{
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+      },
+      body: JSON.stringify({
+         amount: events?.final_ticket_price*100,
+      }),
+    });
+    const data=await res.json();
+    window.location.href = data.url;
+  };
   return (
     <div className="event-clicked">
       <div className="event-clicked__layout">
-        <aside className="event-clicked__media" aria-label="Event image">
-          <div className="event-clicked__hero" />
-          <div className="event-clicked__hero-actions">
-            <button type="button" className="event-clicked__icon-btn" aria-label="Save event">
-              <HeartIcon />
-            </button>
-            <button type="button" className="event-clicked__icon-btn" aria-label="Share">
-              <ShareIcon />
-            </button>
-          </div>
-        </aside>
+      <aside className="event-clicked__media" aria-label="Event image">
+  <div className="event-clicked__hero">
+    {events?.event_image && (
+      <img
+        src={events.event_image}
+        alt="Event"
+        className="w-full h-full object-cover"
+      />
+    )}
+  </div>
 
+  <div className="event-clicked__hero-actions">
+    <button type="button" className="event-clicked__icon-btn" aria-label="Save event">
+      <HeartIcon />
+    </button>
+    <button type="button" className="event-clicked__icon-btn" aria-label="Share">
+      <ShareIcon />
+    </button>
+  </div>
+</aside>
         <div className="event-clicked__main">
-          <h1 className="event-clicked__title">ECHOES: Underground Techno Night</h1>
+          <h1 className="event-clicked__title">{events?.event_name}</h1>
 
           <ul className="event-clicked__quick">
             <li>
               <CalendarIcon />
-              <span>Saturday, March 29, 2026 • 23:00</span>
+              <span>{events?.event_starting_date
+    ? formatEventDate(events.event_starting_date)
+    : ''}</span>
             </li>
             <li>
               <PinIcon />
-              <span>Warehouse Roma • Roma</span>
+              <span>{events?.club_address}</span>
             </li>
             <li>
               <MusicIcon />
-              <span>Techno / Electronic</span>
+              <span>{events?.event_type}</span>
             </li>
           </ul>
 
           <div className="event-clicked__ticket">
-            <p className="event-clicked__price">From €20</p>
+            <p className="event-clicked__price">FROM {events?.final_ticket_price}€</p>
             <p className="event-clicked__price-note">
               No hidden fees. Final price shown upfront.
             </p>
-            <button type="button" className="event-clicked__buy">
+            <button type="button" onClick={handleBuy} className="event-clicked__buy">
               Buy Now
             </button>
           </div>
@@ -202,9 +263,7 @@ export default function EventClicked() {
               About
             </h2>
             <p className="event-clicked__about-text">
-              Step into a raw industrial warehouse transformed into a cathedral of sound. ECHOES
-              brings together cutting-edge techno selectors and analog-heavy production for a night
-              built on deep kicks, hypnotic grooves, and relentless energy until sunrise.
+             {events?.event_description}
             </p>
             <button type="button" className="event-clicked__read-more">
               Read more
@@ -218,7 +277,7 @@ export default function EventClicked() {
               </div>
               <div className="event-clicked__chip">
                 <MusicIcon />
-                <div className="event-clicked__chip-label">Techno</div>
+                <div className="event-clicked__chip-label">{events?.event_type}</div>
               </div>
               <div className="event-clicked__chip">
                 <UsersIcon />
@@ -232,9 +291,9 @@ export default function EventClicked() {
               Venue
             </h2>
             <div className="event-clicked__venue-card">
-              <h3 className="event-clicked__venue-name">Warehouse Roma</h3>
+              <h3 className="event-clicked__venue-name">{events?.club}</h3>
               <p className="event-clicked__venue-address">
-                Via dei Magazzini 42, 00153 Roma RM, Italy
+                {events?.club_address}
               </p>
               <button type="button" className="event-clicked__maps-btn">
                 Open in Maps
@@ -243,7 +302,7 @@ export default function EventClicked() {
               <hr className="event-clicked__venue-rule" />
               <div className="event-clicked__doors">
                 <ClockIcon />
-                <span>Doors open: 22:30</span>
+                <span>Doors open: {events?.event_hours}</span>
               </div>
             </div>
           </section>
