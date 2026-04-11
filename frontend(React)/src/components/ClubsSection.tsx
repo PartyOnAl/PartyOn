@@ -25,7 +25,7 @@ export function ClubsSection({ club }: { club: any[] }) {
               className="col-span-1 md:col-span-2 row-span-2"
             >
               <Link
-                to="/top-clubs"
+                to="/nearby-clubs"
                 className="group block h-full relative rounded-xl overflow-hidden"
               >
                 <img
