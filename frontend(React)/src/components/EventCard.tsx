@@ -9,6 +9,18 @@ import { useSavedEvents } from '@/contexts/SavedEventsContext'
 const FALLBACK_EVENT_IMAGE =
   'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&q=80'
 
+function formatEventDate(date: string): string {
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return date
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 type EventCardProps = {
   event: Event
   index?: number
@@ -93,7 +105,9 @@ export function EventCard({ event, index = 0 }: EventCardProps) {
             {event.price.toFixed(2)}{' '}
             {event.currency === '€' ? 'EUR' : ''}
           </p>
-          <p className="line-clamp-1 text-xs text-muted-foreground">{event.date}</p>
+          <p className="line-clamp-1 text-xs text-muted-foreground">
+            {event.date ? formatEventDate(event.date) : ''}
+          </p>
           <p className="mt-auto flex items-center gap-1 line-clamp-1 text-xs font-semibold text-muted-foreground">
             <MapPin className="h-3 w-3 shrink-0" /> {event.club}
           </p>

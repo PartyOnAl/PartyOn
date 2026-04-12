@@ -1,23 +1,49 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import * as dotenv from 'dotenv';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import * as dotenv from 'dotenv';
+import { EventModule } from './event/event.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { DatabaseModule } from './database/database.module';
 import { SavedModule } from './saved/saved.module';
 import { SuggestionsModule } from './suggestions/suggestions.module';
+import { UsersModule } from './users/users.module';
+import { PromotionsModule } from './promotions/promotions.module';
+import { ClubsModule } from './clubs/clubs.module';
+
 dotenv.config();
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
+    TypeOrmModule.forRoot({
+      type: 'postgres',
+      url: process.env.DATABASE_URL,
+      autoLoadEntities: true,
+      synchronize: false,
+    }),
     DatabaseModule,
     AuthModule,
     CatalogModule,
     SavedModule,
     SuggestionsModule,
+    EventModule,
+    UsersModule,
+    PromotionsModule,
+    ClubsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule {
+  constructor() {
+    console.log('TYPE:', typeof process.env.DATABASE_URL);
+    console.log('VALUE:', process.env.DATABASE_URL);
+  }
+}

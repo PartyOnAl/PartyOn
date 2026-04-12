@@ -6,12 +6,12 @@ import {
   type TouchEvent,
   type WheelEvent,
 } from 'react'
+import type { Event } from '@/types'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { EventCard } from '@/components/EventCard'
 import { motion } from 'framer-motion'
 import useEmblaCarousel from 'embla-carousel-react'
-import type { Event } from '@/types'
 import './EventsSection.css'
 
 type EventsSectionProps = {
@@ -218,7 +218,7 @@ export function EventsSection({
               ) : (
                 events.map((event, i) => (
                   <div
-                    key={event.id}
+                    key={`${event.id}-${i}`}
                     className="events-slide min-w-0 shrink-0 grow-0 basis-[72%] sm:basis-[46%] md:basis-[32%] lg:basis-[24%] pl-4 flex"
                   >
                     <div className="min-h-0 w-full flex">

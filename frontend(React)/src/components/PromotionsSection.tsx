@@ -16,6 +16,14 @@ import type { Promotion } from '@/types'
 const FALLBACK_PROMO_IMAGE =
   'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=800&q=80'
 
+/** Fallback badge colors when API rows omit `badgeColor` (from new_dev). */
+function badgeColorClass(badge: string): string {
+  if (badge === 'Free Entry' || badge === 'free_entry') return 'bg-primary'
+  if (badge === 'VIP') return 'bg-accent'
+  if (badge === 'discount') return 'bg-emerald-500'
+  return 'bg-gray-500'
+}
+
 function PromoImage({ src, alt }: { src: string; alt: string }) {
   const [url, setUrl] = useState(src)
   useEffect(() => {
@@ -171,7 +179,11 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                       <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden">
                         <PromoImage src={promo.image} alt={promo.title} />
                         <span
-                          className={`absolute top-3 left-3 z-10 ${promo.badgeColor} text-white text-xs font-bold px-3 py-1 rounded-full`}
+                          className={`absolute top-3 left-3 z-10 ${
+                            promo.badgeColor?.trim()
+                              ? promo.badgeColor
+                              : badgeColorClass(promo.badge)
+                          } text-white text-xs font-bold px-3 py-1 rounded-full`}
                         >
                           {promo.badge}
                         </span>

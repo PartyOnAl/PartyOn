@@ -28,6 +28,7 @@ import TopClubs from './TopClubs'
 import { AuthProvider } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
 import { SavedEventsProvider } from './contexts/SavedEventsContext'
+import EventPage from './data/EventPage'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -52,46 +53,47 @@ function App() {
     <BrowserRouter>
       <ScrollToTop />
       <AuthProvider>
-      <CatalogProvider>
-      <SavedEventsProvider>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/home" element={<Home />} />
-        {/* <Route path="/search" element={<Search />} /> */}
-        <Route
-          path="/search"
-          element={<Navigate to={{ pathname: '/', hash: 'events' }} replace />}
-        />
-        {/* Static `/clubs/*` paths must come before `/clubs/:club_id` */}
-        <Route path="/clubs/nearby" element={<TopClubs />} />
-        <Route path="/clubs/:club_id" element={<ClubDetail />} />
-        <Route path="/club/:id" element={<ClubLegacyRedirect />} />
-        <Route path="/dj/:id" element={<DjDetail />} />
-        <Route path="/payment" element={<Payment />} />
-        <Route path="/payment-method" element={<PaymentMethod />} />
-        <Route path="/promotions" element={<Promotions />} />
-        <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
-        <Route path="/purchased-ticket" element={<PurchasedTicket />} />
-        <Route path="/top-clubs" element={<TopClubs />} />
-        <Route path="/nearby-clubs" element={<TopClubs />} />
-        <Route path="/event/:id" element={<EventClicked />} />
-        <Route path="/events/:eventId" element={<EventClicked />} />
-        <Route path="/event" element={<EventClicked />} />
-        <Route path="/header" element={<Header />} />
-        <Route path="/footer" element={<Footer />} />
-        <Route path="/get-the-app" element={<GetTheApp />} />
+        <CatalogProvider>
+          <SavedEventsProvider>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/home" element={<Home />} />
+              {/* <Route path="/search" element={<Search />} /> */}
+              <Route
+                path="/search"
+                element={<Navigate to={{ pathname: '/', hash: 'events' }} replace />}
+              />
+              {/* Static `/clubs/*` paths must come before `/clubs/:club_id` */}
+              <Route path="/clubs/nearby" element={<TopClubs />} />
+              <Route path="/clubs/:club_id" element={<ClubDetail />} />
+              <Route path="/club/:id" element={<ClubLegacyRedirect />} />
+              <Route path="/dj/:id" element={<DjDetail />} />
+              <Route path="/payment" element={<Payment />} />
+              <Route path="/payment-method" element={<PaymentMethod />} />
+              <Route path="/promotions" element={<Promotions />} />
+              <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
+              <Route path="/purchased-ticket" element={<PurchasedTicket />} />
+              <Route path="/top-clubs" element={<TopClubs />} />
+              <Route path="/nearby-clubs" element={<TopClubs />} />
+              <Route path="/event/:id" element={<EventClicked />} />
+              <Route path="/events/:eventId" element={<EventClicked />} />
+              <Route path="/event" element={<EventClicked />} />
+              <Route path="/events-api" element={<EventPage />} />
+              <Route path="/header" element={<Header />} />
+              <Route path="/footer" element={<Footer />} />
+              <Route path="/get-the-app" element={<GetTheApp />} />
 
-        <Route path="/event-clicked" element={<EventClicked />} />
-        <Route path="/eventClicked" element={<EventClicked />} />
-        <Route path="/topclubs" element={<TopClubs />} />
-        <Route path="/purchasedticket" element={<PurchasedTicket />} />
-        <Route path="/paymentmethod" element={<PaymentMethod />} />
-      </Routes>
-      </SavedEventsProvider>
-      </CatalogProvider>
+              <Route path="/event-clicked" element={<EventClicked />} />
+              <Route path="/eventClicked" element={<EventClicked />} />
+              <Route path="/topclubs" element={<TopClubs />} />
+              <Route path="/purchasedticket" element={<PurchasedTicket />} />
+              <Route path="/paymentmethod" element={<PaymentMethod />} />
+            </Routes>
+          </SavedEventsProvider>
+        </CatalogProvider>
       </AuthProvider>
     </BrowserRouter>
   )

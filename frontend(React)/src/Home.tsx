@@ -13,6 +13,7 @@ import { ClubsSection } from '@/components/ClubsSection'
 import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
 import { useCatalog } from '@/contexts/CatalogContext'
+
 export default function Home() {
   const { events, promotions, loading, error } = useCatalog()
   const navigate = useNavigate()
