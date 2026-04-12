@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { createClient } from '@supabase/supabase-js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CatalogService } from '../catalog/catalog.service';
 import type { CatalogBundleDto, CatalogClubDto, CatalogEventDto } from '../catalog/catalog.types';
+import { Dj } from '../entities/entities/Dj';
 import { cityMatchKey } from '../lib/city-match';
-import { DatabaseService } from '../database/database.service';
 import type {
   SuggestionItemDto,
   SuggestionsResponseDto,
@@ -147,17 +148,12 @@ function clubSuggestionScore(club: CatalogClubDto, q: string): number {
   );
 }
 
-function pickString(row: Record<string, unknown>, keys: string[]): string {
-  for (const k of keys) {
-    const v = row[k];
-    if (v != null && String(v).trim() !== '') return String(v);
-  }
-  return '';
-}
-
-function rowId(row: Record<string, unknown>): string {
-  const v = row.dj_id ?? row.id ?? row.uuid;
-  return v != null ? String(v) : '';
+function djDisplayName(row: Dj): string {
+  return (
+    [row.name, row.djName, row.displayName, row.title]
+      .map((s) => s?.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 @Injectable()
@@ -167,20 +163,9 @@ export class SuggestionsService {
 
   constructor(
     private readonly catalog: CatalogService,
-    private readonly db: DatabaseService,
+    @InjectRepository(Dj)
+    private readonly djRepo: Repository<Dj>,
   ) {}
-
-  private canUseSupabaseRest(): boolean {
-    return Boolean(
-      process.env.SUPABASE_URL?.trim() &&
-        process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
-    );
-  }
-
-  private djTable(): string {
-    const t = process.env.CATALOG_DJ_TABLE?.trim();
-    return t && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) ? t : 'djs';
-  }
 
   private async getCatalogCached(): Promise<CatalogBundleDto> {
     const now = Date.now();
@@ -199,82 +184,21 @@ export class SuggestionsService {
     const needle = q.trim();
     if (!needle) return [];
 
-    if (this.canUseSupabaseRest()) {
-      try {
-        const url = process.env.SUPABASE_URL!.trim();
-        const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-        const supabase = createClient(url, key, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
-        const table = this.djTable();
-        const { data: rowsRaw, error } = await supabase
-          .from(table)
-          .select('*')
-          .limit(40);
-        if (error) {
-          return [];
-        }
-        const rows = (rowsRaw ?? []) as Record<string, unknown>[];
-        const qq = needle.toLowerCase();
-        const matched = rows.filter((r) => {
-          const name = pickString(r, [
-            'name',
-            'dj_name',
-            'title',
-            'display_name',
-          ]).toLowerCase();
-          return name.includes(qq);
-        });
-        matched.sort(
-          (a, b) =>
-            textRelevance(
-              pickString(b, ['name', 'dj_name', 'title', 'display_name']),
-              needle,
-            ) -
-            textRelevance(
-              pickString(a, ['name', 'dj_name', 'title', 'display_name']),
-              needle,
-            ),
-        );
-        return matched.slice(0, 3).map((r) => ({
-          id: rowId(r) || pickString(r, ['name', 'dj_name']),
-          name: pickString(r, ['name', 'dj_name', 'title', 'display_name']) || 'DJ',
-          type: 'dj' as const,
-        }));
-      } catch {
-        return [];
-      }
-    }
-
     try {
-      const table = this.djTable();
-      const { rows } = await this.db.query<Record<string, unknown>>(
-        `SELECT * FROM public.${table} LIMIT 120`,
-      );
+      const rows = await this.djRepo.find({ take: 120 });
       const qq = needle.toLowerCase();
       const matched = rows.filter((r) => {
-        const name = pickString(r, [
-          'name',
-          'dj_name',
-          'title',
-          'display_name',
-        ]).toLowerCase();
+        const name = djDisplayName(r).toLowerCase();
         return name.includes(qq);
       });
       matched.sort(
         (a, b) =>
-          textRelevance(
-            pickString(b, ['name', 'dj_name', 'title', 'display_name']),
-            needle,
-          ) -
-          textRelevance(
-            pickString(a, ['name', 'dj_name', 'title', 'display_name']),
-            needle,
-          ),
+          textRelevance(djDisplayName(b), needle) -
+          textRelevance(djDisplayName(a), needle),
       );
       return matched.slice(0, 3).map((r) => ({
-        id: rowId(r) || pickString(r, ['name', 'dj_name']),
-        name: pickString(r, ['name', 'dj_name', 'title', 'display_name']) || 'DJ',
+        id: r.id || djDisplayName(r),
+        name: djDisplayName(r) || 'DJ',
         type: 'dj' as const,
       }));
     } catch {

@@ -1,6 +1,14 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { createClient } from '@supabase/supabase-js';
-import { DatabaseService } from '../database/database.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Brackets, In, Repository } from 'typeorm';
+import { Clubs } from 'generated-entities/entities/Clubs';
+import { Events } from 'generated-entities/entities/Events';
+import { Promotions } from 'generated-entities/entities/Promotions';
+import {
+  clubEntityToRow,
+  eventEntityToRow,
+  promotionEntityToRow,
+} from './catalog-entity-mappers';
 import type {
   CatalogBundleDto,
   CatalogClubDto,
@@ -316,45 +324,14 @@ function hasClubImageInRow(row: Record<string, unknown>): boolean {
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly db: DatabaseService) {}
-
-  private eventTable(): string {
-    const t = process.env.CATALOG_EVENT_TABLE?.trim();
-    return t && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) ? t : 'events';
-  }
-
-  private clubTable(): string {
-    const t = process.env.CATALOG_CLUB_TABLE?.trim();
-    return t && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) ? t : 'clubs';
-  }
-
-  private promotionTable(): string {
-    const t = process.env.CATALOG_PROMOTION_TABLE?.trim();
-    return t && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) ? t : 'promotions';
-  }
-
-  private async columnSet(
-    schema: string,
-    table: string,
-  ): Promise<Set<string>> {
-    const { rows } = await this.db.query<{ column_name: string }>(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = $1 AND table_name = $2`,
-      [schema, table],
-    );
-    return new Set(rows.map((r) => r.column_name));
-  }
-
-  private async tableExists(schema: string, table: string): Promise<boolean> {
-    const { rows } = await this.db.query<{ exists: boolean }>(
-      `SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = $1 AND table_name = $2
-      ) AS exists`,
-      [schema, table],
-    );
-    return Boolean(rows[0]?.exists);
-  }
+  constructor(
+    @InjectRepository(Events)
+    private readonly eventsRepo: Repository<Events>,
+    @InjectRepository(Clubs)
+    private readonly clubsRepo: Repository<Clubs>,
+    @InjectRepository(Promotions)
+    private readonly promotionsRepo: Repository<Promotions>,
+  ) {}
 
   /** City from linked club row when the event row has no city column. */
   private clubCityFromRow(cr: Record<string, unknown>): string {
@@ -758,123 +735,6 @@ export class CatalogService {
     };
   }
 
-  private canUseSupabaseRest(): boolean {
-    return Boolean(
-      process.env.SUPABASE_URL?.trim() &&
-        process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
-    );
-  }
-
-  /**
-   * Reads via HTTPS (IPv4-safe). Preferred when SUPABASE_SERVICE_ROLE_KEY is set —
-   * avoids direct db.*.supabase.co TCP (often IPv6-only / ENOTFOUND on Windows).
-   */
-  private async getCatalogFromSupabaseRest(): Promise<CatalogBundleDto> {
-    const url = process.env.SUPABASE_URL!.trim();
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const eventTable = this.eventTable();
-    const clubTable = this.clubTable();
-
-    const { data: clubRowsRaw, error: clubErr } = await supabase
-      .from(clubTable)
-      .select('*');
-    if (clubErr) {
-      throw new ServiceUnavailableException(
-        `Supabase clubs (${clubTable}): ${clubErr.message}`,
-      );
-    }
-
-    const { data: eventRowsRaw, error: eventErr } = await supabase
-      .from(eventTable)
-      .select('*');
-    if (eventErr) {
-      throw new ServiceUnavailableException(
-        `Supabase events (${eventTable}): ${eventErr.message}`,
-      );
-    }
-
-    const clubRows = (clubRowsRaw ?? []) as Record<string, unknown>[];
-    clubRows.sort(
-      (a, b) => Number(hasClubImageInRow(b)) - Number(hasClubImageInRow(a)),
-    );
-    const clubById = new Map<string, Record<string, unknown>>();
-    for (const row of clubRows) {
-      const id = rowId(row);
-      if (id) {
-        clubById.set(id, row);
-      }
-      const cid = row.club_id;
-      if (cid != null) {
-        clubById.set(String(cid), row);
-      }
-    }
-
-    const clubs = clubRows.map((r) => this.mapClubRow(r));
-
-    let eventRows = (eventRowsRaw ?? []) as Record<string, unknown>[];
-    const sample = eventRows[0];
-    if (sample && Object.prototype.hasOwnProperty.call(sample, 'event_status')) {
-      eventRows = eventRows.filter(
-        (e) =>
-          e.event_status === 'published' || e.event_status == null,
-      );
-    } else if (sample && Object.prototype.hasOwnProperty.call(sample, 'status')) {
-      eventRows = eventRows.filter(
-        (e) => e.status === 'published' || e.status == null,
-      );
-    }
-
-    const timeMs = (r: Record<string, unknown>) => {
-      const t =
-        r.event_starting_date ??
-        r.starts_at ??
-        r.start_date ??
-        r.created_at;
-      if (t == null) return 0;
-      const n = new Date(String(t)).getTime();
-      return Number.isNaN(n) ? 0 : n;
-    };
-    eventRows.sort((a, b) => timeMs(b) - timeMs(a));
-
-    const events = eventRows.map((e) =>
-      this.mapEventRow(this.mergeEventRowWithClub(e, clubById)),
-    );
-
-    const promoTable = this.promotionTable();
-    const { data: promoRaw, error: promoErr } = await supabase
-      .from(promoTable)
-      .select('*')
-      .eq('status', 'active');
-    if (promoErr) {
-      throw new ServiceUnavailableException(
-        `Supabase promotions (${promoTable}): ${promoErr.message}`,
-      );
-    }
-
-    const nowMs = Date.now();
-    let promoRows = (promoRaw ?? []) as Record<string, unknown>[];
-    promoRows = promoRows.filter((r) => {
-      const u = r.valid_until;
-      if (u == null) return true;
-      const t = new Date(String(u)).getTime();
-      return !Number.isNaN(t) && t >= nowMs;
-    });
-
-    const clubDtoById = new Map(clubs.map((c) => [c.id, c]));
-    const promotions = promoRows.map((row) =>
-      this.mapPromotionRow(
-        row,
-        clubDtoById.get(String(row.club_id ?? '')),
-      ),
-    );
-
-    return { events, clubs, promotions };
-  }
-
   /**
    * Full URL, Supabase Storage object path, or empty → default placeholder.
    */
@@ -1051,124 +911,17 @@ export class CatalogService {
   async getClubPage(clubId: string): Promise<CatalogClubPageDto | null> {
     const id = clubId.trim();
     if (!id) return null;
-    if (this.canUseSupabaseRest()) {
-      return this.getClubPageSupabase(id);
-    }
     return this.getClubPagePg(id);
-  }
-
-  private async getClubPageSupabase(
-    clubId: string,
-  ): Promise<CatalogClubPageDto | null> {
-    const url = process.env.SUPABASE_URL!.trim();
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const clubTable = this.clubTable();
-    const eventTable = this.eventTable();
-    const promoTable = this.promotionTable();
-
-    /** Many `clubs` tables use `club_id` only (no `id`); PostgREST rejects `.or('id.eq…')` if `id` is missing. */
-    const { data: clubRowsRaw, error: clubErr } = await supabase
-      .from(clubTable)
-      .select('*')
-      .eq('club_id', clubId);
-    if (clubErr) {
-      throw new ServiceUnavailableException(
-        `Supabase clubs (${clubTable}): ${clubErr.message}`,
-      );
-    }
-    const clubRows = (clubRowsRaw ?? []) as Record<string, unknown>[];
-    const clubRow = clubRows[0];
-    if (!clubRow) {
-      return null;
-    }
-
-    const candidates = this.clubIdCandidatesFromRow(clubRow);
-    const clubByIdForMerge = new Map<string, Record<string, unknown>>();
-    for (const c of candidates) {
-      clubByIdForMerge.set(c, clubRow);
-    }
-
-    const { data: eventRowsRaw, error: eventErr } = await supabase
-      .from(eventTable)
-      .select('*')
-      .in('club_id', candidates);
-    if (eventErr) {
-      throw new ServiceUnavailableException(
-        `Supabase events (${eventTable}): ${eventErr.message}`,
-      );
-    }
-
-    let eventRows = (eventRowsRaw ?? []) as Record<string, unknown>[];
-    const evSample = eventRows[0];
-    if (evSample && Object.prototype.hasOwnProperty.call(evSample, 'event_status')) {
-      eventRows = eventRows.filter(
-        (e) => e.event_status === 'published' || e.event_status == null,
-      );
-    } else if (evSample && Object.prototype.hasOwnProperty.call(evSample, 'status')) {
-      eventRows = eventRows.filter(
-        (e) => e.status === 'published' || e.status == null,
-      );
-    }
-    eventRows = eventRows.filter((e) => this.isEventUpcomingRow(e));
-    eventRows.sort((a, b) => this.eventRowSortMs(a) - this.eventRowSortMs(b));
-
-    const { data: promoRaw, error: promoErr } = await supabase
-      .from(promoTable)
-      .select('*')
-      .in('club_id', candidates)
-      .eq('status', 'active');
-    if (promoErr) {
-      throw new ServiceUnavailableException(
-        `Supabase promotions (${promoTable}): ${promoErr.message}`,
-      );
-    }
-    const nowMs = Date.now();
-    let promoRows = (promoRaw ?? []) as Record<string, unknown>[];
-    promoRows = promoRows.filter((r) => {
-      const u = r.valid_until;
-      if (u == null) return true;
-      const t = new Date(String(u)).getTime();
-      return !Number.isNaN(t) && t >= nowMs;
-    });
-
-    const clubDto = this.mapClubRow(clubRow);
-    const events = eventRows.map((e) =>
-      this.mapEventRow(this.mergeEventRowWithClub(e, clubByIdForMerge)),
-    );
-    const promotions = promoRows.map((row) =>
-      this.mapPromotionRow(row, clubDto),
-    );
-
-    return { club: clubDto, events, promotions };
   }
 
   private async getClubPagePg(
     clubId: string,
   ): Promise<CatalogClubPageDto | null> {
-    const schema = 'public';
-    const clubTable = this.clubTable();
-    const eventTable = this.eventTable();
-    const promoTable = this.promotionTable();
-
-    const hasClubs = await this.tableExists(schema, clubTable);
-    if (!hasClubs) {
+    const club = await this.clubsRepo.findOne({ where: { clubId } });
+    if (!club) {
       return null;
     }
-
-    const { rows: clubFound } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM public.${clubTable}
-       WHERE club_id::text = $1
-       LIMIT 1`,
-      [clubId],
-    );
-    const clubRow = clubFound[0];
-    if (!clubRow) {
-      return null;
-    }
-
+    const clubRow = clubEntityToRow(club);
     const candidates = this.clubIdCandidatesFromRow(clubRow);
     if (candidates.length === 0) {
       return null;
@@ -1181,47 +934,56 @@ export class CatalogService {
 
     const clubDto = this.mapClubRow(clubRow);
 
-    const hasEvents = await this.tableExists(schema, eventTable);
-    let events: CatalogEventDto[] = [];
-    if (hasEvents) {
-      const eventCols = await this.columnSet(schema, eventTable);
-      const statusClause =
-        eventCols.has('event_status')
-          ? `AND (e.event_status = 'published' OR e.event_status IS NULL)`
-          : eventCols.has('status')
-            ? `AND (e.status = 'published' OR e.status IS NULL)`
-            : '';
-
-      const { rows: eventRows } = await this.db.query<Record<string, unknown>>(
-        `SELECT e.* FROM public.${eventTable} e
-         WHERE e.club_id IS NOT NULL
-           AND e.club_id::text = ANY($1::text[])
-           ${statusClause}`,
-        [candidates],
-      );
-
-      const upcoming = eventRows.filter((e) => this.isEventUpcomingRow(e));
-      upcoming.sort((a, b) => this.eventRowSortMs(a) - this.eventRowSortMs(b));
-      events = upcoming.map((e) =>
-        this.mapEventRow(this.mergeEventRowWithClub(e, clubByIdForMerge)),
-      );
+    let eventEntities: Events[] = [];
+    try {
+      eventEntities = await this.eventsRepo
+        .createQueryBuilder('e')
+        .leftJoinAndSelect('e.club', 'c')
+        .where('e.club_id IN (:...cids)', { cids: candidates })
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where("e.event_status = 'published'").orWhere(
+              'e.event_status IS NULL',
+            );
+          }),
+        )
+        .getMany();
+    } catch {
+      eventEntities = [];
     }
 
-    const hasPromotionsTable = await this.tableExists(schema, promoTable);
-    let promotions: CatalogPromotionDto[] = [];
-    if (hasPromotionsTable) {
-      const { rows: promoRows } = await this.db.query<Record<string, unknown>>(
-        `SELECT * FROM public.${promoTable}
-         WHERE status = 'active'
-           AND (valid_until IS NULL OR valid_until >= NOW())
-           AND club_id IS NOT NULL
-           AND club_id::text = ANY($1::text[])`,
-        [candidates],
-      );
-      promotions = promoRows.map((row) =>
-        this.mapPromotionRow(row, clubDto),
-      );
+    const upcoming = eventEntities.filter((ev) =>
+      this.isEventUpcomingRow(eventEntityToRow(ev)),
+    );
+    upcoming.sort(
+      (a, b) =>
+        this.eventRowSortMs(eventEntityToRow(a)) -
+        this.eventRowSortMs(eventEntityToRow(b)),
+    );
+    const events = upcoming.map((e) =>
+      this.mapEventRow(
+        this.mergeEventRowWithClub(eventEntityToRow(e), clubByIdForMerge),
+      ),
+    );
+
+    let promoEntities: Promotions[] = [];
+    try {
+      promoEntities = await this.promotionsRepo
+        .createQueryBuilder('p')
+        .leftJoinAndSelect('p.club', 'c')
+        .where('p.status = :st', { st: 'active' })
+        .andWhere('(p.valid_until IS NULL OR p.valid_until >= :now)', {
+          now: new Date(),
+        })
+        .andWhere('p.club_id IN (:...cids)', { cids: candidates })
+        .getMany();
+    } catch {
+      promoEntities = [];
     }
+
+    const promotions = promoEntities.map((p) =>
+      this.mapPromotionRow(promotionEntityToRow(p), clubDto),
+    );
 
     return { club: clubDto, events, promotions };
   }
@@ -1230,64 +992,14 @@ export class CatalogService {
   async getEventDtosByIds(eventIds: string[]): Promise<CatalogEventDto[]> {
     const unique = [...new Set(eventIds.map((id) => id.trim()).filter(Boolean))];
     if (unique.length === 0) return [];
-    if (this.canUseSupabaseRest()) {
-      return this.getEventDtosByIdsSupabase(unique);
-    }
     return this.getEventDtosByIdsPg(unique);
   }
 
-  private async getEventDtosByIdsSupabase(
-    ids: string[],
-  ): Promise<CatalogEventDto[]> {
-    const url = process.env.SUPABASE_URL!.trim();
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const eventTable = this.eventTable();
-    const clubTable = this.clubTable();
-    const { data: clubRowsRaw } = await supabase.from(clubTable).select('*');
-    const clubRows = (clubRowsRaw ?? []) as Record<string, unknown>[];
-    const clubById = new Map<string, Record<string, unknown>>();
-    for (const row of clubRows) {
-      const id = rowId(row);
-      if (id) {
-        clubById.set(id, row);
-      }
-      const cid = row.club_id;
-      if (cid != null) {
-        clubById.set(String(cid), row);
-      }
-    }
-    const { data: eventRowsRaw, error } = await supabase
-      .from(eventTable)
-      .select('*')
-      .in('event_id', ids);
-    if (error) {
-      throw new ServiceUnavailableException(
-        `Could not load events by id: ${error.message}`,
-      );
-    }
-    const orderIndex = new Map(ids.map((id, i) => [id, i]));
-    const eventRows = (eventRowsRaw ?? []) as Record<string, unknown>[];
-    eventRows.sort(
-      (a, b) =>
-        (orderIndex.get(String(a.event_id ?? a.id)) ?? 999) -
-        (orderIndex.get(String(b.event_id ?? b.id)) ?? 999),
-    );
-    return eventRows.map((e) =>
-      this.mapEventRow(this.mergeEventRowWithClub(e, clubById)),
-    );
-  }
-
   private async getEventDtosByIdsPg(ids: string[]): Promise<CatalogEventDto[]> {
-    const eventTable = this.eventTable();
-    const clubTable = this.clubTable();
-    const { rows: clubPgRows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM public.${clubTable}`,
-    );
+    const clubEntities = await this.clubsRepo.find();
     const clubById = new Map<string, Record<string, unknown>>();
-    for (const row of clubPgRows) {
+    for (const c of clubEntities) {
+      const row = clubEntityToRow(c);
       const id = rowId(row);
       if (id) {
         clubById.set(id, row);
@@ -1297,164 +1009,107 @@ export class CatalogService {
         clubById.set(String(cid), row);
       }
     }
-    const { rows: eventRows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM public.${eventTable} WHERE event_id = ANY($1::uuid[])`,
-      [ids],
-    );
+    const eventEntities = await this.eventsRepo.find({
+      where: { eventId: In(ids) },
+      relations: ['club'],
+    });
     const orderIndex = new Map(ids.map((id, i) => [id, i]));
-    eventRows.sort(
+    eventEntities.sort(
       (a, b) =>
-        (orderIndex.get(String(a.event_id)) ?? 999) -
-        (orderIndex.get(String(b.event_id)) ?? 999),
+        (orderIndex.get(a.eventId) ?? 999) - (orderIndex.get(b.eventId) ?? 999),
     );
-    return eventRows.map((e) =>
-      this.mapEventRow(this.mergeEventRowWithClub(e, clubById)),
+    return eventEntities.map((e) =>
+      this.mapEventRow(
+        this.mergeEventRowWithClub(eventEntityToRow(e), clubById),
+      ),
     );
   }
 
   async getCatalog(): Promise<CatalogBundleDto> {
-    if (this.canUseSupabaseRest()) {
-      return this.getCatalogFromSupabaseRest();
-    }
     return this.getCatalogFromPostgres();
   }
 
+  /**
+   * Catalog via TypeORM on `DATABASE_URL` (`events`, `clubs`, `promotions` entities).
+   */
   private async getCatalogFromPostgres(): Promise<CatalogBundleDto> {
-    const schema = 'public';
-    const eventTable = this.eventTable();
-    const clubTable = this.clubTable();
-
-    const hasEvents = await this.tableExists(schema, eventTable);
-    const hasClubs = await this.tableExists(schema, clubTable);
-    const hasPromotionsTable = await this.tableExists(
-      schema,
-      this.promotionTable(),
-    );
-
-    if (!hasEvents && !hasClubs && !hasPromotionsTable) {
+    let clubEntities: Clubs[] = [];
+    try {
+      clubEntities = await this.clubsRepo.find({
+        order: { clubName: 'ASC' },
+      });
+    } catch {
       return { events: [], clubs: [], promotions: [] };
     }
 
-    const eventCols = hasEvents
-      ? await this.columnSet(schema, eventTable)
-      : new Set<string>();
-    const clubCols = hasClubs
-      ? await this.columnSet(schema, clubTable)
-      : new Set<string>();
+    clubEntities.sort(
+      (a, b) =>
+        Number(!!b.clubImage?.trim()) - Number(!!a.clubImage?.trim()),
+    );
 
     const clubByIdRaw = new Map<string, Record<string, unknown>>();
-    let clubPgRows: Record<string, unknown>[] = [];
-    if (hasClubs) {
-      const orderBy = clubCols.has('name')
-        ? 'name'
-        : clubCols.has('club_name')
-          ? 'club_name'
-          : clubCols.has('club_id')
-            ? 'club_id'
-            : clubCols.has('id')
-              ? 'id'
-              : 'ctid';
-      const { rows } = await this.db.query<Record<string, unknown>>(
-        `SELECT * FROM public.${clubTable} ORDER BY ${orderBy} ASC NULLS LAST`,
-      );
-      clubPgRows = rows;
-      for (const row of clubPgRows) {
-        const id = rowId(row);
-        if (id) {
-          clubByIdRaw.set(id, row);
-        }
-        const cid = row.club_id;
-        if (cid != null) {
-          clubByIdRaw.set(String(cid), row);
-        }
+    for (const c of clubEntities) {
+      const row = clubEntityToRow(c);
+      const id = rowId(row);
+      if (id) {
+        clubByIdRaw.set(id, row);
       }
-      clubPgRows.sort(
-        (a, b) => Number(hasClubImageInRow(b)) - Number(hasClubImageInRow(a)),
-      );
+      const cid = row.club_id;
+      if (cid != null) {
+        clubByIdRaw.set(String(cid), row);
+      }
     }
 
-    let events: CatalogEventDto[] = [];
-    if (hasEvents) {
-      const statusClause =
-        eventCols.has('event_status')
-          ? `AND (e.event_status = 'published' OR e.event_status IS NULL)`
-          : eventCols.has('status')
-            ? `AND (e.status = 'published' OR e.status IS NULL)`
-            : '';
+    const clubs = clubEntities.map((c) =>
+      this.mapClubRow(clubEntityToRow(c)),
+    );
 
-      const joinParts: string[] = [];
-      if (hasClubs && eventCols.has('club_id')) {
-        if (clubCols.has('club_id')) {
-          joinParts.push('e.club_id = c.club_id');
-        }
-        if (clubCols.has('id')) {
-          joinParts.push('e.club_id = c.id');
-        }
-      }
-      const join =
-        joinParts.length > 0
-          ? `LEFT JOIN public.${clubTable} c ON (${joinParts.join(' OR ')})`
-          : '';
-
-      const clubSelect =
-        hasClubs && join
-          ? `, COALESCE(c.name, c.club_name, c.title, '') AS _resolved_club_name`
-          : '';
-
-      const orderParts: string[] = [];
-      if (eventCols.has('event_starting_date')) {
-        orderParts.push('e.event_starting_date DESC NULLS LAST');
-      }
-      if (eventCols.has('starts_at')) {
-        orderParts.push('e.starts_at DESC NULLS LAST');
-      }
-      if (eventCols.has('start_date')) {
-        orderParts.push('e.start_date DESC NULLS LAST');
-      }
-      if (eventCols.has('created_at')) {
-        orderParts.push('e.created_at DESC NULLS LAST');
-      }
-      if (eventCols.has('event_id')) {
-        orderParts.push('e.event_id DESC NULLS LAST');
-      } else if (eventCols.has('id')) {
-        orderParts.push('e.id DESC NULLS LAST');
-      }
-      const orderSql =
-        orderParts.length > 0 ? orderParts.join(', ') : '1';
-
-      const { rows } = await this.db.query<Record<string, unknown>>(
-        `SELECT e.* ${clubSelect}
-         FROM public.${eventTable} e
-         ${join}
-         WHERE 1=1 ${statusClause}
-         ORDER BY ${orderSql}`,
-      );
-
-      events = rows.map((r) =>
-        this.mapEventRow(this.mergeEventRowWithClub(r, clubByIdRaw)),
-      );
+    let eventEntities: Events[] = [];
+    try {
+      eventEntities = await this.eventsRepo
+        .createQueryBuilder('e')
+        .leftJoinAndSelect('e.club', 'c')
+        .where(
+          new Brackets((qb) => {
+            qb.where("e.event_status = 'published'").orWhere(
+              'e.event_status IS NULL',
+            );
+          }),
+        )
+        .orderBy('e.event_starting_date', 'DESC', 'NULLS LAST')
+        .addOrderBy('e.event_id', 'DESC')
+        .getMany();
+    } catch {
+      eventEntities = [];
     }
 
-    let clubs: CatalogClubDto[] = [];
-    if (hasClubs) {
-      clubs = clubPgRows.map((r) => this.mapClubRow(r));
-    }
+    const events = eventEntities.map((ev) =>
+      this.mapEventRow(
+        this.mergeEventRowWithClub(eventEntityToRow(ev), clubByIdRaw),
+      ),
+    );
 
     let promotions: CatalogPromotionDto[] = [];
-    if (hasPromotionsTable) {
-      const promoTable = this.promotionTable();
-      const { rows: promoRows } = await this.db.query<Record<string, unknown>>(
-        `SELECT * FROM public.${promoTable}
-         WHERE status = 'active'
-           AND (valid_until IS NULL OR valid_until >= NOW())`,
-      );
-      const clubById = new Map(clubs.map((c) => [c.id, c]));
-      promotions = promoRows.map((row) =>
-        this.mapPromotionRow(
-          row,
-          clubById.get(String(row.club_id ?? '')),
-        ),
-      );
+    try {
+      const promoEntities = await this.promotionsRepo
+        .createQueryBuilder('p')
+        .leftJoinAndSelect('p.club', 'c')
+        .where('p.status = :st', { st: 'active' })
+        .andWhere('(p.valid_until IS NULL OR p.valid_until >= :now)', {
+          now: new Date(),
+        })
+        .getMany();
+      const clubDtoById = new Map(clubs.map((c) => [c.id, c]));
+      promotions = promoEntities.map((p) => {
+        const row = promotionEntityToRow(p);
+        const clubDto =
+          p.club != null
+            ? this.mapClubRow(clubEntityToRow(p.club))
+            : clubDtoById.get(String(row.club_id ?? ''));
+        return this.mapPromotionRow(row, clubDto);
+      });
+    } catch {
+      promotions = [];
     }
 
     return { events, clubs, promotions };

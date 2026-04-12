@@ -101,12 +101,14 @@ function VenueCard({ club }: { club: Club }) {
         style={{ background: OVERLAY_GRADIENT }}
         aria-hidden
       />
-      <div className="relative z-[1] mt-auto flex flex-col gap-0.5 p-2.5">
-        <h3 className="text-left text-[13px] font-bold leading-snug text-white">
+      <div className="relative z-[1] mt-auto flex flex-col gap-0.5 p-[clamp(0.35rem,1.8vw,0.65rem)]">
+        <h3 className="text-left text-[clamp(10px,2.6vw,13px)] font-bold leading-snug text-white">
           {club.name}
         </h3>
         {club.city ? (
-          <span className="text-left text-[11px] text-neutral-400">{club.city}</span>
+          <span className="text-left text-[clamp(9px,2.2vw,11px)] text-neutral-400">
+            {club.city}
+          </span>
         ) : null}
       </div>
     </Link>
@@ -143,10 +145,10 @@ export function ClubsSection() {
           <div
             className={cn(
               'clubs-hot-venues-root grid w-full overflow-x-hidden',
-              'grid-cols-1 gap-[8px]',
-              'max-md:auto-rows-[180px]',
-              'md:grid-cols-2 md:auto-rows-[160px]',
-              'lg:grid-cols-3 lg:auto-rows-[160px]',
+              /* Same 3-column mosaic as desktop; row height + gap scale down on narrow viewports */
+              'grid-cols-3',
+              'gap-[clamp(4px,1.5vw,10px)]',
+              'auto-rows-[clamp(52px,min(22vw,28vh),160px)]',
             )}
           >
             {allClubs.map((club, index) => (
@@ -158,8 +160,7 @@ export function ClubsSection() {
                 transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.24) }}
                 className={cn(
                   'clubs-mosaic-cell min-h-0 min-w-0 overflow-hidden rounded-[10px]',
-                  'max-md:h-[180px]',
-                  'md:h-[160px] lg:h-auto',
+                  'h-auto min-h-[3rem]',
                 )}
                 style={mosaicPlacementStyle(index)}
               >

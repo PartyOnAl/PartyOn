@@ -11,10 +11,4 @@
   height: 0;
 }
 
-/* Mosaic line placement only applies on large screens; tablet/mobile use auto flow. */
-@media (max-width: 1023px) {
-  .clubs-mosaic-cell {
-    grid-column: auto !important;
-    grid-row: auto !important;
-  }
-}
+/* Mosaic placement is defined inline on cells; keep it at all breakpoints (scaled via grid row size + gap). */

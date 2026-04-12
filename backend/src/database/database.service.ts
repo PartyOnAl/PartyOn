@@ -16,7 +16,7 @@ export class DatabaseService implements OnModuleDestroy {
     const connectionString = process.env.DATABASE_URL?.trim();
     if (!connectionString) {
       throw new ServiceUnavailableException(
-        'DATABASE_URL is not set. Use Supabase REST catalog (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) or add a Postgres URI.',
+        'DATABASE_URL is not set. Add a Postgres URI (e.g. Supabase Session pooler) for the API.',
       );
     }
     const useSsl =
@@ -45,7 +45,7 @@ export class DatabaseService implements OnModuleDestroy {
         url.includes('supabase.co')
       ) {
         message +=
-          ' Direct db.*.supabase.co is often IPv6-only. Use the Session pooler URI from Supabase (Connect → Direct → Session pooler): user postgres.<project-ref>, host aws-0-<region>.pooler.supabase.com, port 5432.';
+          ' Direct db.*.supabase.co is often IPv6-only. In Supabase Dashboard use Database → Connection string → Session pooler (IPv4): user postgres.<project-ref>, host aws-*-<region>.pooler.supabase.com, port 5432.';
       }
       throw new ServiceUnavailableException(
         `Database query failed: ${message}`,

@@ -16,6 +16,11 @@ import { ClubsModule } from './clubs/clubs.module';
 
 dotenv.config();
 
+function isSupabasePostgresUrl(url: string | undefined): boolean {
+  const u = url?.trim() ?? '';
+  return u.includes('supabase.co') || u.includes('pooler.supabase.com');
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -25,6 +30,10 @@ dotenv.config();
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
+      // Required for Supabase (direct db.* or session pooler); local Postgres leaves ssl unset.
+      ssl: isSupabasePostgresUrl(process.env.DATABASE_URL)
+        ? { rejectUnauthorized: false }
+        : undefined,
       autoLoadEntities: true,
       synchronize: false,
     }),
@@ -41,9 +50,4 @@ dotenv.config();
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {
-  constructor() {
-    console.log('TYPE:', typeof process.env.DATABASE_URL);
-    console.log('VALUE:', process.env.DATABASE_URL);
-  }
-}
+export class AppModule {}
