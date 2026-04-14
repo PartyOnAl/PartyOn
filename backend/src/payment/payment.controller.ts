@@ -1,13 +1,13 @@
 import { Body, Controller, Get, Post , Query , Param , Req, Res } from '@nestjs/common';
-import { Events } from 'generated-entities/entities/Events';
-import { EventListItem, EventService } from './event.service';
+import { Payments } from 'generated-entities/entities/Payments';
+import { PaymentListItem, PaymentService } from './payment.service';
 import Stripe from 'stripe';
 
 
 
-@Controller('event')
-export class EventController {
-  constructor(private readonly eventService: EventService) {}
+@Controller('payment')
+export class PaymentController {
+  constructor(private readonly paymentService: PaymentService) {}
 
   @Get()
   getAll(
@@ -15,27 +15,27 @@ export class EventController {
     @Query('city') city?:string,
     @Query('musicType') musicType?:string,
     @Query('time') time?:string,
-  ): Promise<EventListItem[]> {
+  ): Promise<PaymentListItem[]> {
     if (query || city || musicType || time){
-      return this.eventService.findFiltered(query,city,musicType,time)
+      return this.paymentService.findFiltered(query,city,musicType,time)
     }
     
-    return this.eventService.findAll();
+    return this.paymentService.findAll();
   }
 
   @Post()
-  create(@Body() eventData: Partial<Events>): Promise<Events> {
-    return this.eventService.create(eventData);
+  create(@Body() paymentData: Partial<Payments>): Promise<Payments> {
+    return this.paymentService.create(paymentData);
   }
 
   @Get(':id')
-getById(@Param('id') id: string): Promise<EventListItem> {
-  return this.eventService.findById(id);
+getById(@Param('id') id: string): Promise<PaymentListItem> {
+  return this.paymentService.findById(id);
 }
 
 @Post('pay')
 async createPayment(@Body() body: {amount : number , quantity : number ,events : any}){
-  const result= await this.eventService.createPayment(
+  const result= await this.paymentService.createPayment(
   body.amount , 
   body.quantity,
   body.events,
@@ -50,11 +50,11 @@ async handleWebhook(@Req() req: Request) {
   const sig = req.headers['stripe-signature'];
   let event;
   try {
-    event = this.eventService.constructEvent(req as any, sig);
+    event = this.paymentService.constructEvent(req as any, sig);
   }catch (err) {
     throw new Error(`Webhook Error: ${err.message}`);
   }
-  await this.eventService.handleEvent(event);
+  await this.paymentService.handleEvent(event);
   return { received: true };
 }
 }

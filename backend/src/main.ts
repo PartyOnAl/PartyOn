@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import * as dotenv from 'dotenv';
 import { AppModule } from './app.module';
+import * as express from 'express';
 
 dotenv.config();
 console.log("test",process.env.DATABASE_URL);
@@ -15,6 +16,9 @@ async function bootstrap() {
     origin: 'http://localhost:5173',
     credentials: true,
   });
+  
+  const express = require('express');
+  app.use('/payment/webhook', express.raw({ type: 'application/json' }));
 
   await app.listen(port);
   console.log(`Backend is running on http://localhost:${port}`);

@@ -1,4 +1,6 @@
 import './PurchasedTicket.css'
+import { useParams , useNavigate } from 'react-router-dom'
+import { useState , useEffect } from 'react'
 
 const ORDER_ID = 'PO-2026-0329-8472'
 const QR_DATA = encodeURIComponent(`PartyOn:${ORDER_ID}:ECHOES`)
@@ -126,9 +128,36 @@ function ArrowRightIcon() {
   )
 }
 
-export default function PurchasedTicket() {
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&bgcolor=ffffff&color=000000&data=${QR_DATA}`
+function formatEventDate(dateString: string) {
+  const date = new Date(dateString)
 
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+
+  return `${formattedDate} • ${time}`
+}
+
+export default function PurchasedTicket() {
+  const {id} = useParams()
+  const {quantity} = useParams()
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&bgcolor=ffffff&color=000000&data=${QR_DATA}`
+  const [events, setEvents] = useState<any>(null);
+  useEffect(() => {
+    if (!id) return
+       fetch(`http://localhost:3000/event/${id}`)
+      .then(res => res.json())
+      .then(data => setEvents(data))
+  }, [id])  
   return (
     <div className="purchased-ticket">
       <div className="purchased-ticket__glow" aria-hidden={true} />
@@ -142,12 +171,22 @@ export default function PurchasedTicket() {
         </header>
 
         <div className="purchased-ticket__summary">
-          <div className="purchased-ticket__summary-thumb" aria-hidden={true} />
+        <div
+  className="payment-page__event-thumb"
+  style={{
+    backgroundImage: `url(${events?.event_image})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  }}
+/>
+
           <div>
-            <p className="purchased-ticket__summary-title">ECHOES: Underground Techno Night</p>
+            <p className="purchased-ticket__summary-title">{events?.event_name}</p>
             <p className="purchased-ticket__summary-meta">
               <CalendarSmallIcon />
-              <span>Saturday, Mar 29, 2026 • 23:00 Warehouse Roma.</span>
+              <span>{events?.event_starting_date
+    ? formatEventDate(events.event_starting_date)
+    : ''}</span>
             </p>
           </div>
         </div>
@@ -158,25 +197,27 @@ export default function PurchasedTicket() {
               <img src={qrSrc} alt="Ticket QR code" width={220} height={220} loading="lazy" />
             </div>
             <div className="purchased-ticket__details">
-              <h2 className="purchased-ticket__event-title">ECHOES: Underground Techno Night</h2>
+              <h2 className="purchased-ticket__event-title">{events?.event_name}</h2>
               <p className="purchased-ticket__tier">General Admission</p>
               <div className="purchased-ticket__detail-line">
                 <CalendarSmallIcon />
                 <div>
-                  <div>Saturday, March 29, 2026</div>
-                  <div>23:00 • Doors open at 22:30</div>
+                  <div>{events?.event_starting_date
+    ? formatEventDate(events.event_starting_date)
+    : ''}</div>
+                  <div>• Doors open at {events?.event_hours}</div>
                 </div>
               </div>
               <div className="purchased-ticket__detail-line">
                 <PinIcon />
                 <div>
-                  <div>Warehouse Roma</div>
-                  <div>Via dei Magazzini 42, 00153 Roma RM, Italy</div>
+                  <div>{events?.club}</div>
+                  <div>{events?.club_address}</div>
                 </div>
               </div>
               <div className="purchased-ticket__label-row">
                 <div className="purchased-ticket__meta-label">Quantity</div>
-                <div className="purchased-ticket__meta-value">1 ticket</div>
+                <div className="purchased-ticket__meta-value">{quantity} ticket</div>
               </div>
               <div className="purchased-ticket__label-row">
                 <div className="purchased-ticket__meta-label">Order number</div>

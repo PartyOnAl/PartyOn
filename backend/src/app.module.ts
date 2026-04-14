@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { ClubsModule } from './clubs/clubs.module';
+import { PaymentModule } from './payment/payment.module';
 ''
 
 
@@ -27,6 +28,7 @@ import { ClubsModule } from './clubs/clubs.module';
     EventModule,
     PromotionsModule,
     ClubsModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

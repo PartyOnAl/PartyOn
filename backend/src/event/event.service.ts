@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Events } from 'generated-entities/entities/Events';
+import { Request } from 'express';
 import Stripe from 'stripe';
 
 export type EventListItem = {
@@ -31,6 +32,14 @@ export class EventService {
     @InjectRepository(Events)
     private readonly eventRepository: Repository<Events>,
   ) {}
+
+  constructEvent(req: Request, sig: string | string[] | undefined): any {
+    return this.stripe.webhooks.constructEvent(
+      req.body,
+      sig as string,
+      process.env.STRIPE_WEBHOOK_SECRET!,
+    );
+  }
 
   async findAll(): Promise<EventListItem[]> {
   
@@ -93,7 +102,7 @@ export class EventService {
     return this.toListItem(events);
   }
 
-async createPayment(amount:number){
+async createPayment(amount:number , quantity:number , events:any){
   const session=await this.stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
@@ -106,13 +115,34 @@ async createPayment(amount:number){
           },
           unit_amount: amount,
         },
-        quantity: 1,
+        quantity: quantity,
       },
     ],
-    success_url: 'http://localhost:5173/success',
+    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}`,
     cancel_url: 'http://localhost:5173/cancel',
+    metadata: {
+      amount: amount*0.01*quantity,
+    },
   });
+  console.log('PRICE:', amount);
+console.log('QUANTITY:', quantity);
    return { url: session.url };
+}
+
+async handleEvent(event: any) {
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as any;
+      console.log('Payment success:', session.id);
+      const amount = session.amount_total ?? 0;
+      const email = session.customer_details?.email ?? 'unknown';
+      await this.eventRepository.create({
+      });
+      break;
+    }
+    default:
+      break;
+  }
 }
 
   private toListItem(event: Events): EventListItem {

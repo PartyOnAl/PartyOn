@@ -39,10 +39,10 @@ function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/home" element={<Home />} />
         <Route path="/search" element={<Search />} />
-        <Route path="/payment" element={<Payment />} />
+        <Route path="/payment/:id" element={<Payment />} />
         <Route path="/payment-method" element={<PaymentMethod />} />
         <Route path="/promotions" element={<Promotions />} />
-        <Route path="/purchased-ticket" element={<PurchasedTicket />} />
+        <Route path="/purchased-ticket/:id/:quantity" element={<PurchasedTicket />} />
         <Route path="/top-clubs" element={<TopClubs />} />
         <Route path="/nearby-clubs" element={<TopClubs />} />
         <Route path="/clubs/nearby" element={<TopClubs />} />

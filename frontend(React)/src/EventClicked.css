@@ -200,6 +200,134 @@ body {
   transform: scale(0.99);
 }
 
+.event-clicked__ticket-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 14px 0 12px;
+}
+
+.event-clicked__ticket-divider span {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.event-clicked__reserve {
+  padding: 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 168, 76, 0.12) 0%, rgba(255, 168, 76, 0.02) 20%, rgba(20, 15, 26, 0.94) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.event-clicked__reserve-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 9999px;
+  background: rgba(255, 163, 87, 0.12);
+  color: #ffb160;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.event-clicked__reserve-badge svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.event-clicked__reserve-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.event-clicked__reserve-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.event-clicked__reserve-title svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: #ffb160;
+}
+
+.event-clicked__reserve-note {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.event-clicked__reserve-price {
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1;
+  color: #f4e8ff;
+  white-space: nowrap;
+}
+
+.event-clicked__reserve-perk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 12px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.event-clicked__reserve-perk svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: #c88dff;
+}
+
+.event-clicked__reserve-btn {
+  width: 100%;
+  padding: 13px 20px;
+  border: none;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #b766ff 0%, #ff0fd8 100%);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.event-clicked__reserve-btn:hover {
+  opacity: 0.96;
+}
+
+.event-clicked__reserve-btn:active {
+  transform: scale(0.99);
+}
+
+.event-clicked__reserve-footnote {
+  margin: 8px 0 0;
+  font-size: 0.5625rem;
+  font-weight: 500;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.28);
+}
+
 /* About */
 .event-clicked__section-title {
   margin: 0 0 12px;

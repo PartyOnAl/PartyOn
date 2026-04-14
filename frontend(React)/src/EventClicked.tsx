@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useParams , useNavigate } from 'react-router-dom'
 import './EventClicked.css'
 import { useEffect} from 'react';
 import { useMemo, useState } from 'react'
@@ -144,6 +144,51 @@ function TicketSmallIcon() {
   )
 }
 
+function FlameIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
+      <path
+        d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function CrownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
+      <path
+        d="M4 17.5h16l-1.2-7.5-4.6 3.2L12 7.5l-2.2 5.7L5.2 10 4 17.5z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M6.5 20h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="6" cy="8.5" r="1" fill="currentColor" />
+      <circle cx="12" cy="5.5" r="1" fill="currentColor" />
+      <circle cx="18" cy="8.5" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
+      <path
+        d="M7 12.5 10.2 15.7 17 8.9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function AppleIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden={true}>
@@ -181,8 +226,11 @@ function formatEventDate(dateString: string) {
 
 export default function EventClicked() {
   const {id} = useParams()
-
+  const navigate =useNavigate();
   const [events, setEvents] = useState<any>(null);
+  const payment = () =>{
+    navigate(`/payment/${id}`)
+  };
   useEffect(() => {
     if (!id) return
 
@@ -253,9 +301,36 @@ export default function EventClicked() {
             <p className="event-clicked__price-note">
               No hidden fees. Final price shown upfront.
             </p>
-            <button type="button" onClick={handleBuy} className="event-clicked__buy">
+            <button type="button" onClick={payment} className="event-clicked__buy">
               Buy Now
             </button>
+            <div className="event-clicked__ticket-divider" aria-hidden={true}>
+              <span>OR</span>
+            </div>
+            <div className="event-clicked__reserve">
+              <div className="event-clicked__reserve-badge">
+                <FlameIcon />
+                <span>Most popular choice</span>
+              </div>
+              <div className="event-clicked__reserve-head">
+                <div>
+                  <p className="event-clicked__reserve-title">
+                    <CrownIcon />
+                    <span>Table Reservation</span>
+                  </p>
+                  <p className="event-clicked__reserve-note">VIP table with bottle service</p>
+                </div>
+                <span className="event-clicked__reserve-price">{'\u20AC'}300+</span>
+              </div>
+              <p className="event-clicked__reserve-perk">
+                <CheckIcon />
+                <span>Includes entry for all guests</span>
+              </p>
+              <button type="button" className="event-clicked__reserve-btn">
+                Reserve Table
+              </button>
+              <p className="event-clicked__reserve-footnote">Min spend {'\u20AC'}300</p>
+            </div>
           </div>
 
           <section aria-labelledby="about-heading">
