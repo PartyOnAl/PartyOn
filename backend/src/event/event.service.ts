@@ -2,29 +2,44 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Events } from 'generated-entities/entities/Events';
+import { Request } from 'express';
+import Stripe from 'stripe';
 
 export type EventListItem = {
-  event_id: string;
-  event_name: string;
+  club_address: string | null;
+  event_id: string | null;
+  event_name: string | null;
   event_description: string | null;
-  event_starting_date: Date;
+  event_starting_date: Date | null;
   event_ending_date: Date | null;
   event_type: string | null;
   event_status: string | null;
-  ticket_price: number;
-  ticket_discount: number;
-  final_ticket_price: number;
+  ticket_price: number | null;
+  ticket_discount: number | null;
+  final_ticket_price: number | null;
   event_image: string | null;
   event_capacity: number | null;
   club: string | null;
+  event_hours: string| null;
 };
 
 @Injectable()
 export class EventService {
+  private stripe = new Stripe(process.env.STRIPE_SECRET_KEY!,{
+    apiVersion: '2026-03-25.dahlia',
+  });
   constructor(
     @InjectRepository(Events)
     private readonly eventRepository: Repository<Events>,
   ) {}
+
+  constructEvent(req: Request, sig: string | string[] | undefined): any {
+    return this.stripe.webhooks.constructEvent(
+      req.body,
+      sig as string,
+      process.env.STRIPE_WEBHOOK_SECRET!,
+    );
+  }
 
   async findAll(): Promise<EventListItem[]> {
   
@@ -34,10 +49,101 @@ export class EventService {
   
     return events.map((event) => this.toListItem(event));
   }
+  async findFiltered(
+    query?: string,
+    city?: string,
+    musicType?: string,
+    time?: string,
+  ): Promise<EventListItem[]> {
+  
+    const qb = this.eventRepository.createQueryBuilder('event')
+  
+    // 👇 ONLY add join if you really need club data
+    qb.leftJoinAndSelect('event.club', 'club')
+  
+    // 🔍 search
+    if (query) {
+      qb.andWhere(
+        '(event.eventName ILIKE :query OR event.eventDescription ILIKE :query)',
+        { query: `%${query}%` },
+      )
+    }
+  
+    // 🌍 city (from relation)
+    if (city && city !== 'all') {
+      qb.andWhere('club.clubAddress ILIKE :city', {
+        city: `%${city}%`,
+      })
+    }
+  
+    // 🎵 music type
+    if (musicType && musicType !== 'all') {
+      qb.andWhere('event.eventType ILIKE :musicType', {
+        musicType: `%${musicType}%`,
+      })
+    }
+  
+    const events = await qb.getMany()
+    return events.map(e => this.toListItem(e))
+  }
   create(eventData: Partial<Events>): Promise<Events> {
     const event = this.eventRepository.create(eventData);
     return this.eventRepository.save(event);
   }
+
+  async findById(id: string) {
+    const events=await this.eventRepository.findOne({
+      where: { eventId: id },
+      relations: ['club'], // if needed
+    });
+    if (!events) {
+      throw new Error('Event not found');
+    }
+    return this.toListItem(events);
+  }
+
+async createPayment(amount:number , quantity:number , events:any){
+  const session=await this.stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'payment',
+    line_items:[
+      {
+        price_data: {
+          currency: 'eur',
+          product_data: {
+            name: 'Event Ticket',
+          },
+          unit_amount: amount,
+        },
+        quantity: quantity,
+      },
+    ],
+    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}`,
+    cancel_url: 'http://localhost:5173/cancel',
+    metadata: {
+      amount: amount*0.01*quantity,
+    },
+  });
+  console.log('PRICE:', amount);
+console.log('QUANTITY:', quantity);
+   return { url: session.url };
+}
+
+async handleEvent(event: any) {
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as any;
+      console.log('Payment success:', session.id);
+      const amount = session.amount_total ?? 0;
+      const email = session.customer_details?.email ?? 'unknown';
+      await this.eventRepository.create({
+      });
+      break;
+    }
+    default:
+      break;
+  }
+}
 
   private toListItem(event: Events): EventListItem {
     return {
@@ -54,6 +160,8 @@ export class EventService {
       event_image: event.eventImage,
       event_capacity: event.eventCapacity,
       club: event.club.clubName,
+      club_address: event.club.clubAddress,
+      event_hours: event.eventHours,
     };
   }
 }

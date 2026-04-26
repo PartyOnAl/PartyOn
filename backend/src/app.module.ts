@@ -6,48 +6,36 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EventModule } from './event/event.module';
 import { AuthModule } from './auth/auth.module';
-import { CatalogModule } from './catalog/catalog.module';
-import { DatabaseModule } from './database/database.module';
-import { SavedModule } from './saved/saved.module';
-import { SuggestionsModule } from './suggestions/suggestions.module';
 import { UsersModule } from './users/users.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { ClubsModule } from './clubs/clubs.module';
+import { PaymentModule } from './payment/payment.module';
+''
 
-dotenv.config();
-
-function isSupabasePostgresUrl(url: string | undefined): boolean {
-  const u = url?.trim() ?? '';
-  return u.includes('supabase.co') || u.includes('pooler.supabase.com');
-}
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
+  imports:[
+    ConfigModule.forRoot({ 
+      isGlobal: true,  
+      envFilePath: '.env', 
     }),
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      // Required for Supabase (direct db.* or session pooler); local Postgres leaves ssl unset.
-      ssl: isSupabasePostgresUrl(process.env.DATABASE_URL)
-        ? { rejectUnauthorized: false }
-        : undefined,
       autoLoadEntities: true,
       synchronize: false,
     }),
-    DatabaseModule,
-    AuthModule,
-    CatalogModule,
-    SavedModule,
-    SuggestionsModule,
     EventModule,
-    UsersModule,
     PromotionsModule,
     ClubsModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule {
+  constructor() {
+    console.log('TYPE:', typeof process.env.DATABASE_URL);
+    console.log('VALUE:', process.env.DATABASE_URL);
+  }
+}
