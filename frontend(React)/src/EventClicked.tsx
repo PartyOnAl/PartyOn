@@ -1,11 +1,55 @@
-import { useParams , useNavigate } from 'react-router-dom'
 import './EventClicked.css'
 import { useEffect} from 'react';
 import { useMemo, useState } from 'react'
+import {
+  ArrowLeft,
+  Calendar,
+  ChevronDown,
+  Clock,
+  ExternalLink,
+  Heart,
+  MapPin,
+  Music,
+  Share2,
+  User,
+  Users,
+} from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Navbar } from '@/components/Navbar'
+import { LovableFooter } from '@/components/LovableFooter'
+import { Button } from '@/components/ui/Button'
+import { useAuth } from '@/contexts/AuthContext'
+import { useCatalog } from '@/contexts/CatalogContext'
+import { useSavedEvents } from '@/contexts/SavedEventsContext'
+import { cn } from '@/lib/utils'
 import Stripe from 'stripe';
 import type { Club, Event } from '@/types'
 import { loadStripe } from '@stripe/stripe-js';
 
+/*function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
+      <circle cx="18" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.75" />
+      <circle cx="6" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.75" />
+      <circle cx="18" cy="19" r="2.5" stroke="currentColor" strokeWidth="1.75" />
+      <path
+        d="M8.5 10.5 15 7.5M8.5 13.5 15 16.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}*/
+
+/*function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
+      <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M4 9h16M8 5V3M16 5V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}*/
 
 function HeartIcon() {
   return (
@@ -238,6 +282,125 @@ export default function EventClicked() {
       .then(res => res.json())
       .then(data => setEvents(data))
   }, [id])  
+  const saved =
+    user && fromCatalog ? isSaved(fromCatalog.id) : false
+
+  async function toggleSave() {
+    if (!fromCatalog) return
+    if (!user) {
+      navigate('/login')
+      return
+    }
+    if (saved) await removeEvent(fromCatalog.id)
+    else await saveEvent(fromCatalog.id)
+  }
+
+  async function share() {
+    const url = window.location.href
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: fromCatalog?.title, url })
+      } catch {
+        /* dismissed */
+      }
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => {})
+    }
+  }
+
+  function primaryAction() {
+    if (!fromCatalog) return
+    if (eventNeedsTicket(fromCatalog)) {
+      const eventId = fromCatalog.id?.trim()
+      if (!eventId || eventId === 'undefined') {
+        return
+      }
+      if (!user) {
+        navigate(
+          `/login?from=${encodeURIComponent(`/event/${fromCatalog.id}`)}`,
+        )
+        return
+      }
+      navigate(`/payment/${encodeURIComponent(eventId)}`, {
+        state: { event: fromCatalog },
+      })
+    } else if (fromCatalog.clubId) {
+      navigate(`/clubs/${encodeURIComponent(fromCatalog.clubId)}`)
+    } else {
+      navigate({ pathname: '/', hash: 'events' })
+    }
+  }
+
+  function openMaps(address: string) {
+    const q = encodeURIComponent(address)
+    window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank')
+  }
+
+  if (!resolvedId) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <div className="po-container py-20 text-center text-muted-foreground">
+          Redirecting…
+        </div>
+        <LovableFooter />
+      </div>
+    )
+  }
+
+  if (loading && !fromCatalog) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <EventPageSkeleton />
+        <LovableFooter />
+      </div>
+    )
+  }
+
+  if (!fromCatalog) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-20 text-center">
+          <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
+          <Button variant="outline" onClick={() => navigate(-1)}>
+            Go back
+          </Button>
+          <Button variant="ghost" onClick={() => navigate('/')}>
+            Home
+          </Button>
+        </div>
+        <LovableFooter />
+      </div>
+    )
+  }
+
+  const ev = fromCatalog
+  const needsTicket = eventNeedsTicket(ev)
+  const venueLine = [ev.club && ev.club !== '—' ? ev.club : '', ev.city]
+    .filter(Boolean)
+    .join(' · ')
+  const venueAddress =
+    ev.address?.trim() ||
+    [ev.city, ev.club && ev.club !== '—' ? ev.club : ''].filter(Boolean).join(', ')
+  const musicLine =
+    ev.musicType && ev.musicType !== '—' ? ev.musicType : 'Live event'
+  const priceLabel =
+    ev.price > 0
+      ? `From ${ev.currency ?? '€'}${ev.price}`
+      : 'Free entry'
+  const chipAge = ev.ageRestriction?.trim() || '—'
+  const chipHost = ev.organizer?.trim() || 'PartyOn'
+  const doorsText =
+    ev.doorsOpen != null && String(ev.doorsOpen).trim()
+      ? `Doors open: ${String(ev.doorsOpen).trim()}`
+      : null
+  const about =
+    ev.description?.trim() ||
+    'Details for this night will appear here when the organizer adds a full description.'
+  const aboutLong = about.length > 220
+  const imgSrc = ev.imageUrl?.trim() || FALLBACK_IMG
 
   
   const handleBuy= async () => {

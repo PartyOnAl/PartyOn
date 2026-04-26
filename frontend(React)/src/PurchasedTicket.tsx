@@ -153,7 +153,7 @@ export default function PurchasedTicket() {
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&bgcolor=ffffff&color=000000&data=${QR_DATA}`
   const [events, setEvents] = useState<any>(null);
   useEffect(() => {
-    if (!id) return
+    if (!id || id === 'undefined') return
        fetch(`http://localhost:3000/event/${id}`)
       .then(res => res.json())
       .then(data => setEvents(data))

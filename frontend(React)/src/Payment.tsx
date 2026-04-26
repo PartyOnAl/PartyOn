@@ -30,7 +30,7 @@ export default function Payment() {
   const [organizerUpdates, setOrganizerUpdates] = useState(true);
   const [events, setEvents] = useState<any>(null);
   useEffect(() => {
-    if (!id) return
+    if (!id || id === 'undefined') return
 
     fetch(`http://localhost:3000/event/${id}`)
       .then(res => res.json())
@@ -38,6 +38,9 @@ export default function Payment() {
   }, [id])  
   console.log(quantity)
   const handleBuy= async () => {
+    if (!events?.event_id || events.event_id === 'undefined') {
+      return;
+    }
     const res=await fetch('http://localhost:3000/event/pay',{
       method: 'POST',
       headers: {
@@ -149,7 +152,12 @@ export default function Payment() {
             <span>Get updates from this organizer about future events.</span>
           </label>
 
-          <button type="button" onClick={handleBuy} className="payment-page__cta">
+          <button
+            type="button"
+            onClick={handleBuy}
+            className="payment-page__cta"
+            disabled={!events?.event_id || events.event_id === 'undefined'}
+          >
             Continue to Payment
           </button>
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Events } from 'generated-entities/entities/Events';
@@ -25,16 +25,14 @@ export type EventListItem = {
 
 @Injectable()
 export class EventService {
-  private stripe = new Stripe(process.env.STRIPE_SECRET_KEY!,{
-    apiVersion: '2026-03-25.dahlia',
-  });
+  private stripe: InstanceType<typeof Stripe> | null = null;
   constructor(
     @InjectRepository(Events)
     private readonly eventRepository: Repository<Events>,
   ) {}
 
   constructEvent(req: Request, sig: string | string[] | undefined): any {
-    return this.stripe.webhooks.constructEvent(
+    return this.getStripe().webhooks.constructEvent(
       req.body,
       sig as string,
       process.env.STRIPE_WEBHOOK_SECRET!,
@@ -103,7 +101,7 @@ export class EventService {
   }
 
 async createPayment(amount:number , quantity:number , events:any){
-  const session=await this.stripe.checkout.sessions.create({
+  const session=await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
     line_items:[
@@ -127,6 +125,25 @@ async createPayment(amount:number , quantity:number , events:any){
   console.log('PRICE:', amount);
 console.log('QUANTITY:', quantity);
    return { url: session.url };
+}
+
+private getStripe(): InstanceType<typeof Stripe> {
+  if (this.stripe) {
+    return this.stripe;
+  }
+
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new InternalServerErrorException(
+      'STRIPE_SECRET_KEY is not configured in backend environment.',
+    );
+  }
+
+  this.stripe = new Stripe(secretKey, {
+    apiVersion: '2026-03-25.dahlia',
+  });
+
+  return this.stripe;
 }
 
 async handleEvent(event: any) {
