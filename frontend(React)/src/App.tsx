@@ -19,6 +19,8 @@ import PaymentMethod from './PaymentMethod'
 import Promotions from './Promotions'
 import PromotionOfferDetailPage from './PromotionOfferDetailPage'
 import PurchasedTicket from './PurchasedTicket'
+import Success from './Success'
+import Cancel from './Cancel'
 // Standalone search page — re-enable route below when needed again.
 // import Search from './Search'
 import ClubDetail from './ClubDetail'
@@ -71,11 +73,15 @@ function App() {
               <Route path="/clubs/:club_id" element={<ClubDetail />} />
               <Route path="/club/:id" element={<ClubLegacyRedirect />} />
               <Route path="/dj/:id" element={<DjDetail />} />
-              <Route path="/payment" element={<Payment />} />
+              <Route path="/payment" element={<Navigate to="/" replace />} />
+              <Route path="/payment/:id" element={<Payment />} />
               <Route path="/payment-method" element={<PaymentMethod />} />
               <Route path="/promotions" element={<Promotions />} />
               <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
               <Route path="/purchased-ticket" element={<PurchasedTicket />} />
+              <Route path="/purchased-ticket/:id/:quantity" element={<PurchasedTicket />} />
+              <Route path="/success" element={<Success />} />
+              <Route path="/cancel" element={<Cancel />} />
               <Route path="/top-clubs" element={<TopClubs />} />
               <Route path="/nearby-clubs" element={<TopClubs />} />
               <Route path="/event/:id" element={<EventClicked />} />

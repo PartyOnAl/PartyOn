@@ -1,84 +1,65 @@
-import { useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useState , useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import './Payment.css'
 
-type PaymentEventState = {
-  id: string
-  title: string
-  date: string
-  club: string
-  city: string
-  price: number
-  currency: string
-  imageUrl?: string
-}
 
-type PaymentOfferState = {
-  id: string
-  title: string
-  venue: string
-  city: string
-  image: string
-  price: number
-  currency: string
+function formatEventDate(dateString: string) {
+  const date = new Date(dateString)
+
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+
+  return `${formattedDate} • ${time}`
 }
 
 export default function Payment() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const navState = location.state as
-    | { event?: PaymentEventState; offer?: PaymentOfferState }
-    | null
-  const eventFromNav = navState?.event
-  const offerFromNav = navState?.offer
+  const {id} = useParams()
+  const [quantity, setQuantity] = useState(1);
+  const [organizerUpdates, setOrganizerUpdates] = useState(true);
+  const [events, setEvents] = useState<any>(null);
+  useEffect(() => {
+    if (!id || id === 'undefined') return
 
-  const unitPrice = useMemo(() => {
-    if (offerFromNav) {
-      return Math.max(0, offerFromNav.price)
+    fetch(`http://localhost:3000/event/${id}`)
+      .then(res => res.json())
+      .then(data => setEvents(data))
+  }, [id])  
+  const handleBuy= async () => {
+    if (!events?.event_id || events.event_id === 'undefined') {
+      return;
     }
-    if (eventFromNav) {
-      return Math.max(0, eventFromNav.price)
-    }
-    return 20
-  }, [eventFromNav, offerFromNav])
+    const res=await fetch('http://localhost:3000/event/pay',{
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+      },
+      body: JSON.stringify({
+         amount: events?.final_ticket_price*100,
+         quantity: quantity,
+         events: events,
 
-  const [quantity, setQuantity] = useState(1)
-  const [organizerUpdates, setOrganizerUpdates] = useState(false)
-
-  const total = quantity * unitPrice
-
-  const eventTitle =
-    offerFromNav?.title ??
-    eventFromNav?.title ??
-    'ECHOES: Underground Techno Night'
-  const eventMeta =
-    offerFromNav != null
-      ? [offerFromNav.venue, offerFromNav.city].filter(Boolean).join(' · ')
-      : eventFromNav != null
-        ? [eventFromNav.date, eventFromNav.club, eventFromNav.city]
-            .filter(Boolean)
-            .join(' · ')
-        : 'Sat, Mar 29 • 23:00 • Warehouse Roma'
-  const currency =
-    offerFromNav?.currency?.trim() ||
-    eventFromNav?.currency?.trim() ||
-    '€'
-  const thumbUrl =
-    offerFromNav?.image?.trim() || eventFromNav?.imageUrl?.trim()
+      }),
+    });
+    const data=await res.json();
+    window.location.href = data.url;
+  };
 
   return (
     <div className="payment-page">
       <div className="payment-page__bg" aria-hidden={true} />
       <div className="payment-page__shell">
-        <button
-          type="button"
-          className="payment-page__back"
-          onClick={() => navigate(-1)}
-        >
-          ← Back
-        </button>
         <header className="payment-page__top">
-          <p className="payment-page__label">payment</p>
+          <p className="payment-page__label">Payment</p>
           <nav className="payment-page__crumbs" aria-label="Checkout progress">
             <span className="payment-page__crumb payment-page__crumb--current">
               Ticket
@@ -96,22 +77,21 @@ export default function Payment() {
         </header>
 
         <div className="payment-page__event">
-          <div
-            className="payment-page__event-thumb"
-            style={
-              thumbUrl
-                ? {
-                    backgroundImage: `url(${thumbUrl})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }
-                : undefined
-            }
-            aria-hidden={true}
-          />
+        <div
+  className="payment-page__event-thumb"
+  style={{
+    backgroundImage: `url(${events?.event_image})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  }}
+/>
           <div>
-            <h2 className="payment-page__event-title">{eventTitle}</h2>
-            <p className="payment-page__event-meta">{eventMeta}</p>
+            <h2 className="payment-page__event-title">{events?.event_name}</h2>
+            <p className="payment-page__event-meta">
+            {events?.event_starting_date
+    ? formatEventDate(events.event_starting_date)
+    : ''}
+            </p>
           </div>
         </div>
 
@@ -122,10 +102,7 @@ export default function Payment() {
           </p>
 
           <div className="payment-page__price-row">
-            <span className="payment-page__price">
-              {currency}
-              {unitPrice}
-            </span>
+            <span className="payment-page__price">€{events?.final_ticket_price}</span>
             <span className="payment-page__price-unit">per ticket</span>
           </div>
 
@@ -138,7 +115,7 @@ export default function Payment() {
               className="payment-page__qty-btn"
               aria-label="Decrease quantity"
               disabled={quantity <= 1}
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+              onClick={() => setQuantity((quantity) => Math.max(1, quantity - 1))}
             >
               −
             </button>
@@ -149,7 +126,7 @@ export default function Payment() {
               type="button"
               className="payment-page__qty-btn"
               aria-label="Increase quantity"
-              onClick={() => setQuantity((q) => q + 1)}
+              onClick={() => setQuantity((quantity) => quantity + 1)}
             >
               +
             </button>
@@ -159,10 +136,7 @@ export default function Payment() {
 
           <div className="payment-page__total-row">
             <span className="payment-page__total-label">Total</span>
-            <span className="payment-page__total-amount">
-              {currency}
-              {total}
-            </span>
+            <span className="payment-page__total-amount">€{quantity * (events?.final_ticket_price || 0)}</span>
           </div>
           <p className="payment-page__total-note">No booking fees • Final price</p>
 
@@ -175,7 +149,12 @@ export default function Payment() {
             <span>Get updates from this organizer about future events.</span>
           </label>
 
-          <button type="button" className="payment-page__cta">
+          <button
+            type="button"
+            onClick={handleBuy}
+            className="payment-page__cta"
+            disabled={!events?.event_id || events.event_id === 'undefined'}
+          >
             Continue to Payment
           </button>
 

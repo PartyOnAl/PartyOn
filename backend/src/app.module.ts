@@ -10,7 +10,7 @@ import { UsersModule } from './users/users.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { PaymentModule } from './payment/payment.module';
-''
+import { CatalogModule } from './catalog/catalog.module';
 
 
 @Module({
@@ -29,6 +29,7 @@ import { PaymentModule } from './payment/payment.module';
     PromotionsModule,
     ClubsModule,
     PaymentModule,
+    CatalogModule,
   ],
   controllers: [AppController],
   providers: [AppService],

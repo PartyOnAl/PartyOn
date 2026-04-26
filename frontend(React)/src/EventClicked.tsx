@@ -97,13 +97,19 @@ export default function EventClicked() {
   function primaryAction() {
     if (!fromCatalog) return
     if (eventNeedsTicket(fromCatalog)) {
+      const eventId = fromCatalog.id?.trim()
+      if (!eventId || eventId === 'undefined') {
+        return
+      }
       if (!user) {
         navigate(
           `/login?from=${encodeURIComponent(`/event/${fromCatalog.id}`)}`,
         )
         return
       }
-      navigate('/payment', { state: { event: fromCatalog } })
+      navigate(`/payment/${encodeURIComponent(eventId)}`, {
+        state: { event: fromCatalog },
+      })
     } else if (fromCatalog.clubId) {
       navigate(`/clubs/${encodeURIComponent(fromCatalog.clubId)}`)
     } else {
