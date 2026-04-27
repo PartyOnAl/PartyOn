@@ -184,6 +184,20 @@ function formatDisplayDate(isoDate: string): string {
   return `${day}/${month}/${year}`
 }
 
+function splitNameParts(fullName: string): { name: string | null; surname: string | null } {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  if (parts.length === 0) return { name: null, surname: null }
+  if (parts.length === 1) return { name: parts[0], surname: null }
+  return {
+    name: parts[0],
+    surname: parts.slice(1).join(' '),
+  }
+}
+
+
 export default function SignupPage() {
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
@@ -398,21 +412,57 @@ export default function SignupPage() {
 
     if (valid) {
       setIsSubmitting(true)
-      const { error } = await supabase.auth.signUp({
-        email,
+      const normalizedEmail = email.trim().toLowerCase()
+      const fullPhoneNumber = `${selectedCountry.dialCode}${phoneLocalNumber}`
+      const { name, surname } = splitNameParts(fullName)
+      const { data: signupData, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password,
         options: {
           data: {
             full_name: fullName,
             date_of_birth: dateOfBirth,
-            phone_number: `${selectedCountry.dialCode}${phoneLocalNumber}`,
+            phone_number: fullPhoneNumber,
           },
         },
       })
-      setIsSubmitting(false)
 
       if (error) {
-      setRequestError(error.message)
+        setIsSubmitting(false)
+        setRequestError(error.message)
+        return
+      }
+
+      const userId = signupData.user?.id
+      if (!userId) {
+        setIsSubmitting(false)
+        setRequestError(
+          'Signup succeeded, but no user id was returned by Supabase. Please try again.',
+        )
+        return
+      }
+
+      // Use backend endpoint (service role key) to upsert profile — bypasses RLS entirely.
+      const profileRes = await fetch('/auth/create-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          email: normalizedEmail,
+          name,
+          surname,
+          phone_number: fullPhoneNumber,
+          birth_date: dateOfBirth || null,
+        }),
+      })
+
+      setIsSubmitting(false)
+      if (!profileRes.ok) {
+        const body = await profileRes.json().catch(() => ({}))
+        const msg: string = Array.isArray(body?.message)
+          ? body.message.join(' ')
+          : (body?.message ?? profileRes.statusText)
+        setRequestError(msg)
         return
       }
 

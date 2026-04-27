@@ -162,14 +162,35 @@ export default function LoginPage() {
 
     if (valid) {
       setIsSubmitting(true)
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+      const normalizedEmail = email.trim().toLowerCase()
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       })
-      setIsSubmitting(false)
 
       if (error) {
+        setIsSubmitting(false)
         setRequestError(error.message)
+        return
+      }
+
+      const userId = data.user?.id
+      if (!userId) {
+        setIsSubmitting(false)
+        setRequestError('Login succeeded, but no user id was returned by Supabase.')
+        return
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', userId)
+        .single()
+
+      setIsSubmitting(false)
+      if (profileError) {
+        setRequestError(`Login succeeded, but profile could not be loaded: ${profileError.message}`)
+        await supabase.auth.signOut()
         return
       }
 

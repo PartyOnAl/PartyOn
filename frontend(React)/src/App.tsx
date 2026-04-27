@@ -19,6 +19,8 @@ import PaymentMethod from './PaymentMethod'
 import Promotions from './Promotions'
 import PromotionOfferDetailPage from './PromotionOfferDetailPage'
 import PurchasedTicket from './PurchasedTicket'
+import MyBookings from './MyBookings'
+import ReservationFlow from './ReservationFlow'
 import Success from './Success'
 import Cancel from './Cancel'
 // Standalone search page — re-enable route below when needed again.
@@ -26,6 +28,7 @@ import Cancel from './Cancel'
 import ClubDetail from './ClubDetail'
 import DjDetail from './DjDetail'
 import SignupPage from './SignupPage'
+import MyProfile from './MyProfile'
 import TopClubs from './TopClubs'
 import { AuthProvider } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
@@ -63,6 +66,8 @@ function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/home" element={<Home />} />
+              <Route path="/profile" element={<MyProfile />} />
+              <Route path="/my-profile" element={<MyProfile />} />
               {/* <Route path="/search" element={<Search />} /> */}
               <Route
                 path="/search"
@@ -75,10 +80,14 @@ function App() {
               <Route path="/dj/:id" element={<DjDetail />} />
               <Route path="/payment" element={<Navigate to="/" replace />} />
               <Route path="/payment/:id" element={<Payment />} />
+              <Route path="/reserve/:id" element={<ReservationFlow />} />
               <Route path="/payment-method" element={<PaymentMethod />} />
               <Route path="/promotions" element={<Promotions />} />
               <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
-              <Route path="/purchased-ticket" element={<PurchasedTicket />} />
+              <Route path="/my-bookings" element={<MyBookings />} />
+              <Route path="/my-tickets" element={<Navigate to="/my-bookings" replace />} />
+              <Route path="/my-bookings/:bookingId" element={<PurchasedTicket />} />
+              <Route path="/purchased-ticket" element={<Navigate to="/my-bookings" replace />} />
               <Route path="/purchased-ticket/:id/:quantity" element={<PurchasedTicket />} />
               <Route path="/success" element={<Success />} />
               <Route path="/cancel" element={<Cancel />} />

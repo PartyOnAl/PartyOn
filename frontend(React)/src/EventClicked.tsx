@@ -110,10 +110,18 @@ export default function EventClicked() {
       navigate(`/payment/${encodeURIComponent(eventId)}`, {
         state: { event: fromCatalog },
       })
-    } else if (fromCatalog.clubId) {
-      navigate(`/clubs/${encodeURIComponent(fromCatalog.clubId)}`)
     } else {
-      navigate({ pathname: '/', hash: 'events' })
+      const eventId = fromCatalog.id?.trim()
+      if (!eventId || eventId === 'undefined') return
+      if (!user) {
+        navigate(
+          `/login?from=${encodeURIComponent(`/reserve/${eventId}`)}`,
+        )
+        return
+      }
+      navigate(`/reserve/${encodeURIComponent(eventId)}`, {
+        state: { event: fromCatalog },
+      })
     }
   }
 

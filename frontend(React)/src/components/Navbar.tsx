@@ -209,7 +209,7 @@ function NavbarClubSearchField({
 }
 
 export function Navbar() {
-  const { user, signOut } = useAuth()
+  const { user, profile, signOut } = useAuth()
   const {
     savedEvents,
     loading: savedLoading,
@@ -309,24 +309,24 @@ export function Navbar() {
   }
 
   const getUserInitials = () => {
-    const fullName = user?.user_metadata?.full_name as string | undefined
-    if (fullName) {
-      const parts = fullName
-        .split(' ')
-        .map((part) => part.trim())
-        .filter(Boolean)
-      if (parts.length >= 2) {
-        return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-      }
-      if (parts.length === 1) {
-        return parts[0].slice(0, 2).toUpperCase()
-      }
+    // Prefer profile data from DB (populated after login/signup)
+    if (profile?.name) {
+      const first = profile.name.trim()[0] ?? ''
+      const second = profile.surname?.trim()[0] ?? ''
+      return (first + second).toUpperCase() || profile.name.slice(0, 2).toUpperCase()
     }
 
-    const email = user?.email ?? ''
-    if (email) {
-      return email.slice(0, 2).toUpperCase()
+    // Fallback to user_metadata set during signUp
+    const fullName = user?.user_metadata?.full_name as string | undefined
+    if (fullName) {
+      const parts = fullName.split(' ').map((p) => p.trim()).filter(Boolean)
+      if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
     }
+
+    // Last resort: first 2 chars of email
+    const email = user?.email ?? ''
+    if (email) return email.slice(0, 2).toUpperCase()
 
     return 'U'
   }
@@ -418,7 +418,7 @@ export function Navbar() {
                       type="button"
                       className="w-full text-left px-3 py-2 text-sm rounded-lg text-foreground/85 hover:text-foreground hover:bg-secondary/70 transition-colors"
                       onClick={() => {
-                        navigate('/home')
+                        navigate('/profile')
                         setAuthOpen(false)
                       }}
                     >
@@ -428,13 +428,13 @@ export function Navbar() {
                       type="button"
                       className="w-full text-left px-3 py-2 text-sm rounded-lg text-foreground/85 hover:text-foreground hover:bg-secondary/70 transition-colors"
                       onClick={() => {
-                        navigate('/purchased-ticket')
+                        navigate('/my-bookings')
                         setAuthOpen(false)
                       }}
                     >
                       <span className="inline-flex items-center gap-2">
                         <Ticket className="h-3.5 w-3.5" />
-                        My Tickets
+                        My Bookings
                       </span>
                     </button>
                     <button
