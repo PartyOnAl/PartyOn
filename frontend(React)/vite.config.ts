@@ -24,6 +24,7 @@ export default defineConfig({
         paymentMethod: path.resolve(__dirname, 'payment-method.html'),
         purchasedTicket: path.resolve(__dirname, 'purchased-ticket.html'),
         managerDashboard: path.resolve(__dirname, 'manager-dashboard.html'),
+        analytics: path.resolve(__dirname, 'analytics.html'),
         clubProfileEditor: path.resolve(__dirname, 'club-profile-editor.html'),
         eventManagement: path.resolve(__dirname, 'event-management.html'),
         reservationManagement: path.resolve(__dirname, 'reservation-management.html'),

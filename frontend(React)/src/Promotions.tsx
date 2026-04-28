@@ -1,140 +1,154 @@
 import './Promotions.css'
+import { ManagerSidebar, ManagerTopBar } from './manager/ManagerNav.tsx'
 
-type Promotion = {
-  id: string
-  title: string
-  description: string
-  tag: string
-  clubName: string
-  rating: string
-}
+const PROMOTION_SUMMARY = [
+  { value: '2', label: 'Total Promotions' },
+  { value: '1', label: 'Active Now' },
+  { value: '1', label: 'Featured' },
+] as const
 
-const PROMOTIONS: Promotion[] = [
+const PROMOTIONS = [
   {
-    id: '1',
-    title: '2-FOR-1',
-    description: 'Get two VIP entries for the price of one.',
-    tag: 'VIP PACKAGE',
-    clubName: 'Club Luxe',
-    rating: '4.8',
+    id: 'early-bird',
+    title: 'Early Bird Special',
+    status: 'active',
+    secondary: 'Featured',
+    date: '3/20/2026 - 3/28/2026',
+    event: 'Event: Saturday Night Fever',
+    discount: '20%',
   },
   {
-    id: '2',
-    title: '50% OFF',
-    description: 'Enjoy half-price on bottle service all night.',
-    tag: 'BOTTLE SERVICE',
-    clubName: 'Club Mirage',
-    rating: '4.9',
+    id: 'vip-weekend',
+    title: 'VIP Weekend',
+    status: 'scheduled',
+    secondary: '',
+    date: '4/10/2026 - 4/12/2026',
+    event: 'Event: VIP Experience Night',
+    discount: '15%',
   },
-  {
-    id: '3',
-    title: '20% OFF',
-    description: 'Get 20% off on all drinks before 10 PM.',
-    tag: 'DISCOUNT NIGHT',
-    clubName: 'Club Zen',
-    rating: '4.6',
-  },
-  {
-    id: '4',
-    title: 'FREE ENTRY',
-    description: 'Enjoy free entry to the after party.',
-    tag: 'AFTER PARTY',
-    clubName: 'Club Vibe',
-    rating: '4.4',
-  },
-]
+] as const
 
-function StarIcon() {
+function IconPlus() {
   return (
-    <svg
-      className="promo-card__star"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden={true}
-    >
-      <path d="M12 2l2.9 7.4h7.6l-6 4.6 2.3 7.4L12 16.9 5.2 21.4 7.5 14l-6-4.6h7.6L12 2z" />
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
 
-function PromotionCard({ item }: { item: Promotion }) {
+function IconTag() {
   return (
-    <li>
-      <article className="promo-card">
-        <div className="promo-card__top">
-          <h2 className="promo-card__title">{item.title}</h2>
-          <div className="promo-card__rating">
-            <StarIcon />
-            <span>{item.rating}</span>
-          </div>
-        </div>
-        <p className="promo-card__desc">{item.description}</p>
-        <p className="promo-card__tag">{item.tag}</p>
-        <div className="promo-card__actions">
-          <button type="button" className="promo-card__btn">
-            View Details
-          </button>
-          <button type="button" className="promo-card__btn">
-            {item.clubName}
-          </button>
-          <button type="button" className="promo-card__btn">
-            Location Icon
-          </button>
-          <button
-            type="button"
-            className="promo-card__btn promo-card__btn--more"
-            aria-label="More options"
-          >
-            ...
-          </button>
-        </div>
-      </article>
-    </li>
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20 13 12 21 3 12V4h8l9 9Zm-12-6h.01"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconCalendar() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M16 3v4M8 3v4M3 11h18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconBin() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M9 7V5h6v2m-9 0h12m-1 0v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7m4 4v6m4-6v6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
   )
 }
 
 export default function Promotions() {
   return (
-    <div className="promotions">
-      <header className="promotions__heading-block">
-        <h1 className="promotions__title">Exclusive Offers</h1>
-        <p className="promotions__subtitle">Promotions</p>
-      </header>
+    <div className="promotions-page">
+      <div className="manager-dash__layout">
+        <ManagerSidebar activeId="promotions" />
 
-      <ul className="promotions__list">
-        {PROMOTIONS.map((item) => (
-          <PromotionCard key={item.id} item={item} />
-        ))}
-      </ul>
+        <div className="manager-dash__main">
+          <ManagerTopBar />
 
-      <nav className="promotions__pagination" aria-label="Pagination">
-        <button
-          type="button"
-          className="promotions__page promotions__page--active"
-          aria-current="page"
-        >
-          1
-        </button>
-        <button type="button" className="promotions__page">
-          2
-        </button>
-        <button type="button" className="promotions__page">
-          3
-        </button>
-        <button type="button" className="promotions__page">
-          4
-        </button>
-        <button type="button" className="promotions__page">
-          5
-        </button>
-        <button
-          type="button"
-          className="promotions__page promotions__page--arrow"
-          aria-label="Next page"
-        >
-          &gt;
-        </button>
-      </nav>
+          <div className="promotions-page__head">
+            <div>
+              <h1 className="promotions-page__title">Promotions</h1>
+              <p className="promotions-page__sub">Create and manage special offers and discounts</p>
+            </div>
+            <button type="button" className="promotions-page__create-btn">
+              <IconPlus />
+              Create Promotion
+            </button>
+          </div>
+
+          <section className="promotions-page__summary" aria-label="Promotions summary">
+            {PROMOTION_SUMMARY.map((item) => (
+              <article className="promotions-page__summary-card" key={item.label}>
+                <p className="promotions-page__summary-value">{item.value}</p>
+                <p className="promotions-page__summary-label">{item.label}</p>
+              </article>
+            ))}
+          </section>
+
+          <section className="promotions-page__cards" aria-label="Promotions list">
+            {PROMOTIONS.map((promotion) => (
+              <article className="promotions-page__promo-card" key={promotion.id}>
+                <div className="promotions-page__promo-top">
+                  <div>
+                    <h2 className="promotions-page__promo-title">{promotion.title}</h2>
+                    <div className="promotions-page__badges">
+                      <span className={`promotions-page__badge promotions-page__badge--${promotion.status}`}>
+                        {promotion.status}
+                      </span>
+                      {promotion.secondary ? (
+                        <span className="promotions-page__badge promotions-page__badge--secondary">
+                          {promotion.secondary}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p className="promotions-page__discount">
+                    <IconTag />
+                    {promotion.discount}
+                  </p>
+                </div>
+
+                <div className="promotions-page__meta">
+                  <p className="promotions-page__meta-line">
+                    <IconCalendar />
+                    {promotion.date}
+                  </p>
+                  <p className="promotions-page__meta-line">
+                    <IconCalendar />
+                    {promotion.event}
+                  </p>
+                </div>
+
+                <div className="promotions-page__actions">
+                  <button type="button" className="promotions-page__edit-btn">
+                    <IconCalendar />
+                    Edit
+                  </button>
+                  <button type="button" className="promotions-page__delete-btn" aria-label="Delete promotion">
+                    <IconBin />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
