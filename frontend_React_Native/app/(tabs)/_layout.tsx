@@ -1,35 +1,71 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Tabs } from 'expo-router'
+import { Platform, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import { COLORS } from '@/lib/theme'
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focused: boolean }) {
+  return (
+    <View style={{
+      alignItems: 'center', justifyContent: 'center',
+      width: 44, height: 34,
+    }}>
+      <Ionicons
+        name={name}
+        size={24}
+        color={focused ? COLORS.purple : COLORS.mutedDark}
+      />
+    </View>
+  )
+}
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        tabBarShowLabel: false,
+        tabBarStyle: {
+          backgroundColor: '#000',
+          borderTopColor: 'rgba(255,255,255,0.07)',
+          borderTopWidth: 1,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 6,
+          paddingTop: 6,
+          height: Platform.OS === 'ios' ? 84 : 58,
+        },
+        tabBarActiveTintColor: COLORS.purple,
+        tabBarInactiveTintColor: COLORS.mutedDark,
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="search"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Search',
+          tabBarIcon: ({ focused }) => <TabIcon name="search-outline" focused={focused} />,
         }}
       />
+      <Tabs.Screen
+        name="bookings"
+        options={{
+          title: 'Tickets',
+          tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'ticket' : 'ticket-outline'} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: 'Account',
+          tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'person-circle' : 'person-circle-outline'} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen name="tickets" options={{ href: null }} />
     </Tabs>
-  );
+  )
 }
