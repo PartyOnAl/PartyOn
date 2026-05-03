@@ -1,4 +1,4 @@
-import type { Club, Event } from '@/types'
+import type { Event } from '@/types'
 import { useEffect, useState } from 'react';
 import {EventsSection} from  '@/components/EventsSection';
 

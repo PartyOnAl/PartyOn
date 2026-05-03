@@ -48,10 +48,20 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   margin-bottom: 28px;
+  color: #f8fafc;
 }
 
+/* Same gradient as PartyOn logo / gradient-text (primary → accent) */
 .logoAccent {
-  color: #e040fb;
+  background-image: linear-gradient(
+    to right,
+    hsl(var(--primary)),
+    hsl(var(--accent))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .card {

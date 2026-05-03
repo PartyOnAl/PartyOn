@@ -86,9 +86,17 @@
     0 0 22px rgba(255, 255, 255, 0.12);
 }
 
+/* Matches @utility gradient-text in index.css (primary → accent) */
 .partyon-logo__on {
-  color: hsl(var(--primary));
-  text-shadow: 0 0 14px rgba(236, 72, 153, 0.3);
+  background-image: linear-gradient(
+    to right,
+    hsl(var(--primary)),
+    hsl(var(--accent))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 @keyframes partyon-axis-rotate {

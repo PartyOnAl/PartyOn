@@ -11,6 +11,7 @@ import { PromotionsModule } from './promotions/promotions.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { PaymentModule } from './payment/payment.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { SavedModule } from './saved/saved.module';
 
 
 @Module({
@@ -25,11 +26,13 @@ import { CatalogModule } from './catalog/catalog.module';
       autoLoadEntities: true,
       synchronize: false,
     }),
+    AuthModule,
     EventModule,
     PromotionsModule,
     ClubsModule,
     PaymentModule,
     CatalogModule,
+    SavedModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -108,7 +108,7 @@ async createPayment(amount:number , quantity:number , events:any){
         quantity: quantity,
       },
     ],
-    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}`,
+    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}?checkout_session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: 'http://localhost:5173/cancel',
   });
   console.log('PRICE:', amount);

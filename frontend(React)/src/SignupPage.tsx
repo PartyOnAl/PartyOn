@@ -125,17 +125,6 @@ function GoogleIcon() {
   )
 }
 
-function AppleIcon() {
-  return (
-    <svg width="18" height="22" viewBox="0 0 814 1000" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103 39.5-165.1 39.5s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 251.2-297.5 66.1 0 121.2 43.4 162.7 43.4 39.8 0 101.9-46 176.1-46 28.5 0 130.9 2.6 198.3 99.2zm-194.7-91.5c32.1-38.5 53.8-91.6 53.8-144.6 0-7.1-.6-14.3-1.9-20.1-51.1 2.4-111.1 35.6-147.6 80.4-29.5 32.9-55.1 84.7-55.1 137.9 0 7.3 1.2 14.4 1.8 16.8 1.1.6 2.8 1.3 4.6 1.3 45.9 0 98.9-30.5 144.4-75.7z"
-      />
-    </svg>
-  )
-}
-
 function EyeIcon({ open }: { open: boolean }) {
   if (open) {
     return (
@@ -194,6 +183,20 @@ function formatDisplayDate(isoDate: string): string {
   if (!year || !month || !day) return ''
   return `${day}/${month}/${year}`
 }
+
+function splitNameParts(fullName: string): { name: string | null; surname: string | null } {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  if (parts.length === 0) return { name: null, surname: null }
+  if (parts.length === 1) return { name: parts[0], surname: null }
+  return {
+    name: parts[0],
+    surname: parts.slice(1).join(' '),
+  }
+}
+
 
 export default function SignupPage() {
   const navigate = useNavigate()
@@ -389,7 +392,9 @@ export default function SignupPage() {
     setRequestError(null)
 
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
 
@@ -407,21 +412,57 @@ export default function SignupPage() {
 
     if (valid) {
       setIsSubmitting(true)
-      const { error } = await supabase.auth.signUp({
-        email,
+      const normalizedEmail = email.trim().toLowerCase()
+      const fullPhoneNumber = `${selectedCountry.dialCode}${phoneLocalNumber}`
+      const { name, surname } = splitNameParts(fullName)
+      const { data: signupData, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password,
         options: {
           data: {
             full_name: fullName,
             date_of_birth: dateOfBirth,
-            phone_number: `${selectedCountry.dialCode}${phoneLocalNumber}`,
+            phone_number: fullPhoneNumber,
           },
         },
       })
-      setIsSubmitting(false)
 
       if (error) {
-      setRequestError(error.message)
+        setIsSubmitting(false)
+        setRequestError(error.message)
+        return
+      }
+
+      const userId = signupData.user?.id
+      if (!userId) {
+        setIsSubmitting(false)
+        setRequestError(
+          'Signup succeeded, but no user id was returned by Supabase. Please try again.',
+        )
+        return
+      }
+
+      // Use backend endpoint (service role key) to upsert profile — bypasses RLS entirely.
+      const profileRes = await fetch('/auth/create-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          email: normalizedEmail,
+          name,
+          surname,
+          phone_number: fullPhoneNumber,
+          birth_date: dateOfBirth || null,
+        }),
+      })
+
+      setIsSubmitting(false)
+      if (!profileRes.ok) {
+        const body = await profileRes.json().catch(() => ({}))
+        const msg: string = Array.isArray(body?.message)
+          ? body.message.join(' ')
+          : (body?.message ?? profileRes.statusText)
+        setRequestError(msg)
         return
       }
 
@@ -429,14 +470,16 @@ export default function SignupPage() {
     }
   }
 
-  async function handleSocialLogin(provider: 'google' | 'apple') {
+  async function handleGoogleLogin() {
     setRequestError(null)
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
     const { error } = await supabase.auth.signInWithOAuth({
-      provider,
+      provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/home`,
       },
@@ -887,13 +930,9 @@ export default function SignupPage() {
             <span className={styles.dividerLine} aria-hidden />
           </div>
 
-          <button type="button" className={styles.social} onClick={() => handleSocialLogin('google')}>
+          <button type="button" className={styles.social} onClick={() => void handleGoogleLogin()}>
             <span className={styles.socialIcon}><GoogleIcon /></span>
             <span className={styles.socialLabel}>Continue with Google</span>
-          </button>
-          <button type="button" className={styles.social} onClick={() => handleSocialLogin('apple')}>
-            <span className={styles.socialIcon}><AppleIcon /></span>
-            <span className={styles.socialLabel}>Continue with Apple</span>
           </button>
 
           <p className={styles.footer}>

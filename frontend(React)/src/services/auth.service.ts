@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3000'
+import { API_BASE_URL } from '@/api'
 
 const TOKEN_KEY = 'accessToken'
 const USER_KEY = 'user'
@@ -34,7 +34,7 @@ export async function login(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -48,7 +48,7 @@ export async function login(
 }
 
 export async function signup(userData: SignupPayload): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/signup`, {
+  const res = await fetch(`${API_BASE_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(userData),

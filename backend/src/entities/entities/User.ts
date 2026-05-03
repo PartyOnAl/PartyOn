@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
+﻿import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 @Entity("USER", { schema: "public" })
 export class User {
   @PrimaryGeneratedColumn({ type: "integer", name: "id" })

@@ -1,125 +1,93 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
-import { SearchHero, type SearchFilters } from '@/components/SearchHero'
+import { SearchHero } from '@/components/SearchHero'
+import {
+  type SearchFilters,
+  eventMatchesSearchFilters,
+} from '@/lib/searchFilters'
 import { PromotionsSection } from '@/components/PromotionsSection'
 import { EventsSection } from '@/components/EventsSection'
 import { ClubsSection } from '@/components/ClubsSection'
 import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
-import type { Club, Event } from '@/types'
-import { useEffect} from 'react';
-
+import { useCatalog } from '@/contexts/CatalogContext'
 
 export default function Home() {
+  const { events, promotions, loading, error } = useCatalog()
   const navigate = useNavigate()
-  const [events, setEvents] = useState<Event[]>([]);
-  const [promos, setPromos] = useState<any[]>([]);
-  const [clubs, setClubs] = useState<any[]>([]);
+  const location = useLocation()
+
+  const goToEventsSection = () => {
+    const scrollToEvents = () => {
+      document.getElementById('events')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+    if (location.pathname !== '/' && location.pathname !== '/home') {
+      void navigate({ pathname: '/', hash: 'events' })
+      return
+    }
+    const base = location.pathname === '/home' ? '/home' : '/'
+    void navigate({ pathname: base, hash: 'events' }, { replace: true })
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEvents)
+    })
+  }
   const [filters, setFilters] = useState<SearchFilters>({
     query: '',
+    clubQuery: '',
     city: 'all',
     musicType: 'all',
     time: 'all',
-  });
-  const cities = useMemo(() => {
-    return Array.from(new Set(events.map(e => e.city)))
-  }, [events])
-  const musicTypes = useMemo(() => {
-    return Array.from(new Set(events.map(e => e.musicType)))
-  }, [events])
-
-  useEffect(() => {
-    const params = new URLSearchParams()
-    if (filters.query) params.append('query', filters.query)
-      if (filters.city) params.append('city', filters.city)
-      if (filters.musicType) params.append('musicType', filters.musicType)
-      if (filters.time) params.append('time', filters.time)
-
-const query = filters.query || 'latin'
-fetch(`http://localhost:3000/event?query=${encodeURIComponent(query)}`)
-  .then(res => res.json())
-  .then(data => {
-    const formatted = data.map((d: any) => ({
-      id: d.event_id,
-      title: d.event_name,
-      currency: '€',
-      price: d.final_ticket_price,
-      date: d.event_starting_date,
-      club: d.club,
-      imageUrl: d.event_image,
-    }))
-
-    setEvents(formatted)
+    category: 'all',
   })
-}, [filters]);
 
   useEffect(() => {
-    fetch('http://localhost:3000/event')
-      .then(res => res.json())
-      .then(data => {
+    const id = location.hash.replace(/^#/, '')
+    if (id !== 'promotions' && id !== 'events') return
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 100)
+    return () => window.clearTimeout(t)
+  }, [location.pathname, location.hash])
 
-        const formatted = data.map((d: any) => ({
-          id: d.event_id,
-          title: d.event_name,
-          currency: '€',
-          price: d.final_ticket_price,
-          date: d.event_starting_date,
-          club: d.club,
-          imageUrl: d.event_image,
-        }));
-
-        setEvents(formatted);
-      });
-  }, []);
-
-  useEffect(() => {
-    fetch('http://localhost:3000/promotions')
-      .then(res => res.json())
-      .then(data => {
-
-        const formatted = data.map((d: any) => ({
-          id: d.promotion_id,
-          title: d.title,
-          badge: d.category,
-          description: d.description,
-          venue: d.club,
-          city: d.club_address,
-          rating: d.rating,
-          image: d.image_url,
-        }));
-
-        setPromos(formatted);
-      });
-  }, []);
-
-  useEffect(() => {
-    fetch('http://localhost:3000/clubs')
-      .then(res => res.json())
-      .then(data => {
-
-        const formatted = data.map((d: any) => ({
-          name: d.club_name,
-          image: d.club_image,
-        }));
-
-        setClubs(formatted);
-      });
-  }, []);
+  const filteredEvents = useMemo(
+    () => events.filter((event) => eventMatchesSearchFilters(event, filters)),
+    [filters, events],
+  )
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
       <main>
         <HeroSection
-          onExplore={() => navigate('/search')}
+          onExplore={goToEventsSection}
           onBrowseClubs={() => navigate('/nearby-clubs')}
         />
-        <SearchHero  value={filters} onChange={setFilters} cities={cities} musicTypes={musicTypes}/>
-        <EventsSection events={events} />
-        <PromotionsSection promos={promos} />
-        <ClubsSection club={clubs}/>
+        <SearchHero events={events} value={filters} onChange={setFilters} />
+        {error ? (
+          <p className="po-container py-4 text-sm text-destructive">
+            Could not load catalog: {error}. Ensure the API is running (
+            <code className="rounded bg-muted px-1">backend/</code>{' '}
+            <code className="rounded bg-muted px-1">npm run start:dev</code>
+            ) and{' '}
+            <code className="rounded bg-muted px-1">DATABASE_URL</code> is set. In dev, leave{' '}
+            <code className="rounded bg-muted px-1">VITE_API_URL</code> empty so Vite proxies{' '}
+            <code className="rounded bg-muted px-1">/catalog</code> to port 3000.
+          </p>
+        ) : null}
+        <EventsSection
+          events={filteredEvents}
+          catalogLoading={loading && events.length === 0}
+        />
+        <PromotionsSection promotions={promotions} />
+        <ClubsSection />
         <GetAppSection />
       </main>
       <LovableFooter />

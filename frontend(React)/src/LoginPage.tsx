@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import ForgotPasswordModal from './ForgotPasswordModal'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import styles from './LoginPage.module.css'
@@ -22,17 +22,6 @@ function GoogleIcon() {
       <path
         fill="currentColor"
         d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-      />
-    </svg>
-  )
-}
-
-function AppleIcon() {
-  return (
-    <svg width="18" height="22" viewBox="0 0 814 1000" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103 39.5-165.1 39.5s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 251.2-297.5 66.1 0 121.2 43.4 162.7 43.4 39.8 0 101.9-46 176.1-46 28.5 0 130.9 2.6 198.3 99.2zm-194.7-91.5c32.1-38.5 53.8-91.6 53.8-144.6 0-7.1-.6-14.3-1.9-20.1-51.1 2.4-111.1 35.6-147.6 80.4-29.5 32.9-55.1 84.7-55.1 137.9 0 7.3 1.2 14.4 1.8 16.8 1.1.6 2.8 1.3 4.6 1.3 45.9 0 98.9-30.5 144.4-75.7z"
       />
     </svg>
   )
@@ -123,8 +112,16 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
+function safeInternalPath(path: unknown): string | null {
+  if (typeof path !== 'string' || !path.startsWith('/')) return null
+  if (path.startsWith('//')) return null
+  return path
+}
+
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -152,7 +149,9 @@ export default function LoginPage() {
     setRequestError(null)
 
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
 
@@ -163,38 +162,66 @@ export default function LoginPage() {
 
     if (valid) {
       setIsSubmitting(true)
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+      const normalizedEmail = email.trim().toLowerCase()
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       })
-      setIsSubmitting(false)
 
       if (error) {
+        setIsSubmitting(false)
         setRequestError(error.message)
         return
       }
 
-      navigate('/home')
+      const userId = data.user?.id
+      if (!userId) {
+        setIsSubmitting(false)
+        setRequestError('Login succeeded, but no user id was returned by Supabase.')
+        return
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', userId)
+        .single()
+
+      setIsSubmitting(false)
+      if (profileError) {
+        setRequestError(`Login succeeded, but profile could not be loaded: ${profileError.message}`)
+        await supabase.auth.signOut()
+        return
+      }
+
+      const from =
+        safeInternalPath(searchParams.get('from')) ??
+        safeInternalPath((location.state as { from?: string } | null)?.from)
+      navigate(from ?? '/home', { replace: true })
     }
   }
 
   function handleOpenForgot() {
     setRequestError(null)
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
     setForgotOpen(true)
   }
 
-  async function handleSocialLogin(provider: 'google' | 'apple') {
+  async function handleGoogleLogin() {
     setRequestError(null)
     if (!supabase || !isSupabaseConfigured) {
-      setRequestError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend .env.')
+      setRequestError(
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
+      )
       return
     }
     const { error } = await supabase.auth.signInWithOAuth({
-      provider,
+      provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/home`,
       },
@@ -302,17 +329,11 @@ export default function LoginPage() {
             <span className={styles.dividerLine} aria-hidden />
           </div>
 
-          <button type="button" className={styles.social} onClick={() => handleSocialLogin('google')}>
+          <button type="button" className={styles.social} onClick={() => void handleGoogleLogin()}>
             <span className={styles.socialIcon}>
               <GoogleIcon />
             </span>
             <span className={styles.socialLabel}>Continue with Google</span>
-          </button>
-          <button type="button" className={styles.social} onClick={() => handleSocialLogin('apple')}>
-            <span className={styles.socialIcon}>
-              <AppleIcon />
-            </span>
-            <span className={styles.socialLabel}>Continue with Apple</span>
           </button>
 
           <p className={styles.footer}>

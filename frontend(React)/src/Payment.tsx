@@ -1,8 +1,8 @@
 import { useState , useEffect } from 'react'
-import { useParams , useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import './Payment.css'
-import { loadStripe } from '@stripe/stripe-js';
-import Stripe from 'stripe';
+import { Navbar } from '@/components/Navbar'
+import { LovableFooter } from '@/components/LovableFooter'
 
 
 function formatEventDate(dateString: string) {
@@ -25,6 +25,7 @@ function formatEventDate(dateString: string) {
 }
 
 export default function Payment() {
+  const navigate = useNavigate()
   const {id} = useParams()
   const [quantity, setQuantity] = useState(1);
   const [organizerUpdates, setOrganizerUpdates] = useState(true);
@@ -36,7 +37,6 @@ export default function Payment() {
       .then(res => res.json())
       .then(data => setEvents(data))
   }, [id])  
-  console.log(quantity)
   const handleBuy= async () => {
     if (!events?.event_id || events.event_id === 'undefined') {
       return;
@@ -59,10 +59,18 @@ export default function Payment() {
 
   return (
     <div className="payment-page">
+      <Navbar />
       <div className="payment-page__bg" aria-hidden={true} />
-      <div className="payment-page__shell">
+      <div className="payment-page__shell" style={{ paddingTop: '88px' }}>
         <header className="payment-page__top">
-          <p className="payment-page__label">Payment</p>
+          <button
+            type="button"
+            className="payment-page__back"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+          >
+            <span aria-hidden={true}>←</span> Back
+          </button>
           <nav className="payment-page__crumbs" aria-label="Checkout progress">
             <span className="payment-page__crumb payment-page__crumb--current">
               Ticket
@@ -170,6 +178,7 @@ export default function Payment() {
 
         <p className="payment-page__foot">Secure checkout powered by PartyOn</p>
       </div>
+      <LovableFooter />
     </div>
   )
 }

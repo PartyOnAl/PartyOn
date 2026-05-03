@@ -14,10 +14,10 @@ export class Bookmarks {
   })
   id: string;
 
-  @Column("uuid", { name: "user_id", nullable: true, unique: true })
+  @Column("uuid", { name: "user_id", nullable: true })
   userId: string | null;
 
-  @Column("uuid", { name: "event_id", nullable: true, unique: true })
+  @Column("uuid", { name: "event_id", nullable: true })
   eventId: string | null;
 
   @Column("timestamp with time zone", {
