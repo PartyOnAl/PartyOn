@@ -18,14 +18,14 @@ import {
   X,
 } from 'lucide-react'
 
-type PaymentItem = {
+/*type PaymentItem = {
   payment_id: string | null
   reservation_id: string | null
   user_id: string | null
   amount: number | null
   payment_date: string | null
   status: string | null
-}
+}*/
 
 type BookingDetail = {
   reservationId: string
