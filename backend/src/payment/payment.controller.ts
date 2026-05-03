@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post , Query , Param , Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post , Query , Param , Req, Res, Patch } from '@nestjs/common';
 import { Payments } from 'generated-entities/entities/Payments';
 import { PaymentListItem, PaymentService } from './payment.service';
 import Stripe from 'stripe';
@@ -27,6 +27,13 @@ export class PaymentController {
   create(@Body() paymentData: Partial<Payments>): Promise<Payments> {
     return this.paymentService.create(paymentData);
   }
+
+  @Get('ids')
+async findPaymentIds(
+  @Query('batch_id') batch_id: string,
+) {
+  return this.paymentService.findPaymentIds(batch_id);
+}
 
   @Get(':id')
 getById(@Param('id') id: string): Promise<PaymentListItem> {
@@ -57,4 +64,13 @@ async handleWebhook(@Req() req: Request) {
   await this.paymentService.handleEvent(event);
   return { received: true };
 }
+
+@Patch(':id')
+async updatePayment(
+  @Param('id') id: string,
+  @Body() dto: Partial<Payments>,
+) {
+  return this.paymentService.updatePayment(id, dto);
+}
+
 }

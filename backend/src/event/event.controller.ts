@@ -41,7 +41,6 @@ async createPayment(@Body() body: {amount : number , quantity : number ,events :
   body.events,
 
   );
-  console.log('BODY:', body);
   return { url: result.url };
 }
 

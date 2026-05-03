@@ -2,7 +2,9 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Events } from 'generated-entities/entities/Events';
+import { Payments } from 'generated-entities/entities/Payments';
 import { Request } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import Stripe from 'stripe';
 
 export type EventListItem = {
@@ -23,13 +25,19 @@ export type EventListItem = {
   event_hours: string| null;
 };
 
+
+
 @Injectable()
 export class EventService {
   private stripe: InstanceType<typeof Stripe> | null = null;
-  constructor(
-    @InjectRepository(Events)
-    private readonly eventRepository: Repository<Events>,
-  ) {}
+      constructor(
+        @InjectRepository(Events)
+        private readonly eventRepository: Repository<Events>,
+        @InjectRepository(Payments)
+        private readonly paymentRepository: Repository<Payments>,
+      ) {}
+
+  
 
   constructEvent(req: Request, sig: string | string[] | undefined): any {
     return this.getStripe().webhooks.constructEvent(
@@ -101,6 +109,19 @@ export class EventService {
   }
 
 async createPayment(amount:number , quantity:number , events:any){
+  console.log('amount:', amount);
+  console.log('quantity:', quantity);
+  const batch_id=uuidv4();
+  const payment = Array.from({length: quantity}, () =>({
+    amount:  (amount*0.01).toString(),
+    status: 'pending',
+    paymentDate: new Date(),
+    event: {eventId: events.event_id},
+    batch_id: batch_id,
+  }) );
+
+  const saved=await this.paymentRepository.save(payment);
+
   const session=await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
@@ -116,10 +137,12 @@ async createPayment(amount:number , quantity:number , events:any){
         quantity: quantity,
       },
     ],
-    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}?checkout_session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: 'http://localhost:5173/cancel',
     metadata: {
       amount: amount*0.01*quantity,
+      event_id: events.event_id,
+      payment_id: batch_id,
     },
   });
   console.log('PRICE:', amount);

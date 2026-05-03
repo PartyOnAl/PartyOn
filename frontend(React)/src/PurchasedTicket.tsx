@@ -1,9 +1,31 @@
 import './PurchasedTicket.css'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
+import {
+  Calendar,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Download,
+  MapPin,
+  QrCode,
+  Share2,
+  Ticket,
+  X,
+} from 'lucide-react'
+
+type PaymentItem = {
+  payment_id: string | null
+  reservation_id: string | null
+  user_id: string | null
+  amount: number | null
+  payment_date: string | null
+  status: string | null
+}
 
 type BookingDetail = {
   reservationId: string
@@ -21,111 +43,18 @@ type BookingDetail = {
   qrValue: string
 }
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M6 12l4 4 8-9"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null
+  return Array.isArray(value) ? value[0] ?? null : value
 }
 
-function CalendarSmallIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M4 9h16M8 5V3M16 5V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
+function normalizeType(type: string | null | undefined): 'ticket' | 'reservation' {
+  const t = String(type ?? '').toLowerCase()
+  return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
 }
 
-function PinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
-function EyeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.75" />
-    </svg>
-  )
-}
-
-function MailIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M4 6h16v12H4V6zm0 0l8 6 8-6"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function DownloadIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M12 4v10m0 0l-3-3m3 3l3-3M5 18h14"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ArrowRightIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M5 12h12m0 0l-4-4m4 4l-4 4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+function orderIdFrom(reservationId: string): string {
+  return `PO-${reservationId.slice(0, 8).toUpperCase()}`
 }
 
 function formatEventDate(dateString: string | null) {
@@ -149,318 +78,694 @@ function formatEventDate(dateString: string | null) {
   return `${formattedDate} • ${time}`
 }
 
-function normalizeType(type: string | null | undefined): 'ticket' | 'reservation' {
-  const t = String(type ?? '').toLowerCase()
-  return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
-}
-
-function one<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null
-  return Array.isArray(value) ? value[0] ?? null : value
-}
-
-function orderIdFrom(reservationId: string): string {
-  return `PO-${reservationId.slice(0, 8).toUpperCase()}`
-}
-
-function buildIcs({
-  title,
-  startIso,
-  location,
-  description,
-}: {
-  title: string
-  startIso: string
-  location: string
-  description: string
-}) {
-  const start = new Date(startIso)
-  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000)
-  const fmt = (d: Date) =>
-    d
-      .toISOString()
-      .replace(/[-:]/g, '')
-      .replace(/\.\d{3}Z$/, 'Z')
-
-  return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//PartyOn//Booking//EN',
-    'BEGIN:VEVENT',
-    `UID:${crypto.randomUUID()}@partyon`,
-    `DTSTAMP:${fmt(new Date())}`,
-    `DTSTART:${fmt(start)}`,
-    `DTEND:${fmt(end)}`,
-    `SUMMARY:${title}`,
-    `LOCATION:${location}`,
-    `DESCRIPTION:${description}`,
-    'END:VEVENT',
-    'END:VCALENDAR',
-  ].join('\r\n')
-}
-
-async function imageUrlToDataUrl(url: string): Promise<string> {
-  const response = await fetch(url)
-  const blob = await response.blob()
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(String(reader.result ?? ''))
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
+function buildCalendarUrl(booking: BookingDetail): string {
+  const title = encodeURIComponent(booking.eventName)
+  const location = encodeURIComponent(
+    [booking.clubName, booking.clubAddress].filter(Boolean).join(', '),
+  )
+  const start = booking.eventStartingDate
+    ? new Date(booking.eventStartingDate)
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace('.000', '')
+    : ''
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${start}&location=${location}`
 }
 
 export default function PurchasedTicket() {
   const navigate = useNavigate()
-  const { bookingId, id, quantity } = useParams()
-  const checkoutSessionId =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('checkout_session_id')
-      : null
+  const { bookingId, id, quantity, payment_id } = useParams<{
+    bookingId: string;
+    id: string;
+    quantity: string;
+    payment_id: string;
+  }>();
+  const [paymentIds, setPaymentIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [booking, setBooking] = useState<BookingDetail | null>(null)
+  const [event, setEvent] = useState<any>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
 
-  async function persistTicketBookingIfNeeded(payload: {
-    eventId: string
-    quantity: number
-    qrValueSeed: string
-  }) {
-    if (!supabase || !isSupabaseConfigured) return
+  const [qrIndexMain, setQrIndexMain] = useState(0)
+  const [qrIndexModal, setQrIndexModal] = useState(0)
+  const modalViewportRef = useRef<HTMLDivElement>(null)
+  const [modalSlideWidth, setModalSlideWidth] = useState(178)
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user?.id) return
+  useEffect(() => {
+    const fetchPaymentIds = async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:3000/payment/ids?batch_id=${payment_id}`
+        );
+  
+        if (!res.ok) {
+          throw new Error("Failed to fetch payment ids");
+        }
+  
+        const data: string[] = await res.json();
+        setPaymentIds(data);
+      } catch (err) {
+        console.error(err);
+        setPaymentIds([]);
+        setError("Failed to load payment IDs");
+      }
+    };
+  
+    if (payment_id) {
+      fetchPaymentIds();
+    }
+  }, [payment_id]);
 
-    const key = `ticket-booking:${user.id}:${payload.eventId}:${payload.quantity}:${payload.qrValueSeed}`
-    if (sessionStorage.getItem(key) === '1') return
 
-    const nowIso = new Date().toISOString()
-    const random = Math.floor(1000 + Math.random() * 9000)
-    const ticketRef = `TKT-${new Date().getFullYear()}-${String(random)}`
-    const qrUnique = `TKT-${payload.eventId}-${Date.now()}-${random}`
+  const qrSrcs = useMemo(() => {
+    if (Array.isArray(paymentIds) && paymentIds.length > 0) {
+      return paymentIds
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map(
+          (id) =>
+            `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(id)}`
+        )
+    }
+  
+    if (booking) {
+      const raw = booking.qrValue || booking.reservationId
+      return [
+        `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(raw)}`,
+      ]
+    }
+  
+    return [
+      `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=PartyOn`,
+    ]
+  }, [paymentIds, booking])
 
-    // Try newer schema first.
-    const modernInsert = await supabase
-      .from('reservations')
-      .insert({
-        user_id: user.id,
-        event_id: payload.eventId,
-        number_of_people: payload.quantity,
-        time_slot: null,
-        special_requests: null,
-        status: 'confirmed',
-        reservation_reference: ticketRef,
-        created_at: nowIso,
-        updated_at: nowIso,
-      })
+  const orderId = booking
+    ? booking.bookingType === 'reservation'
+      ? booking.reservationReference
+      : orderIdFrom(booking.reservationId)
+    : 'PO-UNKNOWN'
 
-    if (modernInsert.error) {
-      // Fallback to legacy schema in this project.
-      const legacyInsert = await supabase
-        .from('reservations')
-        .insert({
-          user_id: user.id,
-          event_id: payload.eventId,
-          nr_of_people: payload.quantity,
-          expected_arrival_time: null,
-          notes: `Stripe checkout${checkoutSessionId ? ` (${checkoutSessionId})` : ''}`,
-          status: 'confirmed',
-          type: 'ticket',
-          qr_code: qrUnique,
-          reservation_date: nowIso,
-          created_at: nowIso,
-        })
+  const quantityLabel = booking
+    ? `${booking.quantity} ${booking.bookingType}${booking.quantity > 1 ? 's' : ''}`
+    : ''
 
-      if (legacyInsert.error) {
-        return
+  /* ── EVENT FETCH (simple mode) ── */
+  useEffect(() => {
+    if (!id || id === 'undefined') return
+
+    let active = true
+
+    async function loadEvent() {
+      try {
+        const res = await fetch(`http://localhost:3000/event/${id}`)
+        if (!res.ok) throw new Error('Failed to fetch event')
+
+        const data = await res.json()
+        if (!active) return
+
+        setEvent(data)
+      } catch (err) {
+        if (!active) return
+        console.error(err)
+        setEvent(null)
+        // In simple mode (no bookingId) the event IS the only data source
+        if (!bookingId) {
+          setLoading(false)
+          setError('Could not load event details')
+        }
       }
     }
 
-    sessionStorage.setItem(key, '1')
-  }
+    loadEvent()
+
+    return () => {
+      active = false
+    }
+  }, [id, bookingId])
+
+  /* ── PAYMENT FETCH (GET /payment/:id) — runs in parallel with event fetch ── */
+
+  /* ── BOOKING FETCH (Supabase logic) ── */
+  useEffect(() => {
+    if (!bookingId) {
+      if (!id || id === 'undefined') {
+        setLoading(false)
+        setError('Missing booking ID')
+      }
+      // else: id present — synthetic booking built once event loads below
+      return
+    }
+
+    let active = true
+
+    async function loadDetail() {
+      setLoading(true)
+      setError(null)
+
+      if (!supabase || !isSupabaseConfigured) {
+        setError('Supabase not configured')
+        setLoading(false)
+        return
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!active) return
+
+      if (!user) {
+        navigate('/login', { replace: true })
+        return
+      }
+
+      // ---------------- LEGACY ----------------
+      const firstLegacy = await supabase
+        .from('reservations')
+        .select(
+          `reservation_id,nr_of_people,type,status,qr_code,expected_arrival_time,reservation_reference,
+           event:events(event_id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address))`,
+        )
+        .eq('reservation_id', bookingId)
+        .eq('user_id', user.id)
+        .single()
+
+      let data: any = firstLegacy.data
+      let err = firstLegacy.error
+
+      if (!active) return
+
+      if (!err && data) {
+        const row = data
+        const event = one(row.event)
+        const club = one(event?.club)
+
+        setBooking({
+          reservationId: row.reservation_id,
+          reservationReference:
+            row.reservation_reference || row.qr_code || row.reservation_id,
+          eventId: event?.event_id ?? '',
+          eventName: event?.event_name ?? 'Event',
+          eventImage: event?.event_image ?? null,
+          eventStartingDate: event?.event_starting_date ?? null,
+          eventHours: event?.event_hours ?? row.expected_arrival_time ?? null,
+          clubName: club?.club_name ?? null,
+          clubAddress: club?.club_address ?? null,
+          quantity: Math.max(1, Number(row.nr_of_people || 1)),
+          bookingType: normalizeType(row.type),
+          status: String(row.status ?? 'pending'),
+          qrValue: row.qr_code || row.reservation_reference || row.reservation_id,
+        })
+
+        setLoading(false)
+        return
+      }
+
+      // ---------------- MODERN ----------------
+      const modern = await supabase
+        .from('reservations')
+        .select(
+          `id,number_of_people,time_slot,status,reservation_reference,
+           event:events(id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address))`,
+        )
+        .eq('id', bookingId)
+        .eq('user_id', user.id)
+        .single()
+
+      if (!active) return
+
+      if (modern.data) {
+        const row = modern.data
+        const event = one(row.event)
+        const club = one(event?.club)
+
+        setBooking({
+          reservationId: row.id,
+          reservationReference: row.reservation_reference || row.id,
+          eventId: event?.id ?? '',
+          eventName: event?.event_name ?? 'Event',
+          eventImage: event?.event_image ?? null,
+          eventStartingDate: event?.event_starting_date ?? null,
+          eventHours: event?.event_hours ?? row.time_slot ?? null,
+          clubName: club?.club_name ?? null,
+          clubAddress: club?.club_address ?? null,
+          quantity: Math.max(1, Number(row.number_of_people || 1)),
+          bookingType: 'reservation',
+          status: String(row.status ?? 'pending'),
+          qrValue: row.reservation_reference || row.id,
+        })
+
+        setLoading(false)
+        return
+      }
+
+      setError(err?.message ?? 'Could not load booking')
+      setLoading(false)
+    }
+
+    loadDetail()
+
+    return () => {
+      active = false
+    }
+  }, [bookingId, id, navigate])
+
+  /* ── SYNTHETIC BOOKING (no bookingId → build from id + quantity + event data) ── */
+  useEffect(() => {
+    if (bookingId || !id || id === 'undefined' || !event) return
+
+    const qty = Math.max(1, Number(quantity ?? 1))
+    const syntheticRef = `PO-${id.slice(0, 8).toUpperCase()}`
+
+    setBooking({
+      reservationId: id,
+      reservationReference: syntheticRef,
+      eventId: String(event.id ?? event.event_id ?? id),
+      eventName: event.event_name ?? event.title ?? 'Event',
+      eventImage: event.event_image ?? event.imageUrl ?? null,
+      eventStartingDate: event.event_starting_date ?? event.date ?? null,
+      eventHours: event.event_hours ?? null,
+      clubName: event.club && event.club !== '—' ? event.club : null,
+      clubAddress: event.address ?? null,
+      quantity: qty,
+      bookingType: 'ticket',
+      status: 'confirmed',
+      qrValue: `${id}-${qty}`,
+    })
+    setLoading(false)
+    setError(null)
+  }, [bookingId, id, quantity, event])
 
   useEffect(() => {
-  if (!id || id === 'undefined') return
+    setQrIndexMain(0)
+    setQrIndexModal(0)
+  }, [qrSrcs])
 
-  let active = true
-
-  async function loadEvent() {
-    try {
-      const res = await fetch(`http://localhost:3000/event/${id}`)
-      if (!res.ok) throw new Error('Failed to fetch event')
-
-      const data = await res.json()
-
-      if (!active) return
-      setEvents(data)
-    } catch (err) {
-      if (!active) return
-      console.error('Event fetch error:', err)
-      setEvents(null)
+  useEffect(() => {
+    if (!previewOpen || !modalViewportRef.current) return
+    const measure = () => {
+      if (modalViewportRef.current) {
+        const w = modalViewportRef.current.offsetWidth
+        setModalSlideWidth(Math.floor((w - 12) / 2))
+      }
     }
-  }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(modalViewportRef.current)
+    return () => ro.disconnect()
+  }, [previewOpen])
 
-  loadEvent()
+  const MODAL_VISIBLE = 2
+  const maxModalIndex = Math.max(0, qrSrcs.length - MODAL_VISIBLE)
+  const showModalNav = qrSrcs.length > MODAL_VISIBLE
 
-  return () => {
-    active = false
-  }
-}, [id])
+  /* ── RENDER ── */
   return (
     <div className="purchased-ticket">
+      <div className="purchased-ticket__glow" aria-hidden />
       <Navbar />
-      <div className="purchased-ticket__glow" aria-hidden={true} />
-      <div className="purchased-ticket__inner" style={{ paddingTop: '88px' }}>
+
+      <div className="purchased-ticket__inner" style={{ paddingTop: 88 }}>
         <Link to="/my-bookings" className="purchased-ticket__back-link">
-          ← Back to My Bookings
+          <ChevronLeft size={14} />
+          Back to bookings
         </Link>
 
+        {/* ── Loading skeleton ── */}
         {loading ? (
-          <div className="purchased-ticket__card">Loading booking details...</div>
-        ) : error || !booking ? (
-          <div className="purchased-ticket__card">{error || 'Could not load booking details.'}</div>
-        ) : (
-          <>
-            <header className="purchased-ticket__success">
-              <div className="purchased-ticket__check">
-                <CheckIcon />
-              </div>
-              <h1 className="purchased-ticket__headline">You&apos;re in</h1>
-              <p className="purchased-ticket__sub">Your booking is confirmed</p>
-            </header>
-
-            <div className="purchased-ticket__summary">
+          <div className="animate-pulse" style={{ paddingTop: 32 }}>
+            {[80, 260, 100].map((h, i) => (
               <div
-                className="payment-page__event-thumb"
+                key={i}
                 style={{
-                  backgroundImage: booking.eventImage ? `url(${booking.eventImage})` : undefined,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
+                  height: h,
+                  marginBottom: 14,
+                  borderRadius: 14,
+                  background: 'rgba(255,255,255,0.06)',
                 }}
               />
-              <div>
+            ))}
+          </div>
+        ) : error || !booking ? (
+          /* ── Error / not found ── */
+          <div style={{ textAlign: 'center', paddingTop: 56 }}>
+            <p style={{ color: '#a3a3a3', marginBottom: 24, fontSize: '0.9375rem' }}>
+              {error ?? 'Booking not found'}
+            </p>
+            <Link to="/my-bookings" className="purchased-ticket__back-link">
+              <ChevronLeft size={14} /> Back to bookings
+            </Link>
+          </div>
+        ) : (
+          <>
+            {/* ── Success header ── */}
+            <div className="purchased-ticket__success">
+              <div className="purchased-ticket__check">
+                <Check strokeWidth={2.5} />
+              </div>
+              <h1 className="purchased-ticket__headline">You&apos;re going!</h1>
+              <p className="purchased-ticket__sub">
+                Your {booking.bookingType} is confirmed
+              </p>
+            </div>
+
+            {/* ── Event summary strip ── */}
+            <div className="purchased-ticket__summary">
+              <div
+                className="purchased-ticket__summary-thumb"
+                style={
+                  booking.eventImage
+                    ? {
+                        backgroundImage: `url(${booking.eventImage})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                      }
+                    : undefined
+                }
+              />
+              <div style={{ minWidth: 0 }}>
                 <p className="purchased-ticket__summary-title">{booking.eventName}</p>
-                <p className="purchased-ticket__summary-meta">
-                  <CalendarSmallIcon />
-                  <span>{formatEventDate(booking.eventStartingDate)}</span>
-                </p>
+                {booking.eventStartingDate && (
+                  <p className="purchased-ticket__summary-meta">
+                    <Clock />
+                    {formatEventDate(booking.eventStartingDate)}
+                  </p>
+                )}
               </div>
             </div>
 
+            {/* ── Main ticket card ── */}
             <div className="purchased-ticket__card">
               <div className="purchased-ticket__card-grid">
-                <div className="purchased-ticket__qr">
-                  <img src={qrSrc} alt="Booking QR code" width={220} height={220} loading="lazy" />
+                {/* QR code slider */}
+                <div className="purchased-ticket__qr-slider">
+                  <div className="purchased-ticket__qr-viewport">
+                    <div
+                      className="purchased-ticket__qr-track"
+                      style={{ transform: `translateX(-${qrIndexMain * 100}%)` }}
+                    >
+                      {qrSrcs.map((src, i) => (
+                        <div key={i} className="purchased-ticket__qr-item">
+                          {qrSrcs.length > 1 && (
+                            <span className="purchased-ticket__qr-badge">{i + 1}</span>
+                          )}
+                          <img src={src} alt={`Ticket QR code ${i + 1}`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {qrSrcs.length > 1 && (
+                    <div className="purchased-ticket__qr-controls">
+                      <div className="purchased-ticket__qr-nav-row">
+                        <button
+                          type="button"
+                          className="purchased-ticket__qr-arrow"
+                          onClick={() => setQrIndexMain(p => Math.max(0, p - 1))}
+                          disabled={qrIndexMain === 0}
+                          aria-label="Previous QR"
+                        >
+                          <ChevronLeft size={12} />
+                        </button>
+                        <span className="purchased-ticket__qr-counter">
+                          {qrIndexMain + 1}&thinsp;/&thinsp;{qrSrcs.length}
+                        </span>
+                        <button
+                          type="button"
+                          className="purchased-ticket__qr-arrow"
+                          onClick={() => setQrIndexMain(p => Math.min(qrSrcs.length - 1, p + 1))}
+                          disabled={qrIndexMain === qrSrcs.length - 1}
+                          aria-label="Next QR"
+                        >
+                          <ChevronRight size={12} />
+                        </button>
+                      </div>
+                      <div className="purchased-ticket__qr-dots">
+                        {qrSrcs.map((_, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            className={`purchased-ticket__qr-dot${i === qrIndexMain ? ' purchased-ticket__qr-dot--active' : ''}`}
+                            onClick={() => setQrIndexMain(i)}
+                            aria-label={`QR ${i + 1}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {/* Detail panel */}
                 <div className="purchased-ticket__details">
-                  <h2 className="purchased-ticket__event-title">{booking.eventName}</h2>
-                  <p className="purchased-ticket__tier">
-                    {booking.bookingType === 'reservation' ? 'Reservation' : 'General Admission'}
-                  </p>
-                  <div className="purchased-ticket__detail-line">
-                    <CalendarSmallIcon />
-                    <div>
-                      <div>{formatEventDate(booking.eventStartingDate)}</div>
-                      <div>• Doors open at {booking.eventHours || 'TBA'}</div>
+                  <p className="purchased-ticket__event-title">{booking.eventName}</p>
+                  <p className="purchased-ticket__tier">{quantityLabel}</p>
+
+                  {booking.eventStartingDate && (
+                    <div className="purchased-ticket__detail-line">
+                      <Calendar />
+                      <span>{formatEventDate(booking.eventStartingDate)}</span>
                     </div>
-                  </div>
-                  <div className="purchased-ticket__detail-line">
-                    <PinIcon />
-                    <div>
-                      <div>{booking.clubName || 'Venue not set'}</div>
-                      <div>{booking.clubAddress || 'Address not available'}</div>
+                  )}
+
+                  {booking.clubName && (
+                    <div className="purchased-ticket__detail-line">
+                      <MapPin />
+                      <span>{booking.clubName}</span>
                     </div>
-                  </div>
+                  )}
+
+                  {booking.clubAddress && (
+                    <div className="purchased-ticket__detail-line">
+                      <MapPin />
+                      <span>{booking.clubAddress}</span>
+                    </div>
+                  )}
+
                   <div className="purchased-ticket__label-row">
-                    <div className="purchased-ticket__meta-label">Quantity</div>
-                    <div className="purchased-ticket__meta-value">{quantityLabel}</div>
+                    <span className="purchased-ticket__meta-label">Order</span>
+                    <p className="purchased-ticket__meta-value">#{orderId}</p>
                   </div>
+
                   <div className="purchased-ticket__label-row">
-                    <div className="purchased-ticket__meta-label">
-                      {booking.bookingType === 'reservation' ? 'Reservation reference' : 'Order number'}
-                    </div>
-                    <div className="purchased-ticket__meta-value">#{orderId}</div>
+                    <span className="purchased-ticket__meta-label">Status</span>
+                    <p
+                      className="purchased-ticket__meta-value"
+                      style={{ textTransform: 'capitalize' }}
+                    >
+                      {booking.status}
+                    </p>
                   </div>
                 </div>
               </div>
 
+              {/* Utility row */}
               <div className="purchased-ticket__util-row">
                 <button
                   type="button"
                   className="purchased-ticket__util-btn"
                   onClick={() => setPreviewOpen(true)}
                 >
-                  <EyeIcon />
-                  View
+                  <QrCode />
+                  Full QR
                 </button>
-                <button type="button" className="purchased-ticket__util-btn" onClick={handleEmail}>
-                  <MailIcon />
-                  Email
-                </button>
-                <button type="button" className="purchased-ticket__util-btn" onClick={() => void handleDownloadPdf()}>
-                  <DownloadIcon />
-                  Download
+                <button
+  type="button"
+  className="purchased-ticket__util-btn"
+  onClick={() => {
+    qrSrcs.forEach((src, index) => {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = `ticket-${orderId}-${index + 1}.png`;
+      a.click();
+    });
+  }}
+>
+  <Download />
+  Save all
+</button>
+                <button
+                  type="button"
+                  className="purchased-ticket__util-btn"
+                  onClick={async () => {
+                    try {
+                      if (navigator.share) {
+                        await navigator.share({
+                          title: booking.eventName,
+                          url: window.location.href,
+                        })
+                      } else {
+                        await navigator.clipboard.writeText(window.location.href)
+                      }
+                    } catch {
+                      // dismissed or unavailable
+                    }
+                  }}
+                >
+                  <Share2 />
+                  Share
                 </button>
               </div>
 
-              <button type="button" className="purchased-ticket__calendar-btn" onClick={handleAddToCalendar}>
-                <PlusIcon />
-                Add to Calendar
-              </button>
+              {/* Add to calendar */}
+              <a
+                href={buildCalendarUrl(booking)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="purchased-ticket__calendar-btn"
+                style={{ textDecoration: 'none' }}
+              >
+                <Calendar size={14} />
+                Add to calendar
+              </a>
             </div>
 
-            <p className="purchased-ticket__secure">Your booking is securely stored in your account</p>
+            <p className="purchased-ticket__secure">
+              🔒 Secured by PartyOn · Verified booking
+            </p>
 
-            <nav className="purchased-ticket__nav" aria-label="Next steps">
+            <nav className="purchased-ticket__nav">
+              <Link
+                to="/my-bookings"
+                className="purchased-ticket__nav-btn purchased-ticket__nav-btn--ghost"
+                style={{ textDecoration: 'none' }}
+              >
+                <Ticket />
+                My bookings
+              </Link>
+              <Link
+                to="/"
+                className="purchased-ticket__nav-btn purchased-ticket__nav-btn--primary"
+                style={{ textDecoration: 'none' }}
+              >
+                Explore events
+              </Link>
+            </nav>
+          </>
+        )}
+      </div>
+
+      {/* ── QR full-screen preview modal ── */}
+      {previewOpen && booking && (
+        <div
+          className="purchased-ticket__preview-overlay"
+          role="dialog"
+          aria-modal
+          aria-label="QR code preview"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div
+            className="purchased-ticket__preview-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="purchased-ticket__preview-title">{booking.eventName}</p>
+            <p className="purchased-ticket__preview-sub">
+              {quantityLabel} · #{orderId}
+            </p>
+
+            {/* Modal QR slider — 2 visible at a time */}
+            <div className="purchased-ticket__modal-qr-container">
+              {showModalNav && (
+                <button
+                  type="button"
+                  className="purchased-ticket__modal-qr-arrow purchased-ticket__modal-qr-arrow--prev"
+                  onClick={() => setQrIndexModal(p => Math.max(0, p - 1))}
+                  disabled={qrIndexModal === 0}
+                  aria-label="Previous"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+              )}
+
+              <div className="purchased-ticket__modal-qr-viewport" ref={modalViewportRef}>
+                <div
+                  className="purchased-ticket__modal-qr-track"
+                  style={{
+                    transform: `translateX(-${qrIndexModal * (modalSlideWidth + 12)}px)`,
+                  }}
+                >
+                  {qrSrcs.map((src, i) => (
+                    <div
+                      key={i}
+                      className="purchased-ticket__modal-qr-item"
+                      style={{ width: modalSlideWidth, minWidth: modalSlideWidth }}
+                    >
+                      {qrSrcs.length > 1 && (
+                        <span className="purchased-ticket__modal-qr-badge">#{i + 1}</span>
+                      )}
+                      <img src={src} alt={`QR code ${i + 1}`} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {showModalNav && (
+                <button
+                  type="button"
+                  className="purchased-ticket__modal-qr-arrow purchased-ticket__modal-qr-arrow--next"
+                  onClick={() => setQrIndexModal(p => Math.min(maxModalIndex, p + 1))}
+                  disabled={qrIndexModal === maxModalIndex}
+                  aria-label="Next"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              )}
+            </div>
+
+            {showModalNav && (
+              <div className="purchased-ticket__modal-qr-dots">
+                {Array.from({ length: maxModalIndex + 1 }, (_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className={`purchased-ticket__modal-qr-dot${i === qrIndexModal ? ' purchased-ticket__modal-qr-dot--active' : ''}`}
+                    onClick={() => setQrIndexModal(i)}
+                    aria-label={`View QR ${i + 1}–${Math.min(i + MODAL_VISIBLE, qrSrcs.length)}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            <p className="purchased-ticket__preview-ref">
+              Present this code at the door
+            </p>
+            <div className="purchased-ticket__preview-actions">
               <button
                 type="button"
                 className="purchased-ticket__nav-btn purchased-ticket__nav-btn--ghost"
-                onClick={() => navigate({ pathname: '/', hash: 'events' })}
+                style={{ fontSize: '0.875rem', padding: '10px 16px' }}
+                onClick={() => setPreviewOpen(false)}
               >
-                View more events
-                <ChevronRightIcon />
+                <X size={16} />
+                Close
               </button>
               <button
                 type="button"
                 className="purchased-ticket__nav-btn purchased-ticket__nav-btn--primary"
-                onClick={() => navigate('/my-bookings')}
+                style={{ fontSize: '0.875rem', padding: '10px 16px' }}
+                onClick={async () => {
+                  try {
+                    if (navigator.share) {
+                      await navigator.share({
+                        title: booking.eventName,
+                        url: window.location.href,
+                      })
+                    } else {
+                      await navigator.clipboard.writeText(window.location.href)
+                    }
+                  } catch {
+                    // dismissed or unavailable
+                  }
+                }}
               >
-                Go to My Bookings
-                <ArrowRightIcon />
+                <Share2 size={16} />
+                Share
               </button>
-            </nav>
+            </div>
+          </div>
+        </div>
+      )}
 
-            {previewOpen ? (
-              <div className="purchased-ticket__preview-overlay" onClick={() => setPreviewOpen(false)}>
-                <div
-                  className="purchased-ticket__preview-modal"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <h3 className="purchased-ticket__preview-title">{booking.eventName}</h3>
-                  <p className="purchased-ticket__preview-sub">{formatEventDate(booking.eventStartingDate)}</p>
-                  <div className="purchased-ticket__preview-qr-wrap">
-                    <img src={qrSrc} alt="Booking QR enlarged" className="purchased-ticket__preview-qr" />
-                  </div>
-                  <p className="purchased-ticket__preview-ref">
-                    {booking.bookingType === 'reservation' ? 'Reservation Reference' : 'Order Number'}: #{orderId}
-                  </p>
-                  <div className="purchased-ticket__preview-actions">
-                    <button type="button" className="purchased-ticket__util-btn" onClick={() => window.print()}>
-                      Print
-                    </button>
-                    <button type="button" className="purchased-ticket__util-btn" onClick={() => setPreviewOpen(false)}>
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
       <LovableFooter />
     </div>
   )

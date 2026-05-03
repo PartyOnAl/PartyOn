@@ -13,6 +13,7 @@ export type PaymentListItem = {
   amount: number | null;
   payment_date: Date | null;
   status: string | null;
+  event_id: string | null;
 };
 
 @Injectable()
@@ -83,12 +84,14 @@ export class PaymentService {
 
   async findById(id: string) {
     const payment=await this.paymentRepository.findOne({
-      where: { paymentId: id },
-      relations: ['reservation', 'user'], // if needed
+      where: { event: {eventId: id} },
+      relations: ['reservation', 'user' , 'event'], // if needed
     });
+    console.log('PAYMENT Test:', payment);
     if (!payment) {
       throw new Error('Payment not found');
     }
+    console.log('checking if we go here')
     return this.toListItem(payment);
   }
 
@@ -135,18 +138,32 @@ private getStripe(): InstanceType<typeof Stripe> {
   return this.stripe;
 }
 
+async updatePayment(id: string, dto: Partial<Payments>) {
+  // optional: check if exists
+  const payment = await this.paymentRepository.findOne({
+    where: { batch_id: id },
+  });
+
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  // update
+  await this.paymentRepository.update({batch_id: id}, dto);
+
+  // return updated record
+  return this.paymentRepository.findOne({
+    where: { batch_id: id },
+  });
+}
+
 async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
       const amount=session.metadata.amount
-      console.log('Payment success:', session.id);
-      const payment = this.paymentRepository.create({
-        amount:  amount?amount:0,
-        status: 'completed',
-        paymentDate: new Date(),
-    });
-    await this.paymentRepository.save(payment);
+      const payment_id=session.metadata.payment_id
+      const payment = await this.updatePayment(payment_id,{status: 'completed'});
       break;
     }
     default:
@@ -154,14 +171,31 @@ async handleEvent(event: any) {
   }
 }
 
-  private toListItem(payment: Payments): PaymentListItem {
+async findPaymentIds(batch_id: string) {
+  const payments = await this.paymentRepository.find({
+    where: { batch_id: batch_id },
+    select: ['paymentId'], // 🔥 only fetch IDs
+  });
+
+  return payments.map(p => p.paymentId);
+}
+
+  private toListItem(payment: Payments): PaymentListItem { 
+       console.log('PAYMENT Test1:', payment.paymentId,
+        payment.reservation?.reservationId??null,
+         payment.user?.id??null,
+         Number(payment.amount),
+         payment.paymentDate,
+         payment.status,
+         payment.event.eventId,);
     return {
       payment_id: payment.paymentId,
-      reservation_id: payment.reservation.reservationId,
-      user_id: payment.user.id,
+      reservation_id: payment.reservation?.reservationId??null,
+      user_id: payment.user?.id??null,
       amount: Number(payment.amount),
       payment_date: payment.paymentDate,
       status: payment.status,
+      event_id: payment.event.eventId,
     };
   }
 }
