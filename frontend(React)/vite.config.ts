@@ -23,6 +23,13 @@ export default defineConfig({
         payment: path.resolve(__dirname, 'payment.html'),
         paymentMethod: path.resolve(__dirname, 'payment-method.html'),
         purchasedTicket: path.resolve(__dirname, 'purchased-ticket.html'),
+        adminPlatformAnalysis: path.resolve(
+          __dirname,
+          'admin-platform-analysis.html',
+        ),
+        clubApproving: path.resolve(__dirname, 'club-approving.html'),
+        userManagement: path.resolve(__dirname, 'user-management.html'),
+        revenueAndPayments: path.resolve(__dirname, 'revenue-and-payments.html'),
       },
     },
   },
