@@ -12,6 +12,8 @@ import { ClubsModule } from './clubs/clubs.module';
 import { PaymentModule } from './payment/payment.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { SavedModule } from './saved/saved.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { StaffModule } from './staff/staff.module';
 
 
 @Module({
@@ -33,6 +35,8 @@ import { SavedModule } from './saved/saved.module';
     PaymentModule,
     CatalogModule,
     SavedModule,
+    DashboardModule,
+    StaffModule,
   ],
   controllers: [AppController],
   providers: [AppService],

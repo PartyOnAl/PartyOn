@@ -14,12 +14,19 @@ const supabaseAnonKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 
-export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true,
-      },
-    })
-  : null
+function createPartyOnClient(storageKey: string): SupabaseClient | null {
+  if (!isSupabaseConfigured) return null
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      storageKey,
+    },
+  })
+}
+
+export const userSupabase = createPartyOnClient('partyon-user-auth')
+export const managerSupabase = createPartyOnClient('partyon-manager-auth')
+
+export const supabase: SupabaseClient | null = userSupabase

@@ -1,14 +1,17 @@
+import { Link, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
 export const MANAGER_NAV = [
-  { id: 'dashboard', label: 'Dashboard', href: '/manager-dashboard.html' },
-  { id: 'club', label: 'Club Profile', href: '/club-profile-editor.html' },
-  { id: 'events', label: 'Events', href: '/event-management.html' },
-  { id: 'tables', label: 'Tables', href: '#tables' },
-  { id: 'reservations', label: 'Reservations', href: '/reservation-management.html' },
-  { id: 'promotions', label: 'Promotions', href: '#promotions' },
-  { id: 'analytics', label: 'Analytics', href: '#analytics' },
-  { id: 'staff', label: 'Staff Approval', href: '#staff' },
-  { id: 'disputes', label: 'Disputes', href: '#disputes' },
-  { id: 'settings', label: 'Settings', href: '#settings' },
+  { id: 'dashboard', label: 'Dashboard', to: '/manager/dashboard' },
+  { id: 'club', label: 'Club Profile', to: '/manager/club-profile' },
+  { id: 'events', label: 'Events', to: '/manager/events' },
+  { id: 'tables', label: 'Tables', to: '/manager/reservations#tables' },
+  { id: 'reservations', label: 'Reservations', to: '/manager/reservations' },
+  { id: 'promotions', label: 'Promotions', to: '/manager/promotions' },
+  { id: 'analytics', label: 'Analytics', to: '/manager/analytics' },
+  { id: 'staff', label: 'Staff Approval', to: '/manager/staff-approval' },
+  { id: 'disputes', label: 'Disputes', to: '#disputes' },
+  { id: 'settings', label: 'Settings', to: '#settings' },
 ] as const
 
 export type ManagerNavId = (typeof MANAGER_NAV)[number]['id']
@@ -143,34 +146,38 @@ function IconGear() {
 
 function NavIcon({ id }: { id: string }) {
   switch (id) {
-    case 'dashboard':
-      return <IconDashboard />
-    case 'club':
-      return <IconClub />
-    case 'events':
-      return <IconCalendar />
-    case 'tables':
-      return <IconTable />
-    case 'reservations':
-      return <IconBookmark />
-    case 'promotions':
-      return <IconMegaphone />
-    case 'analytics':
-      return <IconChart />
-    case 'staff':
-      return <IconUsers />
-    case 'disputes':
-      return <IconAlert />
-    case 'settings':
-      return <IconGear />
-    default:
-      return <IconDashboard />
+    case 'dashboard': return <IconDashboard />
+    case 'club': return <IconClub />
+    case 'events': return <IconCalendar />
+    case 'tables': return <IconTable />
+    case 'reservations': return <IconBookmark />
+    case 'promotions': return <IconMegaphone />
+    case 'analytics': return <IconChart />
+    case 'staff': return <IconUsers />
+    case 'disputes': return <IconAlert />
+    case 'settings': return <IconGear />
+    default: return <IconDashboard />
   }
 }
 
-type ManagerSidebarProps = { activeId: ManagerNavId }
+export function ManagerSidebar() {
+  const { pathname, hash } = useLocation()
+  const { profile, signOut } = useAuth()
 
-export function ManagerSidebar({ activeId }: ManagerSidebarProps) {
+  function getActiveId(): ManagerNavId {
+    if (pathname.startsWith('/manager/club')) return 'club'
+    if (pathname.startsWith('/manager/events')) return 'events'
+    if (pathname.startsWith('/manager/reservations')) {
+      return hash === '#tables' ? 'tables' : 'reservations'
+    }
+    if (pathname.startsWith('/manager/promotions')) return 'promotions'
+    if (pathname.startsWith('/manager/analytics')) return 'analytics'
+    if (pathname.startsWith('/manager/staff-approval')) return 'staff'
+    return 'dashboard'
+  }
+
+  const activeId = getActiveId()
+
   return (
     <aside className="manager-dash__sidebar" aria-label="Manager navigation">
       <div className="manager-dash__brand">
@@ -182,9 +189,9 @@ export function ManagerSidebar({ activeId }: ManagerSidebarProps) {
         {MANAGER_NAV.map((item) => {
           const isActive = item.id === activeId
           return (
-            <a
+            <Link
               key={item.id}
-              href={item.href}
+              to={item.to}
               className={
                 isActive
                   ? 'manager-dash__nav-link manager-dash__nav-link--active'
@@ -194,7 +201,7 @@ export function ManagerSidebar({ activeId }: ManagerSidebarProps) {
             >
               <NavIcon id={item.id} />
               <span>{item.label}</span>
-            </a>
+            </Link>
           )
         })}
       </nav>
@@ -209,19 +216,46 @@ export function ManagerSidebar({ activeId }: ManagerSidebarProps) {
             />
           </svg>
         </div>
-        <div>
-          <p className="manager-dash__sidebar-user-name">Manager</p>
-          <p className="manager-dash__sidebar-user-email">manager@partyon.com</p>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="manager-dash__sidebar-user-name">
+            {profile?.name ? `${profile.name} ${profile.surname ?? ''}`.trim() : 'Manager'}
+          </p>
+          <p className="manager-dash__sidebar-user-email">{profile?.email ?? ''}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          title="Sign out"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#8a8a8a',
+            padding: '4px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          aria-label="Sign out"
+        >
+          <svg viewBox="0 0 24 24" fill="none" width="18" height="18" aria-hidden>
+            <path
+              d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
     </aside>
   )
 }
 
-export function ManagerTopBar() {
+export function ManagerTopBar({ clubName }: { clubName?: string }) {
   return (
     <header className="manager-dash__topbar">
-      <span className="manager-dash__club-name">Folie Terrace</span>
+      <span className="manager-dash__club-name">{clubName ?? '—'}</span>
       <button type="button" className="manager-dash__avatar-btn" aria-label="Account menu">
         <span className="manager-dash__avatar-ring" />
       </button>
