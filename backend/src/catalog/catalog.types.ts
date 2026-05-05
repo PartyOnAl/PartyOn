@@ -78,6 +78,8 @@ export type CatalogPromotionDto = {
   listPrice?: number;
   /** Optional promo / checkout price from DB (e.g. `price`, `discounted_price`) */
   promoPrice?: number;
+  /** When true, offer detail may show original / sale / savings from `original_price` + discount */
+  showNumericPricing?: boolean;
   /** ISO date string when `valid_until` is set */
   validUntil?: string;
   /** Short line for cards / hero tagline */

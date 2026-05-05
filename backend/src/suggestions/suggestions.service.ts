@@ -62,15 +62,11 @@ function textRelevance(haystack: string, q: string): number {
 
 function eventMatchesFilters(ev: CatalogEventDto, f: FilterState): boolean {
   const query = f.query.trim().toLowerCase();
-  const haystack =
-    `${ev.title} ${ev.club} ${ev.city} ${ev.musicType}`.toLowerCase();
+  const haystack = [ev.title, ev.club, ev.city, ev.musicType, ev.genre ?? '']
+    .join(' ')
+    .toLowerCase();
 
-  const matchesQuery =
-    query.length === 0 ||
-    ev.title.toLowerCase().includes(query) ||
-    ev.club.toLowerCase().includes(query) ||
-    ev.city.toLowerCase().includes(query) ||
-    ev.musicType.toLowerCase().includes(query);
+  const matchesQuery = query.length === 0 || haystack.includes(query);
 
   const matchesCity =
     f.city === 'all' ||

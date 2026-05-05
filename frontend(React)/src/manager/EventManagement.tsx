@@ -5,6 +5,10 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import {
+  isPaidTicketEvent,
+  reservationIsConfirmed,
+} from './eventPaidEntry'
 
 type ReservationMini = {
   reservation_id: string
@@ -26,6 +30,11 @@ type EventRow = {
   event_image: string | null
   event_status: string | null
   reservations: ReservationMini[]
+}
+
+/** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
+function confirmedReservationCountForEvent(ev: EventRow): number {
+  return ev.reservations.filter(reservationIsConfirmed).length
 }
 
 type EventFormState = {
@@ -196,7 +205,7 @@ function DatePickerField({
   )
 }
 
-function TimePickerField({
+export function TimePickerField({
   label,
   value,
   disabled,
@@ -441,11 +450,16 @@ function EventCard({
   onEdit: (event: EventRow) => void
   onDelete: (event: EventRow) => void
 }) {
-  const ticketsSold = ev.reservations.filter((r) => r.type === 'ticket').length
+  const booked = confirmedReservationCountForEvent(ev)
   const cap = ev.event_capacity ?? 0
-  const capacityPct = cap > 0 ? Math.round(Math.min(100, (ticketsSold / cap) * 100)) : 0
+  const capacityPct = cap > 0 ? Math.round(Math.min(100, (booked / cap) * 100)) : 0
+  const paidEntry = isPaidTicketEvent(ev)
   const priceRaw = ev.final_ticket_price ?? ev.ticket_price
-  const priceLabel = priceRaw ? `€${parseFloat(priceRaw).toFixed(0)} per ticket` : 'Free entry'
+  const priceLabel =
+    paidEntry && priceRaw != null && String(priceRaw).trim() !== ''
+      ? `€${parseFloat(String(priceRaw)).toFixed(0)} per ticket`
+      : 'Free entry'
+  const attendanceLabel = paidEntry ? 'tickets sold' : 'reservations'
 
   const eventDate = new Date(ev.event_starting_date)
   const dateStr = eventDate.toLocaleDateString('en-US', {
@@ -484,7 +498,7 @@ function EventCard({
           </li>
           <li className="event-mgmt__meta-row">
             <IconUsers />
-            <span>{ticketsSold} / {cap > 0 ? cap : '∞'} tickets sold</span>
+            <span>{booked} / {cap > 0 ? cap : '∞'} {attendanceLabel}</span>
           </li>
           <li className="event-mgmt__meta-row">
             <IconDollar />
@@ -628,19 +642,19 @@ export default function EventManagement() {
   }, [clubId, refreshKey])
 
   const now = new Date()
-  const totalRevenue = events
-    .flatMap((e) => e.reservations)
-    .filter((r) => r.status === 'confirmed')
-    .length
+  const allReservations = events.flatMap((e) => e.reservations)
+  const confirmedReservations = allReservations.filter(reservationIsConfirmed)
 
   const stats = [
     { label: 'Total Events', value: String(events.length) },
     { label: 'Upcoming', value: String(events.filter((e) => new Date(e.event_starting_date) > now).length) },
     {
-      label: 'Total Tickets Sold',
-      value: String(events.flatMap((e) => e.reservations).filter((r) => r.type === 'ticket').length),
+      label: 'Total Tickets / Reservations',
+      value: String(
+        allReservations.filter((r) => r.type === 'ticket' && reservationIsConfirmed(r)).length,
+      ),
     },
-    { label: 'Confirmed Reservations', value: String(totalRevenue) },
+    { label: 'Confirmed Reservations', value: String(confirmedReservations.length) },
   ]
 
   async function handleCreateEventSubmit(e: FormEvent<HTMLFormElement>) {
@@ -937,14 +951,17 @@ export default function EventManagement() {
                         <div className="event-mgmt__field">
                           <label>Capacity</label>
                           <p className="event-mgmt__meta-row" style={{ margin: 0 }}>
-                            {viewingEvent.reservations.filter((r) => r.type === 'ticket').length} / {viewingEvent.event_capacity ?? '∞'} tickets sold
+                            {confirmedReservationCountForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
+                            {isPaidTicketEvent(viewingEvent) ? 'tickets sold' : 'reservations'}
                           </p>
                         </div>
                         <div className="event-mgmt__field">
                           <label>Ticket Price</label>
                           <p className="event-mgmt__meta-row" style={{ margin: 0 }}>
-                            {viewingEvent.final_ticket_price ?? viewingEvent.ticket_price
-                              ? `€${parseFloat(viewingEvent.final_ticket_price ?? viewingEvent.ticket_price ?? '0').toFixed(2)}`
+                            {isPaidTicketEvent(viewingEvent) &&
+                            (viewingEvent.final_ticket_price ?? viewingEvent.ticket_price) != null &&
+                            String(viewingEvent.final_ticket_price ?? viewingEvent.ticket_price).trim() !== ''
+                              ? `€${parseFloat(String(viewingEvent.final_ticket_price ?? viewingEvent.ticket_price)).toFixed(2)}`
                               : 'Free entry'}
                           </p>
                         </div>

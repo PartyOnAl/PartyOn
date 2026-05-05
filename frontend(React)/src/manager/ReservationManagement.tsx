@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useLocation } from 'react-router-dom'
+import { Crown, Trash2 } from 'lucide-react'
 import './ManagerDashboard.css'
 import './ReservationManagement.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
+import { isPaidTicketEvent } from './eventPaidEntry'
 
 type FilterTab = 'all' | 'tickets' | 'tables'
 type FloorStatus = 'available' | 'reserved' | 'occupied'
@@ -22,7 +24,12 @@ type ReservationRow = {
   event_id: string | null
   notes: string | null
   user: { id: string; name: string | null; surname: string | null } | null
-  events: { event_name: string } | null
+  events: {
+    event_name: string
+    ticket_price: string | null
+    final_ticket_price: string | null
+    event_type: string | null
+  } | null
   payments: PaymentRow[]
 }
 
@@ -53,6 +60,11 @@ type FloorTableConfig = {
   gridColumn: number
   gridColumnSpan: number
   gridRow: number
+  /** Pixel center on floor plan SVG (viewBox 0 0 1000 700) */
+  x: number
+  y: number
+  /** Seat count around table (from DB seating_capacity) */
+  seats: number
   raw: DbTableRow
 }
 
@@ -66,7 +78,7 @@ type TableDisplay = {
 type VipPackageDraft = { minSpend: string; bottleNote: string }
 
 type TablePositionJson = {
-  layout?: { col?: number; row?: number; colSpan?: number }
+  layout?: { col?: number; row?: number; colSpan?: number; x?: number; y?: number; cs?: string }
   vip_note?: string
   label?: string
   /** When DB disallows `table_status = occupied`, UI stores this in JSON instead */
@@ -109,6 +121,129 @@ function positionJsonWithoutFloorUi(raw: string | null): string | null {
   return Object.keys(o).length > 0 ? JSON.stringify(o) : null
 }
 
+/** Logical floor canvas size (positions stored in this space when `layout.cs === '9x6'`). */
+const FLOOR_CANVAS_W = 900
+const FLOOR_CANVAS_H = 600
+const FLOOR_TOKEN_R = 26
+const FLOOR_TOKEN_R_VIP = 32
+
+type FloorZoneKey = 'stage' | 'bar' | 'dancefloor' | 'restrooms' | 'lounge'
+
+const DEFAULT_ZONE_LAYOUT: Record<FloorZoneKey, { x: number; y: number }> = {
+  stage: { x: 34, y: 7.14 },
+  dancefloor: { x: 34, y: 25.71 },
+  bar: { x: 84, y: 25.71 },
+  restrooms: { x: 4, y: 25.71 },
+  lounge: { x: 38, y: 91 },
+}
+
+/** Zone box width/height as % of canvas (for clamping while dragging). */
+const ZONE_PCT_BOUNDS: Record<FloorZoneKey, { w: number; h: number }> = {
+  stage: { w: 32, h: 12.86 },
+  dancefloor: { w: 32, h: 31.43 },
+  bar: { w: 14, h: 54.29 },
+  restrooms: { w: 12, h: 25.71 },
+  lounge: { w: 24, h: 6 },
+}
+
+function parseClubLayoutConfig(raw: string | null | undefined): Partial<Record<FloorZoneKey, { x: number; y: number }>> {
+  if (!raw?.trim()) return {}
+  try {
+    const o = JSON.parse(raw) as { zones?: Record<string, { x?: unknown; y?: unknown }> }
+    const z = o.zones
+    if (!z || typeof z !== 'object') return {}
+    const out: Partial<Record<FloorZoneKey, { x: number; y: number }>> = {}
+    const keys: FloorZoneKey[] = ['stage', 'bar', 'dancefloor', 'restrooms', 'lounge']
+    for (const k of keys) {
+      const p = z[k]
+      const x = typeof p?.x === 'number' && Number.isFinite(p.x) ? p.x : null
+      const y = typeof p?.y === 'number' && Number.isFinite(p.y) ? p.y : null
+      if (x != null && y != null) out[k] = { x, y }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function mergeFlushedZoneLayout(
+  base: Record<FloorZoneKey, { x: number; y: number }>,
+  zRef: { key: FloorZoneKey; currX: number; currY: number } | null,
+  zPre: { key: FloorZoneKey; x: number; y: number } | null,
+): Record<FloorZoneKey, { x: number; y: number }> {
+  let next = { ...base }
+  if (zRef) next = { ...next, [zRef.key]: { x: zRef.currX, y: zRef.currY } }
+  else if (zPre) next = { ...next, [zPre.key]: { x: zPre.x, y: zPre.y } }
+  return next
+}
+
+function stripTableCanvasCoords(position: string | null): string | null {
+  const rec = buildPositionRecord(position)
+  const lo = rec.layout
+  if (lo && typeof lo === 'object' && !Array.isArray(lo)) {
+    const o = { ...(lo as Record<string, unknown>) }
+    delete o.x
+    delete o.y
+    delete o.cs
+    if (Object.keys(o).length === 0) {
+      delete rec.layout
+    } else {
+      rec.layout = o
+    }
+  }
+  const keys = Object.keys(rec)
+  return keys.length > 0 ? JSON.stringify(rec) : null
+}
+
+function mergePositionLayout(existing: string | null, x: number, y: number): string {
+  const rec = buildPositionRecord(existing)
+  const prevLayout = rec.layout
+  const layoutObj: Record<string, unknown> =
+    prevLayout && typeof prevLayout === 'object' && !Array.isArray(prevLayout)
+      ? { ...(prevLayout as Record<string, unknown>) }
+      : {}
+  layoutObj.x = Math.round(x)
+  layoutObj.y = Math.round(y)
+  layoutObj.cs = '9x6'
+  rec.layout = layoutObj
+  return JSON.stringify(rec)
+}
+
+function layoutXYFromPosition(
+  parsed: TablePositionJson | null,
+  i: number,
+  isVip: boolean,
+): { x: number; y: number } {
+  const rClamp = isVip ? FLOOR_TOKEN_R_VIP : FLOOR_TOKEN_R
+  const lx = parsed?.layout?.x
+  const ly = parsed?.layout?.y
+  const cs = parsed?.layout?.cs
+  if (typeof lx === 'number' && typeof ly === 'number' && Number.isFinite(lx) && Number.isFinite(ly)) {
+    const x =
+      cs === '9x6'
+        ? lx
+        : (lx / 1000) * FLOOR_CANVAS_W
+    const y =
+      cs === '9x6'
+        ? ly
+        : (ly / 700) * FLOOR_CANVAS_H
+    return {
+      x: Math.min(FLOOR_CANVAS_W - rClamp, Math.max(rClamp, x)),
+      y: Math.min(FLOOR_CANVAS_H - rClamp, Math.max(rClamp, y)),
+    }
+  }
+  const slotXY = FLOOR_PLAN_XY_SLOTS[i % FLOOR_PLAN_XY_SLOTS.length]!
+  const ring = Math.floor(i / FLOOR_PLAN_XY_SLOTS.length)
+  const x1000 = slotXY.x + (ring % 5) * 12 - 24
+  const y700 = slotXY.y + Math.floor(ring / 5) * 14
+  const rawX = (x1000 / 1000) * FLOOR_CANVAS_W
+  const rawY = (y700 / 700) * FLOOR_CANVAS_H
+  return {
+    x: Math.min(FLOOR_CANVAS_W - rClamp, Math.max(rClamp, rawX)),
+    y: Math.min(FLOOR_CANVAS_H - rClamp, Math.max(rClamp, rawY)),
+  }
+}
+
 const FLOOR_SLOTS: { col: number; row: number }[] = [
   { col: 1, row: 1 },
   { col: 2, row: 1 },
@@ -121,6 +256,41 @@ const FLOOR_SLOTS: { col: number; row: number }[] = [
 ]
 
 const BLOCK_ROW_SPAN = 3
+
+/** SVG centers for tables — avoids dance floor (~340–660 × 180–400), bar (x ≥ 820), restrooms (x ≤ 160, y ≤ 360). */
+const FLOOR_PLAN_XY_SLOTS: { x: number; y: number }[] = [
+  { x: 200, y: 440 },
+  { x: 260, y: 460 },
+  { x: 220, y: 520 },
+  { x: 280, y: 560 },
+  { x: 200, y: 590 },
+  { x: 380, y: 430 },
+  { x: 460, y: 450 },
+  { x: 540, y: 430 },
+  { x: 620, y: 450 },
+  { x: 400, y: 510 },
+  { x: 500, y: 520 },
+  { x: 600, y: 510 },
+  { x: 420, y: 580 },
+  { x: 500, y: 600 },
+  { x: 580, y: 580 },
+  { x: 680, y: 200 },
+  { x: 740, y: 240 },
+  { x: 700, y: 300 },
+  { x: 780, y: 340 },
+  { x: 720, y: 400 },
+  { x: 800, y: 220 },
+  { x: 720, y: 460 },
+  { x: 780, y: 500 },
+  { x: 740, y: 560 },
+  { x: 800, y: 580 },
+  { x: 340, y: 440 },
+  { x: 660, y: 440 },
+  { x: 360, y: 560 },
+  { x: 640, y: 560 },
+  { x: 300, y: 480 },
+  { x: 250, y: 430 },
+]
 
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -157,6 +327,9 @@ function layoutTablesForFloor(rows: DbTableRow[]): FloorTableConfig[] {
     const cs = parsed?.layout?.colSpan
     const colSpan = typeof cs === 'number' && Number.isFinite(cs) && cs > 0 ? cs : 1
     const num = Number.parseInt(row.table_number.replace(/\D/g, ''), 10)
+    const cap = row.seating_capacity
+    const seats = Number.isFinite(cap) && cap > 0 ? Math.round(cap) : 4
+    const { x, y } = layoutXYFromPosition(parsed, i, isVipTableType(row.type))
     return {
       id: row.id,
       number: Number.isFinite(num) ? num : i + 1,
@@ -167,6 +340,9 @@ function layoutTablesForFloor(rows: DbTableRow[]): FloorTableConfig[] {
       gridColumn: col,
       gridColumnSpan: colSpan,
       gridRow: rowN,
+      x,
+      y,
+      seats,
       raw: row,
     }
   })
@@ -257,6 +433,13 @@ function resolvedPaymentStatus(payments: PaymentRow[]): 'paid' | 'pending' {
   return payments.some((p) => p.status === 'paid') ? 'paid' : 'pending'
 }
 
+/** Free entry using same rules as Event Management / dashboard. Missing event pricing → treat as paid path. */
+function reservationEventIsFree(row: ReservationRow): boolean {
+  const ev = row.events
+  if (!ev) return false
+  return !isPaidTicketEvent(ev)
+}
+
 function IconUser() {
   return (
     <svg className="res-mgmt__guest-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -299,31 +482,15 @@ function IconDecline() {
   )
 }
 
-function IconCrown({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M5 16L3 7l5 3 4-6 4 6 5-3-2 9H5zm2-1h10v1H7v-1z" />
-    </svg>
-  )
-}
-
-function IconChair({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M6 12v6M18 12v6M8 14h8M8 14V9a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
 function reservationGuestLabel(row: ReservationRow) {
   return row.user
     ? `${row.user.name ?? ''} ${row.user.surname ?? ''}`.trim() || 'Guest'
     : 'Guest'
+}
+
+function reservationIsCancelled(status: string | null) {
+  const s = (status ?? '').trim().toLowerCase()
+  return s === 'cancelled' || s === 'canceled'
 }
 
 export default function ReservationManagement() {
@@ -355,6 +522,40 @@ export default function ReservationManagement() {
   const [addMinSpend, setAddMinSpend] = useState('')
   const [addIsVip, setAddIsVip] = useState(false)
   const [addTableBusy, setAddTableBusy] = useState(false)
+
+  const [layoutEditMode, setLayoutEditMode] = useState(false)
+  const [layoutDragPreview, setLayoutDragPreview] = useState<{ tableId: string; x: number; y: number } | null>(null)
+  const [zoneLayout, setZoneLayout] = useState<Record<FloorZoneKey, { x: number; y: number }>>(() => ({
+    ...DEFAULT_ZONE_LAYOUT,
+  }))
+  const [zoneDragPreview, setZoneDragPreview] = useState<{ key: FloorZoneKey; x: number; y: number } | null>(null)
+  const [floorLayoutBusy, setFloorLayoutBusy] = useState(false)
+  const floorCanvasRef = useRef<HTMLDivElement>(null)
+  const layoutDragRef = useRef<{
+    tableId: string
+    originX: number
+    originY: number
+    startMX: number
+    startMY: number
+    moved: boolean
+    currX: number
+    currY: number
+    isVip: boolean
+  } | null>(null)
+  const zoneDragRef = useRef<{
+    key: FloorZoneKey
+    originX: number
+    originY: number
+    startMX: number
+    startMY: number
+    moved: boolean
+    currX: number
+    currY: number
+  } | null>(null)
+
+  const [detailReservationId, setDetailReservationId] = useState<string | null>(null)
+  const [cancelDialogReservationId, setCancelDialogReservationId] = useState<string | null>(null)
+  const [cancelDialogBusy, setCancelDialogBusy] = useState(false)
 
   const cardRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
 
@@ -409,7 +610,7 @@ export default function ReservationManagement() {
         `
           reservation_id, type, status, nr_of_people, created_at, table_id, event_id, notes,
           user:profiles(id, name, surname),
-          events(event_name),
+          events(event_name, ticket_price, final_ticket_price, event_type),
           payments(amount, status)
         `,
       )
@@ -436,6 +637,24 @@ export default function ReservationManagement() {
       setLoading(false)
     })()
   }, [clubId, loadClubData])
+
+  useEffect(() => {
+    if (!clubId || !supabase || !isSupabaseConfigured) return
+    let cancelled = false
+    void (async () => {
+      const { data, error: layoutErr } = await supabase
+        .from('clubs')
+        .select('layout_config')
+        .eq('club_id', clubId)
+        .maybeSingle()
+      if (cancelled || layoutErr) return
+      const parsed = parseClubLayoutConfig(data?.layout_config ?? null)
+      setZoneLayout({ ...DEFAULT_ZONE_LAYOUT, ...parsed })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [clubId])
 
   const prevResHashRef = useRef<string | null>(null)
 
@@ -492,12 +711,30 @@ export default function ReservationManagement() {
     }
   }
 
-  const floorConfigs = useMemo(() => layoutTablesForFloor(dbTables), [dbTables])
+  async function executeCancelReservation(reservationId: string) {
+    if (!supabase) return
+    setCancelDialogBusy(true)
+    try {
+      const { error: err } = await supabase
+        .from('reservations')
+        .update({ status: 'cancelled' })
+        .eq('reservation_id', reservationId)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      setReservations((prev) =>
+        prev.map((r) => (r.reservation_id === reservationId ? { ...r, status: 'cancelled' } : r)),
+      )
+      setDetailReservationId((id) => (id === reservationId ? null : id))
+      setCancelDialogReservationId(null)
+      void loadClubData()
+    } finally {
+      setCancelDialogBusy(false)
+    }
+  }
 
-  const maxGridRow = useMemo(
-    () => floorConfigs.reduce((m, t) => Math.max(m, t.gridRow), 0) || 3,
-    [floorConfigs],
-  )
+  const floorConfigs = useMemo(() => layoutTablesForFloor(dbTables), [dbTables])
 
   const tableDisplays = useMemo(() => {
     const m: Record<string, TableDisplay> = {}
@@ -519,10 +756,15 @@ export default function ReservationManagement() {
 
   const confirmed = reservations.filter((r) => r.status === 'confirmed').length
   const pending = reservations.filter((r) => r.status === 'pending').length
-  const totalRevenue = reservations
-    .flatMap((r) => r.payments)
-    .filter((p) => p.status === 'paid')
-    .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
+  const totalRevenue = useMemo(() => {
+    const allFree =
+      reservations.length > 0 && reservations.every((r) => reservationEventIsFree(r))
+    if (allFree) return 0
+    return reservations
+      .flatMap((r) => r.payments)
+      .filter((p) => p.status === 'paid')
+      .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
+  }, [reservations])
 
   const reservationStats = [
     { label: 'Total Reservations', value: String(reservations.length) },
@@ -551,6 +793,27 @@ export default function ReservationManagement() {
 
   const stats = filter === 'tables' ? tableStats : reservationStats
 
+  const detailRow = useMemo(
+    () =>
+      detailReservationId
+        ? reservations.find((r) => r.reservation_id === detailReservationId) ?? null
+        : null,
+    [detailReservationId, reservations],
+  )
+
+  useEffect(() => {
+    if (detailReservationId && !detailRow) setDetailReservationId(null)
+  }, [detailReservationId, detailRow])
+
+  useEffect(() => {
+    if (!cancelDialogReservationId) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setCancelDialogReservationId(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [cancelDialogReservationId])
+
   const activeManageConfig = manageTableId ? floorConfigs.find((t) => t.id === manageTableId) : null
   const activeManageDisplay = manageTableId ? tableDisplays[manageTableId] : null
 
@@ -574,6 +837,202 @@ export default function ReservationManagement() {
       bottleNote: vipNoteFromDb(cfg.raw),
     })
   }
+
+  async function persistTableLayout(tableId: string, x: number, y: number) {
+    if (!supabase || !isSupabaseConfigured) return
+    const row = dbTables.find((t) => t.id === tableId)
+    if (!row) return
+    const newPosition = mergePositionLayout(row.position, x, y)
+    const { error } = await supabase.from('tables').update({ position: newPosition }).eq('id', tableId)
+    if (error) {
+      setToastMessage(error.message)
+      void loadClubData()
+      return
+    }
+    setDbTables((prev) => prev.map((t) => (t.id === tableId ? { ...t, position: newPosition } : t)))
+  }
+
+  async function resetFloorLayout() {
+    if (!supabase || !clubId || !isSupabaseConfigured || floorLayoutBusy) return
+    const sb = supabase
+    setFloorLayoutBusy(true)
+    try {
+      const { error: clubErr } = await sb.from('clubs').update({ layout_config: null }).eq('club_id', clubId)
+      if (clubErr) {
+        setToastMessage(clubErr.message)
+        return
+      }
+      const updates = dbTables.map((t) => ({
+        id: t.id,
+        position: stripTableCanvasCoords(t.position),
+      }))
+      const results = await Promise.all(
+        updates.map((u) => sb.from('tables').update({ position: u.position }).eq('id', u.id)),
+      )
+      const firstErr = results.find((r) => r.error)?.error
+      if (firstErr) {
+        setToastMessage(firstErr.message)
+        void loadClubData()
+        return
+      }
+      setZoneLayout({ ...DEFAULT_ZONE_LAYOUT })
+      layoutDragRef.current = null
+      setLayoutDragPreview(null)
+      zoneDragRef.current = null
+      setZoneDragPreview(null)
+      await loadClubData()
+      setToastMessage('Layout reset to defaults.')
+    } finally {
+      setFloorLayoutBusy(false)
+    }
+  }
+
+  async function commitLayoutEdit() {
+    const zRef = zoneDragRef.current
+    const tRef = layoutDragRef.current
+    const zPre = zoneDragPreview
+    zoneDragRef.current = null
+    layoutDragRef.current = null
+    setZoneDragPreview(null)
+    setLayoutDragPreview(null)
+
+    const nextZones = mergeFlushedZoneLayout(zoneLayout, zRef, zPre)
+    setZoneLayout(nextZones)
+
+    if (tRef?.moved) {
+      await persistTableLayout(tRef.tableId, tRef.currX, tRef.currY)
+    }
+
+    if (clubId && supabase && isSupabaseConfigured) {
+      setFloorLayoutBusy(true)
+      const payload = JSON.stringify({ zones: nextZones })
+      const { error } = await supabase.from('clubs').update({ layout_config: payload }).eq('club_id', clubId)
+      setFloorLayoutBusy(false)
+      if (error) setToastMessage(error.message)
+    }
+
+    setLayoutEditMode(false)
+  }
+
+  function floorZoneDisplay(key: FloorZoneKey): { x: number; y: number } {
+    if (zoneDragPreview?.key === key) return { x: zoneDragPreview.x, y: zoneDragPreview.y }
+    return zoneLayout[key]!
+  }
+
+  function floorZoneBoxStyle(key: FloorZoneKey): CSSProperties {
+    const p = floorZoneDisplay(key)
+    const { w, h } = ZONE_PCT_BOUNDS[key]
+    return {
+      left: `${p.x}%`,
+      top: `${p.y}%`,
+      width: `${w}%`,
+      height: `${h}%`,
+      pointerEvents: layoutEditMode ? 'auto' : 'none',
+    }
+  }
+
+  function handleZoneLayoutMouseDown(key: FloorZoneKey, e: ReactMouseEvent<HTMLDivElement>) {
+    if (!layoutEditMode) return
+    e.preventDefault()
+    e.stopPropagation()
+    const p = floorZoneDisplay(key)
+    layoutDragRef.current = null
+    setLayoutDragPreview(null)
+    zoneDragRef.current = {
+      key,
+      originX: p.x,
+      originY: p.y,
+      startMX: e.clientX,
+      startMY: e.clientY,
+      moved: false,
+      currX: p.x,
+      currY: p.y,
+    }
+    setZoneDragPreview({ key, x: p.x, y: p.y })
+  }
+
+  const openTableManageRef = useRef(openTableManage)
+  openTableManageRef.current = openTableManage
+  const persistLayoutRef = useRef(persistTableLayout)
+  persistLayoutRef.current = persistTableLayout
+
+  useEffect(() => {
+    if (!layoutDragPreview) return
+    function onMove(e: MouseEvent) {
+      const ref = layoutDragRef.current
+      const canvas = floorCanvasRef.current
+      if (!ref || !canvas) return
+      const dx = e.clientX - ref.startMX
+      const dy = e.clientY - ref.startMY
+      if (Math.hypot(dx, dy) > 6) ref.moved = true
+      const rect = canvas.getBoundingClientRect()
+      const scaleX = FLOOR_CANVAS_W / rect.width
+      const scaleY = FLOOR_CANVAS_H / rect.height
+      let nx = ref.originX + dx * scaleX
+      let ny = ref.originY + dy * scaleY
+      const R = ref.isVip ? FLOOR_TOKEN_R_VIP : FLOOR_TOKEN_R
+      nx = Math.min(FLOOR_CANVAS_W - R, Math.max(R, nx))
+      ny = Math.min(FLOOR_CANVAS_H - R, Math.max(R, ny))
+      ref.currX = nx
+      ref.currY = ny
+      setLayoutDragPreview({ tableId: ref.tableId, x: nx, y: ny })
+    }
+    function onUp() {
+      const ref = layoutDragRef.current
+      layoutDragRef.current = null
+      setLayoutDragPreview(null)
+      if (!ref) return
+      if (ref.moved) {
+        void persistLayoutRef.current(ref.tableId, ref.currX, ref.currY)
+      } else {
+        openTableManageRef.current(ref.tableId)
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [layoutDragPreview])
+
+  useEffect(() => {
+    if (!zoneDragPreview) return
+    function onMove(e: MouseEvent) {
+      const ref = zoneDragRef.current
+      const canvas = floorCanvasRef.current
+      if (!ref || !canvas) return
+      const dx = e.clientX - ref.startMX
+      const dy = e.clientY - ref.startMY
+      if (Math.hypot(dx, dy) > 6) ref.moved = true
+      const rect = canvas.getBoundingClientRect()
+      const dMx = ((e.clientX - ref.startMX) / rect.width) * 100
+      const dMy = ((e.clientY - ref.startMY) / rect.height) * 100
+      let nx = ref.originX + dMx
+      let ny = ref.originY + dMy
+      const { w, h } = ZONE_PCT_BOUNDS[ref.key]
+      nx = Math.min(100 - w, Math.max(0, nx))
+      ny = Math.min(100 - h, Math.max(0, ny))
+      ref.currX = nx
+      ref.currY = ny
+      setZoneDragPreview({ key: ref.key, x: nx, y: ny })
+    }
+    function onUp() {
+      const ref = zoneDragRef.current
+      zoneDragRef.current = null
+      setZoneDragPreview(null)
+      if (!ref) return
+      if (ref.moved) {
+        setZoneLayout((z) => ({ ...z, [ref.key]: { x: ref.currX, y: ref.currY } }))
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [zoneDragPreview])
 
   function closeTableManage() {
     setManageTableId(null)
@@ -846,12 +1305,6 @@ export default function ReservationManagement() {
     setToastMessage('Table added.')
   }
 
-  function floorStatusClass(status: FloorStatus) {
-    if (status === 'available') return 'res-mgmt__floor-token--available'
-    if (status === 'reserved') return 'res-mgmt__floor-token--reserved'
-    return 'res-mgmt__floor-token--occupied'
-  }
-
   function statusPillClass(status: FloorStatus) {
     if (status === 'available') return 'res-mgmt__floor-pill--ok'
     if (status === 'reserved') return 'res-mgmt__floor-pill--amber'
@@ -885,6 +1338,7 @@ export default function ReservationManagement() {
               const bookingDate = row.created_at ? new Date(row.created_at).toLocaleDateString('en-US') : '—'
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
+              const eventFree = reservationEventIsFree(row)
 
               return (
                 <tr key={row.reservation_id}>
@@ -914,39 +1368,61 @@ export default function ReservationManagement() {
                       className={
                         row.status === 'confirmed'
                           ? 'res-mgmt__pill res-mgmt__pill--ok'
-                          : row.status === 'cancelled'
-                            ? 'res-mgmt__pill res-mgmt__pill--pending'
+                          : reservationIsCancelled(row.status)
+                            ? 'res-mgmt__pill res-mgmt__pill--cancelled'
                             : 'res-mgmt__pill res-mgmt__pill--pending'
                       }
                     >
                       {row.status === 'confirmed'
                         ? 'Confirmed'
-                        : row.status === 'cancelled'
+                        : reservationIsCancelled(row.status)
                           ? 'Cancelled'
                           : 'Pending'}
                     </span>
                   </td>
                   <td>
-                    <span
-                      className={
-                        paymentStatus === 'paid'
-                          ? 'res-mgmt__pill res-mgmt__pill--ok'
-                          : 'res-mgmt__pill res-mgmt__pill--pending'
-                      }
-                    >
-                      {paymentStatus === 'paid' ? 'Paid' : 'Pending'}
-                    </span>
+                    {eventFree ? (
+                      <span className="res-mgmt__pill res-mgmt__pill--free">Free</span>
+                    ) : (
+                      <span
+                        className={
+                          paymentStatus === 'paid'
+                            ? 'res-mgmt__pill res-mgmt__pill--ok'
+                            : 'res-mgmt__pill res-mgmt__pill--pending'
+                        }
+                      >
+                        {paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <div className="res-mgmt__actions">
-                      <button type="button" className="res-mgmt__icon-btn" aria-label={`View ${guestName}`}>
+                      <button
+                        type="button"
+                        className="res-mgmt__icon-btn res-mgmt__icon-btn--view"
+                        title="View"
+                        aria-label={`View ${guestName}`}
+                        onClick={() => setDetailReservationId(row.reservation_id)}
+                      >
                         <IconEye />
                       </button>
+                      {!reservationIsCancelled(row.status) ? (
+                        <button
+                          type="button"
+                          className="res-mgmt__icon-btn res-mgmt__icon-btn--cancel"
+                          title="Cancel"
+                          aria-label={`Cancel reservation for ${guestName}`}
+                          onClick={() => setCancelDialogReservationId(row.reservation_id)}
+                        >
+                          <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
+                        </button>
+                      ) : null}
                       {row.status === 'pending' && (
                         <>
                           <button
                             type="button"
                             className="res-mgmt__icon-btn res-mgmt__icon-btn--approve"
+                            title="Approve"
                             aria-label={`Approve ${guestName}`}
                             onClick={() => void handleApprove(row.reservation_id)}
                           >
@@ -955,6 +1431,7 @@ export default function ReservationManagement() {
                           <button
                             type="button"
                             className="res-mgmt__icon-btn res-mgmt__icon-btn--decline"
+                            title="Decline"
                             aria-label={`Decline ${guestName}`}
                             onClick={() => void handleDecline(row.reservation_id)}
                           >
@@ -1081,67 +1558,194 @@ export default function ReservationManagement() {
                 ) : (
                   <div className="res-mgmt__tables-split">
                     <div className="res-mgmt__floor-column">
-                      <div className="res-mgmt__floor-map" aria-label="Venue floor plan">
-                        <div className="res-mgmt__floor-stage">
-                          <span className="res-mgmt__floor-stage-label">Stage / DJ booth</span>
-                          <span className="res-mgmt__floor-stage-sub">Front of house</span>
-                        </div>
-
-                        <div
-                          className="res-mgmt__floor-grid"
-                          style={{
-                            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-                            gridTemplateRows: `repeat(${maxGridRow}, minmax(92px, 1fr))`,
+                      <div className="res-mgmt__floor-dd-toolbar">
+                        <button
+                          type="button"
+                          className="res-mgmt__floor-dd-toggle"
+                          disabled={floorLayoutBusy}
+                          onClick={() => {
+                            if (layoutEditMode) {
+                              void commitLayoutEdit()
+                            } else {
+                              setLayoutEditMode(true)
+                            }
                           }}
                         >
+                          {layoutEditMode ? 'Done' : 'Edit Layout'}
+                        </button>
+                        {layoutEditMode ? (
+                          <button
+                            type="button"
+                            className="res-mgmt__floor-dd-reset"
+                            disabled={floorLayoutBusy}
+                            onClick={() => void resetFloorLayout()}
+                          >
+                            Reset Layout
+                          </button>
+                        ) : null}
+                        {layoutEditMode ? (
+                          <p className="res-mgmt__floor-dd-hint">Drag tables or venue zones to rearrange</p>
+                        ) : null}
+                      </div>
+                      <div className="res-mgmt__floor-dd" aria-label="Venue floor plan">
+                        <div ref={floorCanvasRef} className="res-mgmt__floor-dd-canvas">
+                          <div className="res-mgmt__floor-dd-bg" aria-hidden>
+                            <div className="res-mgmt__floor-dd-parquet" />
+                            <div className="res-mgmt__floor-dd-wall" />
+                            <div className="res-mgmt__floor-dd-entrance-gap" />
+                            <div className="res-mgmt__floor-dd-label res-mgmt__floor-dd-label--entrance">ENTRANCE</div>
+                            <div
+                              className={[
+                                'res-mgmt__floor-dd-stage',
+                                layoutEditMode ? 'res-mgmt__floor-dd-zone--editable' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={floorZoneBoxStyle('stage')}
+                              title={layoutEditMode ? 'Drag to reposition' : undefined}
+                              onMouseDown={(e) => handleZoneLayoutMouseDown('stage', e)}
+                            >
+                              <div className="res-mgmt__floor-dd-stage-inner">
+                                <div className="res-mgmt__floor-dd-stage-glow" />
+                                <div className="res-mgmt__floor-dd-deck res-mgmt__floor-dd-deck--l" />
+                                <div className="res-mgmt__floor-dd-mixer" />
+                                <div className="res-mgmt__floor-dd-deck res-mgmt__floor-dd-deck--r" />
+                                <span className="res-mgmt__floor-dd-zone-label">STAGE / DJ BOOTH</span>
+                              </div>
+                            </div>
+                            <div
+                              className={[
+                                'res-mgmt__floor-dd-dance',
+                                layoutEditMode ? 'res-mgmt__floor-dd-zone--editable' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={floorZoneBoxStyle('dancefloor')}
+                              title={layoutEditMode ? 'Drag to reposition' : undefined}
+                              onMouseDown={(e) => handleZoneLayoutMouseDown('dancefloor', e)}
+                            >
+                              <span className="res-mgmt__floor-dd-dance-title">DANCE FLOOR</span>
+                            </div>
+                            <div
+                              className={[
+                                'res-mgmt__floor-dd-bar',
+                                layoutEditMode ? 'res-mgmt__floor-dd-zone--editable' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={floorZoneBoxStyle('bar')}
+                              title={layoutEditMode ? 'Drag to reposition' : undefined}
+                              onMouseDown={(e) => handleZoneLayoutMouseDown('bar', e)}
+                            >
+                              <div className="res-mgmt__floor-dd-bar-counter" />
+                              <div className="res-mgmt__floor-dd-bar-stools">
+                                {Array.from({ length: 7 }).map((_, i) => (
+                                  <span key={i} className="res-mgmt__floor-dd-stool" />
+                                ))}
+                              </div>
+                              <span className="res-mgmt__floor-dd-bar-vert-label">BAR</span>
+                            </div>
+                            <div
+                              className={[
+                                'res-mgmt__floor-dd-restrooms',
+                                layoutEditMode ? 'res-mgmt__floor-dd-zone--editable' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={floorZoneBoxStyle('restrooms')}
+                              title={layoutEditMode ? 'Drag to reposition' : undefined}
+                              onMouseDown={(e) => handleZoneLayoutMouseDown('restrooms', e)}
+                            >
+                              <span className="res-mgmt__floor-dd-zone-label res-mgmt__floor-dd-zone-label--rest">RESTROOMS</span>
+                            </div>
+                            <div
+                              className={[
+                                'res-mgmt__floor-dd-lounge-label',
+                                layoutEditMode ? 'res-mgmt__floor-dd-zone--editable' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={floorZoneBoxStyle('lounge')}
+                              title={layoutEditMode ? 'Drag to reposition' : undefined}
+                              onMouseDown={(e) => handleZoneLayoutMouseDown('lounge', e)}
+                            >
+                              LOUNGE
+                            </div>
+                          </div>
                           {floorConfigs.map((t) => {
                             const disp = tableDisplays[t.id] ?? { status: 'available' as const }
                             const isSelected = selectedFloorTableId === t.id
+                            const cx =
+                              layoutDragPreview?.tableId === t.id ? layoutDragPreview.x : t.x
+                            const cy =
+                              layoutDragPreview?.tableId === t.id ? layoutDragPreview.y : t.y
                             return (
-                              <button
+                              <div
                                 key={t.id}
-                                type="button"
                                 className={[
-                                  'res-mgmt__floor-token',
-                                  t.isVip ? 'res-mgmt__floor-token--vip' : 'res-mgmt__floor-token--standard',
-                                  floorStatusClass(disp.status),
-                                  isSelected ? 'res-mgmt__floor-token--selected' : '',
+                                  'res-mgmt__floor-dd-token',
+                                  `res-mgmt__floor-dd-token--${disp.status}`,
+                                  t.isVip ? 'res-mgmt__floor-dd-token--vip' : '',
+                                  isSelected ? 'res-mgmt__floor-dd-token--selected' : '',
+                                  layoutEditMode ? 'res-mgmt__floor-dd-token--editable' : '',
                                 ]
                                   .filter(Boolean)
                                   .join(' ')}
                                 style={{
-                                  gridColumn: `${t.gridColumn} / span ${t.gridColumnSpan}`,
-                                  gridRow: t.gridRow,
-                                }}
-                                onClick={() => openTableManage(t.id)}
+                                  left: `${(cx / FLOOR_CANVAS_W) * 100}%`,
+                                  top: `${(cy / FLOOR_CANVAS_H) * 100}%`,
+                                } as CSSProperties}
+                                onMouseDown={
+                                  layoutEditMode
+                                    ? (e: ReactMouseEvent<HTMLDivElement>) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        zoneDragRef.current = null
+                                        setZoneDragPreview(null)
+                                        layoutDragRef.current = {
+                                          tableId: t.id,
+                                          originX: t.x,
+                                          originY: t.y,
+                                          startMX: e.clientX,
+                                          startMY: e.clientY,
+                                          moved: false,
+                                          currX: t.x,
+                                          currY: t.y,
+                                          isVip: t.isVip,
+                                        }
+                                        setLayoutDragPreview({ tableId: t.id, x: t.x, y: t.y })
+                                      }
+                                    : undefined
+                                }
+                                onClick={layoutEditMode ? undefined : () => openTableManage(t.id)}
+                                role="button"
+                                tabIndex={0}
                                 aria-label={`Table ${t.label}, ${t.isVip ? 'VIP' : 'standard'}, ${disp.status}`}
                               >
-                                {t.isVip && (
-                                  <span className="res-mgmt__floor-vip-badge" aria-hidden>
-                                    <IconCrown className="res-mgmt__floor-crown" /> VIP
+                                {t.isVip ? (
+                                  <span className="res-mgmt__floor-dd-token-crown" aria-hidden>
+                                    <Crown size={15} strokeWidth={2.25} />
                                   </span>
-                                )}
-                                <IconChair className="res-mgmt__floor-chair" />
-                                <span className="res-mgmt__floor-num">{t.label}</span>
-                              </button>
+                                ) : null}
+                                <span className="res-mgmt__floor-dd-token-label">{t.label}</span>
+                              </div>
                             )
                           })}
                         </div>
-
-                        <div className="res-mgmt__floor-legend" role="list" aria-label="Status legend">
-                          <span className="res-mgmt__floor-legend-title">Legend</span>
-                          <span className="res-mgmt__floor-legend-item" role="listitem">
-                            <span className="res-mgmt__floor-dot res-mgmt__floor-dot--ok" /> Available
+                        <div className="floorplan__legend">
+                          <span>
+                            <i className="floorplan__dot floorplan__dot--ok" />
+                            Available
                           </span>
-                          <span className="res-mgmt__floor-legend-item" role="listitem">
-                            <span className="res-mgmt__floor-dot res-mgmt__floor-dot--amber" /> Reserved
+                          <span>
+                            <i className="floorplan__dot floorplan__dot--amber" />
+                            Reserved
                           </span>
-                          <span className="res-mgmt__floor-legend-item" role="listitem">
-                            <span className="res-mgmt__floor-dot res-mgmt__floor-dot--red" /> Occupied
+                          <span>
+                            <i className="floorplan__dot floorplan__dot--red" />
+                            Occupied
                           </span>
-                          <span className="res-mgmt__floor-legend-item res-mgmt__floor-legend-item--vip" role="listitem">
-                            <IconCrown className="res-mgmt__floor-legend-crown" /> VIP table
-                          </span>
+                          <span className="floorplan__legend--vip">♛ VIP table</span>
                         </div>
                       </div>
                     </div>
@@ -1224,6 +1828,162 @@ export default function ReservationManagement() {
       </div>
 
       {toastMessage ? <div className="res-mgmt__toast" role="status">{toastMessage}</div> : null}
+
+      {cancelDialogReservationId ? (
+        <div
+          className="res-mgmt__confirm-backdrop"
+          role="presentation"
+          onClick={() => !cancelDialogBusy && setCancelDialogReservationId(null)}
+        >
+          <div
+            className="res-mgmt__confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-res-title"
+            aria-describedby="cancel-res-desc"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="res-mgmt__confirm-icon-circle" aria-hidden>
+              <Trash2 className="res-mgmt__confirm-trash-icon" size={28} strokeWidth={2} />
+            </div>
+            <h2 id="cancel-res-title" className="res-mgmt__confirm-title">
+              Cancel Reservation
+            </h2>
+            <p id="cancel-res-desc" className="res-mgmt__confirm-message">
+              Are you sure you want to cancel this reservation? This action cannot be undone.
+            </p>
+            <div className="res-mgmt__confirm-actions">
+              <button
+                type="button"
+                className="res-mgmt__confirm-btn res-mgmt__confirm-btn--keep"
+                disabled={cancelDialogBusy}
+                onClick={() => setCancelDialogReservationId(null)}
+              >
+                Keep Reservation
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__confirm-btn res-mgmt__confirm-btn--yes"
+                disabled={cancelDialogBusy}
+                onClick={() => void executeCancelReservation(cancelDialogReservationId)}
+              >
+                {cancelDialogBusy ? 'Cancelling…' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {detailRow ? (
+        <div
+          className="res-mgmt__sheet-backdrop"
+          role="presentation"
+          onClick={() => setDetailReservationId(null)}
+        >
+          <div
+            className="res-mgmt__sheet res-mgmt__sheet--compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="res-detail-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="res-mgmt__sheet-head">
+              <div>
+                <h2 id="res-detail-title" className="res-mgmt__sheet-title">
+                  Reservation details
+                </h2>
+                <p className="res-mgmt__sheet-sub">
+                  {reservationGuestLabel(detailRow)} · {detailRow.events?.event_name ?? '—'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="res-mgmt__sheet-close"
+                onClick={() => setDetailReservationId(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <dl className="res-mgmt__detail-dl">
+              <div>
+                <dt>Reservation ID</dt>
+                <dd>
+                  <code>{detailRow.reservation_id}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Guest</dt>
+                <dd>{reservationGuestLabel(detailRow)}</dd>
+              </div>
+              <div>
+                <dt>Event</dt>
+                <dd>{detailRow.events?.event_name ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Type</dt>
+                <dd>{typeLabel(detailRow.type)}</dd>
+              </div>
+              <div>
+                <dt>Guests</dt>
+                <dd>{detailRow.nr_of_people ?? 1}</dd>
+              </div>
+              <div>
+                <dt>Amount</dt>
+                <dd>
+                  {resolvedAmount(detailRow.payments) != null
+                    ? `€${resolvedAmount(detailRow.payments)!.toLocaleString('en-US', { minimumFractionDigits: 0 })}`
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  {detailRow.status === 'confirmed'
+                    ? 'Confirmed'
+                    : reservationIsCancelled(detailRow.status)
+                      ? 'Cancelled'
+                      : 'Pending'}
+                </dd>
+              </div>
+              <div>
+                <dt>Payment</dt>
+                <dd>{resolvedPaymentStatus(detailRow.payments) === 'paid' ? 'Paid' : 'Pending'}</dd>
+              </div>
+              <div>
+                <dt>Booked</dt>
+                <dd>
+                  {detailRow.created_at
+                    ? new Date(detailRow.created_at).toLocaleString('en-US')
+                    : '—'}
+                </dd>
+              </div>
+              {detailRow.table_id ? (
+                <div>
+                  <dt>Table ID</dt>
+                  <dd>
+                    <code>{detailRow.table_id}</code>
+                  </dd>
+                </div>
+              ) : null}
+              {detailRow.event_id ? (
+                <div>
+                  <dt>Event ID</dt>
+                  <dd>
+                    <code>{detailRow.event_id}</code>
+                  </dd>
+                </div>
+              ) : null}
+              {detailRow.notes?.trim() ? (
+                <div>
+                  <dt>Notes</dt>
+                  <dd>{detailRow.notes}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        </div>
+      ) : null}
 
       {addTableOpen ? (
         <div className="res-mgmt__sheet-backdrop" role="presentation" onClick={() => !addTableBusy && setAddTableOpen(false)}>

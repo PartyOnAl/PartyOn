@@ -1,10 +1,18 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { UserMinus, UserPlus } from 'lucide-react'
 import './ManagerDashboard.css'
 import './ManagerStaffApproval.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import type { InviteStaffRole } from '../lib/staffRoles'
+
+type StaffToastVariant = 'access-removed' | 'access-restored' | 'error' | 'default'
+
+type StaffToast = {
+  message: string
+  variant: StaffToastVariant
+}
 
 type StaffStatus = 'approved' | 'pending' | 'rejected'
 type StaffFilter = 'all' | StaffStatus
@@ -20,28 +28,6 @@ type ProfileRow = {
   club_id: string | null
   created_at: string | null
 }
-
-const STAFF_ROLES = [
-  'staff',
-  'hostess',
-  'security',
-  'staff_manager',
-  'pending_staff',
-  'pending_hostess',
-  'pending_security',
-  'pending_staff_manager',
-  'pending_manager',
-  'staff_pending',
-  'hostess_pending',
-  'security_pending',
-  'staff_manager_pending',
-  'manager_pending',
-  'rejected_staff',
-  'rejected_hostess',
-  'rejected_security',
-  'rejected_staff_manager',
-  'rejected_manager',
-] as const
 
 const ROLE_OPTIONS: { value: InviteRole; label: string; permissions: string }[] = [
   { value: 'hostess', label: 'Hostess', permissions: 'Hostess can view events and check in guests.' },
@@ -160,7 +146,7 @@ export default function ManagerStaffApproval() {
   const [filter, setFilter] = useState<StaffFilter>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<StaffToast | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteForm, setInviteForm] = useState(EMPTY_INVITE_FORM)
@@ -169,6 +155,10 @@ export default function ManagerStaffApproval() {
   const [inviteSuccessEmail, setInviteSuccessEmail] = useState<string | null>(null)
   const [inviteTemporaryPassword, setInviteTemporaryPassword] = useState<string | null>(null)
   const [deletingStaffId, setDeletingStaffId] = useState<string | null>(null)
+  const [accessConfirm, setAccessConfirm] = useState<
+    null | { kind: 'remove' | 'restore'; person: ProfileRow }
+  >(null)
+  const [accessConfirmBusy, setAccessConfirmBusy] = useState(false)
 
   useEffect(() => {
     if (!clubId || !session?.access_token) {
@@ -201,7 +191,10 @@ export default function ManagerStaffApproval() {
         if (isInitialLoad) {
           setError(err instanceof Error ? err.message : String(err))
         } else {
-          setToast(err instanceof Error ? err.message : String(err))
+          setToast({
+            variant: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          })
         }
         setLoading(false)
       })
@@ -209,7 +202,7 @@ export default function ManagerStaffApproval() {
 
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 3500)
+    const t = setTimeout(() => setToast(null), 3000)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -233,10 +226,17 @@ export default function ManagerStaffApproval() {
     return staff.filter((person) => roleStatus(person.role) === filter)
   }, [staff, filter])
 
-  async function updateStaffRole(person: ProfileRow, nextRole: string, successMessage: string) {
+  async function updateStaffRole(
+    person: ProfileRow,
+    nextRole: string,
+    successToast: 'remove' | 'restore' | null = null,
+  ): Promise<boolean> {
     if (!session?.access_token) {
-      setToast('You must be signed in as a manager to update staff.')
-      return
+      setToast({
+        variant: 'error',
+        message: 'You must be signed in as a manager to update staff.',
+      })
+      return false
     }
 
     const nextStatus = nextRole.startsWith('rejected_') ? 'rejected' : 'approved'
@@ -251,18 +251,46 @@ export default function ManagerStaffApproval() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => null)
-      setToast(body?.message ?? `Could not update staff (${res.status}).`)
-      return
+      setToast({
+        variant: 'error',
+        message: body?.message ?? `Could not update staff (${res.status}).`,
+      })
+      return false
     }
 
     const data = (await res.json()) as { profile: ProfileRow }
     setStaff((current) => current.map((row) => (row.id === person.id ? data.profile : row)))
-    setToast(successMessage)
+    const displayName = fullName(person)
+    if (successToast === 'remove') {
+      setToast({ variant: 'access-removed', message: `Access removed for ${displayName}` })
+    } else if (successToast === 'restore') {
+      setToast({ variant: 'access-restored', message: `Access restored for ${displayName}` })
+    }
+    return true
+  }
+
+  async function executeAccessConfirm() {
+    if (!accessConfirm || !session?.access_token) return
+    const { kind, person } = accessConfirm
+    const nextRole =
+      kind === 'remove'
+        ? `rejected_${roleLabel(person.role).toLowerCase()}`
+        : approvedRoleForLabel(roleLabel(person.role))
+    setAccessConfirmBusy(true)
+    try {
+      const ok = await updateStaffRole(person, nextRole, kind === 'remove' ? 'remove' : 'restore')
+      if (ok) setAccessConfirm(null)
+    } finally {
+      setAccessConfirmBusy(false)
+    }
   }
 
   async function deleteStaffRequest(person: ProfileRow) {
     if (!session?.access_token) {
-      setToast('You must be signed in as a manager to delete staff requests.')
+      setToast({
+        variant: 'error',
+        message: 'You must be signed in as a manager to delete staff requests.',
+      })
       return
     }
 
@@ -275,12 +303,18 @@ export default function ManagerStaffApproval() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => null)
-      setToast(body?.message ?? `Could not delete request (${res.status}).`)
+      setToast({
+        variant: 'error',
+        message: body?.message ?? `Could not delete request (${res.status}).`,
+      })
       return
     }
 
     setStaff((current) => current.filter((row) => row.id !== person.id))
-    setToast(`${fullName(person)} was removed.`)
+    setToast({
+      variant: 'default',
+      message: `${fullName(person)} was removed.`,
+    })
   }
 
   function closeInviteModal() {
@@ -375,8 +409,6 @@ export default function ManagerStaffApproval() {
                 Invite Staff
               </button>
             </header>
-
-            {toast && <div className="staff-approval__toast">{toast}</div>}
 
             {showInviteModal && (
               <div className="staff-approval__modal-overlay" role="presentation" onClick={closeInviteModal}>
@@ -598,7 +630,7 @@ export default function ManagerStaffApproval() {
                             <button
                               type="button"
                               className="staff-approval__btn staff-approval__btn--ghost"
-                              onClick={() => void updateStaffRole(person, approvedRoleForLabel(roleLabel(person.role)), 'Staff access restored.')}
+                              onClick={() => setAccessConfirm({ kind: 'restore', person })}
                             >
                               Restore Access
                             </button>
@@ -616,7 +648,7 @@ export default function ManagerStaffApproval() {
                             <button
                               type="button"
                               className="staff-approval__btn staff-approval__btn--ghost"
-                              onClick={() => void updateStaffRole(person, `rejected_${roleLabel(person.role).toLowerCase()}`, 'Staff access removed.')}
+                              onClick={() => setAccessConfirm({ kind: 'remove', person })}
                             >
                               Remove Access
                             </button>
@@ -639,6 +671,89 @@ export default function ManagerStaffApproval() {
           </div>
         </div>
       </div>
+
+      {accessConfirm ? (
+        <div
+          className="staff-approval__access-confirm-backdrop"
+          role="presentation"
+          onClick={() => !accessConfirmBusy && setAccessConfirm(null)}
+        >
+          <div
+            className="staff-approval__access-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staff-access-confirm-title"
+            aria-describedby="staff-access-confirm-desc"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className={
+                accessConfirm.kind === 'remove'
+                  ? 'staff-approval__access-confirm-icon staff-approval__access-confirm-icon--remove'
+                  : 'staff-approval__access-confirm-icon staff-approval__access-confirm-icon--restore'
+              }
+              aria-hidden
+            >
+              {accessConfirm.kind === 'remove' ? (
+                <UserMinus className="staff-approval__access-confirm-lucide" strokeWidth={2} />
+              ) : (
+                <UserPlus className="staff-approval__access-confirm-lucide" strokeWidth={2} />
+              )}
+            </div>
+            <h2 id="staff-access-confirm-title" className="staff-approval__access-confirm-title">
+              {accessConfirm.kind === 'remove' ? 'Remove Staff Access' : 'Restore Staff Access'}
+            </h2>
+            <p id="staff-access-confirm-desc" className="staff-approval__access-confirm-message">
+              {accessConfirm.kind === 'remove' ? (
+                <>
+                  Are you sure you want to remove access for <strong>{fullName(accessConfirm.person)}</strong>? They
+                  will no longer be able to access the venue dashboard.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to restore access for <strong>{fullName(accessConfirm.person)}</strong>? They
+                  will regain access to the venue dashboard.
+                </>
+              )}
+            </p>
+            <div className="staff-approval__access-confirm-actions">
+              <button
+                type="button"
+                className="staff-approval__access-confirm-btn staff-approval__access-confirm-btn--cancel"
+                disabled={accessConfirmBusy}
+                onClick={() => setAccessConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={
+                  accessConfirm.kind === 'remove'
+                    ? 'staff-approval__access-confirm-btn staff-approval__access-confirm-btn--remove'
+                    : 'staff-approval__access-confirm-btn staff-approval__access-confirm-btn--restore'
+                }
+                disabled={accessConfirmBusy}
+                onClick={() => void executeAccessConfirm()}
+              >
+                {accessConfirmBusy
+                  ? 'Please wait…'
+                  : accessConfirm.kind === 'remove'
+                    ? 'Remove Access'
+                    : 'Restore Access'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div
+          className={`staff-approval__toast-float staff-approval__toast-float--${toast.variant}`}
+          role="status"
+        >
+          {toast.message}
+        </div>
+      ) : null}
     </div>
   )
 }

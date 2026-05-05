@@ -35,6 +35,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/catalog': { target: apiTarget, changeOrigin: true },
+        '/suggestions': { target: apiTarget, changeOrigin: true },
         '/auth': { target: apiTarget, changeOrigin: true },
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },

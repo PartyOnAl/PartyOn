@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import './ManagerDashboard.css'
 import './ManagerAnalytics.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
+import { isPaidTicketEvent, reservationIsConfirmed } from './eventPaidEntry'
 
 type EventRow = {
   event_id: string
   event_name: string
   event_starting_date: string
   created_at: string | null
+  ticket_price: string | null
+  final_ticket_price: string | null
+  event_type: string | null
 }
 
 type ReservationRow = {
@@ -41,6 +45,12 @@ function isTicketSale(row: ReservationRow) {
   return row.type === 'ticket' && row.status === 'confirmed'
 }
 
+function countsTowardVolumeMetrics(reservation: ReservationRow, event: EventRow | undefined): boolean {
+  if (!event) return isTicketSale(reservation)
+  if (isPaidTicketEvent(event)) return isTicketSale(reservation)
+  return reservationIsConfirmed(reservation)
+}
+
 function formatCurrency(value: number, compact = false) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -48,6 +58,23 @@ function formatCurrency(value: number, compact = false) {
     maximumFractionDigits: compact ? 0 : 2,
     notation: compact && Math.abs(value) >= 1000 ? 'compact' : 'standard',
   }).format(value)
+}
+
+function formatChartTooltipEuro(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function weeklyVolumePhrase(count: number, suffix: string) {
+  if (count === 1) {
+    if (suffix === 'reservations') return '1 reservation'
+    if (suffix === 'tickets') return '1 ticket'
+    if (suffix === 'bookings') return '1 booking'
+  }
+  return `${count} ${suffix}`
 }
 
 function monthKey(date: Date) {
@@ -111,7 +138,7 @@ function MetricCard({
   label: string
   value: string
   trend: string
-  icon: React.ReactNode
+  icon: ReactNode
 }) {
   const positive = !trend.startsWith('-')
   return (
@@ -128,7 +155,7 @@ function MetricCard({
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="manager-dash">
       <div className="manager-dash__layout">
@@ -148,6 +175,8 @@ export default function ManagerAnalytics() {
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [hoveredMonthIndex, setHoveredMonthIndex] = useState<number | null>(null)
+  const [hoveredWeekIndex, setHoveredWeekIndex] = useState<number | null>(null)
 
   useEffect(() => {
     if (!clubId || !supabase || !isSupabaseConfigured) {
@@ -162,7 +191,9 @@ export default function ManagerAnalytics() {
       try {
         const { data: eventData, error: eventErr } = await supabase
           .from('events')
-          .select('event_id, event_name, event_starting_date, created_at')
+          .select(
+            'event_id, event_name, event_starting_date, created_at, ticket_price, final_ticket_price, event_type',
+          )
           .eq('club_id', clubId)
           .order('event_starting_date', { ascending: true })
 
@@ -266,11 +297,23 @@ export default function ManagerAnalytics() {
 
     const previousMonthTickets = reservations.filter((reservation) => {
       const date = reservation.created_at ? new Date(reservation.created_at) : null
-      return isTicketSale(reservation) && date !== null && date >= previousMonth && date < currentMonth
+      const event = reservation.event_id ? eventById[reservation.event_id] : undefined
+      return (
+        date !== null &&
+        date >= previousMonth &&
+        date < currentMonth &&
+        countsTowardVolumeMetrics(reservation, event)
+      )
     }).length
     const currentMonthTickets = reservations.filter((reservation) => {
       const date = reservation.created_at ? new Date(reservation.created_at) : null
-      return isTicketSale(reservation) && date !== null && date >= currentMonth && date < nextMonth
+      const event = reservation.event_id ? eventById[reservation.event_id] : undefined
+      return (
+        date !== null &&
+        date >= currentMonth &&
+        date < nextMonth &&
+        countsTowardVolumeMetrics(reservation, event)
+      )
     }).length
 
     const monthlyRevenue = Array.from({ length: 6 }, (_, index) => {
@@ -282,7 +325,12 @@ export default function ManagerAnalytics() {
           return paymentDate !== null && monthKey(paymentDate) === key
         })
         .reduce((sum, payment) => sum + parseAmount(payment.amount), 0)
-      return { label: date.toLocaleString('en-US', { month: 'short' }), value }
+      return {
+        label: date.toLocaleString('en-US', { month: 'short' }),
+        monthNameLong: date.toLocaleString('en-US', { month: 'long' }),
+        monthKey: key,
+        value,
+      }
     })
 
     const weeklySales = Array.from({ length: 7 }, (_, index) => {
@@ -291,9 +339,15 @@ export default function ManagerAnalytics() {
       const key = dayKey(date)
       const value = reservations.filter((reservation) => {
         const createdAt = reservation.created_at ? new Date(reservation.created_at) : null
-        return isTicketSale(reservation) && createdAt !== null && dayKey(createdAt) === key
+        const event = reservation.event_id ? eventById[reservation.event_id] : undefined
+        return createdAt !== null && dayKey(createdAt) === key && countsTowardVolumeMetrics(reservation, event)
       }).length
-      return { label: date.toLocaleDateString('en-US', { weekday: 'short' }), value }
+      return {
+        label: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        weekdayLong: date.toLocaleDateString('en-US', { weekday: 'long' }),
+        dayKey: key,
+        value,
+      }
     })
 
     const revenueByEvent = completedPayments.reduce<Record<string, number>>((acc, payment) => {
@@ -304,27 +358,44 @@ export default function ManagerAnalytics() {
       return acc
     }, {})
 
-    const ticketsByEvent = ticketSales.reduce<Record<string, number>>((acc, reservation) => {
+    const volumeByEvent = reservations.reduce<Record<string, number>>((acc, reservation) => {
       if (!reservation.event_id) return acc
+      const event = eventById[reservation.event_id]
+      if (!countsTowardVolumeMetrics(reservation, event)) return acc
       acc[reservation.event_id] = (acc[reservation.event_id] ?? 0) + 1
       return acc
     }, {})
 
     const topEvents = Object.entries(revenueByEvent)
-      .map(([eventId, revenue]) => ({
-        eventId,
-        name: eventById[eventId]?.event_name ?? 'Untitled Event',
-        revenue,
-        tickets: ticketsByEvent[eventId] ?? 0,
-      }))
+      .map(([eventId, revenue]) => {
+        const ev = eventById[eventId]
+        return {
+          eventId,
+          name: ev?.event_name ?? 'Untitled Event',
+          revenue,
+          volume: volumeByEvent[eventId] ?? 0,
+          isPaid: ev ? isPaidTicketEvent(ev) : false,
+        }
+      })
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 3)
+
+    const allEventsPaid = events.length > 0 && events.every(isPaidTicketEvent)
+    const allEventsFree = events.length > 0 && events.every((e) => !isPaidTicketEvent(e))
+    const weeklyChartTitle = allEventsFree
+      ? 'Weekly Reservations'
+      : allEventsPaid
+        ? 'Weekly Ticket Sales'
+        : 'Weekly volume'
+    const weeklyBarTitleSuffix = allEventsFree ? 'reservations' : allEventsPaid ? 'tickets' : 'bookings'
 
     return {
       totalRevenue,
       uniqueCustomers,
       eventsHosted: events.length,
       averageTicketPrice,
+      weeklyChartTitle,
+      weeklyBarTitleSuffix,
       trends: {
         revenue: formatTrend(currentMonthRevenue, previousMonthRevenue),
         customers: formatTrend(currentMonthCustomers, previousMonthCustomers),
@@ -385,32 +456,103 @@ export default function ManagerAnalytics() {
                       <span key={ratio}>{formatCurrency(maxMonthlyRevenue * ratio, true)}</span>
                     ))}
                   </div>
-                  <div className="manager-analytics__line-plot">
+                  <div
+                    className="manager-analytics__line-plot"
+                    onMouseLeave={() => setHoveredMonthIndex(null)}
+                  >
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
                       <polyline points={chartPoints} />
+                      {hoveredMonthIndex !== null && (() => {
+                        const gx =
+                          analytics.monthlyRevenue.length === 1
+                            ? 50
+                            : (hoveredMonthIndex / (analytics.monthlyRevenue.length - 1)) * 100
+                        return (
+                          <line
+                            x1={gx}
+                            x2={gx}
+                            y1={8}
+                            y2={92}
+                            className="manager-analytics__line-guide"
+                          />
+                        )
+                      })()}
                       {analytics.monthlyRevenue.map((item, index) => {
                         const x = analytics.monthlyRevenue.length === 1 ? 50 : (index / (analytics.monthlyRevenue.length - 1)) * 100
                         const y = 92 - (item.value / maxMonthlyRevenue) * 72
-                        return <circle key={item.label} cx={x} cy={y} r="1.4" />
+                        return (
+                          <g key={item.monthKey}>
+                            <circle
+                              className="manager-analytics__line-hit"
+                              cx={x}
+                              cy={y}
+                              r="5"
+                              fill="transparent"
+                              style={{ cursor: 'pointer' }}
+                              onMouseEnter={() => setHoveredMonthIndex(index)}
+                            />
+                            <circle className="manager-analytics__line-dot" cx={x} cy={y} r="1.4" />
+                          </g>
+                        )
                       })}
                     </svg>
+                    <div className="manager-analytics__line-tooltip-layer" aria-hidden>
+                      {hoveredMonthIndex !== null && (() => {
+                        const item = analytics.monthlyRevenue[hoveredMonthIndex]
+                        const xPct =
+                          analytics.monthlyRevenue.length === 1
+                            ? 50
+                            : (hoveredMonthIndex / (analytics.monthlyRevenue.length - 1)) * 100
+                        return (
+                          <div
+                            className="manager-analytics__chart-tooltip manager-analytics__chart-tooltip--line"
+                            style={{ left: `${xPct}%` }}
+                          >
+                            <p className="manager-analytics__chart-tooltip__title">{item.monthNameLong}</p>
+                            <p className="manager-analytics__chart-tooltip__value">
+                              {formatChartTooltipEuro(item.value)}
+                            </p>
+                          </div>
+                        )
+                      })()}
+                    </div>
                     <div className="manager-analytics__x-axis">
-                      {analytics.monthlyRevenue.map((item) => <span key={item.label}>{item.label}</span>)}
+                      {analytics.monthlyRevenue.map((item) => (
+                        <span key={item.monthKey}>{item.label}</span>
+                      ))}
                     </div>
                   </div>
                 </div>
               </article>
 
               <article className="manager-analytics__card">
-                <h2 className="manager-analytics__card-title">Weekly Ticket Sales</h2>
+                <h2 className="manager-analytics__card-title">{analytics.weeklyChartTitle}</h2>
                 <div className="manager-analytics__bar-chart">
-                  {analytics.weeklySales.map((item) => (
-                    <div key={item.label} className="manager-analytics__bar-col">
-                      <div
-                        className="manager-analytics__bar"
-                        title={`${item.value} tickets`}
-                        style={{ height: `${Math.max(8, (item.value / maxWeeklySales) * 100)}%` }}
-                      />
+                  {analytics.weeklySales.map((item, index) => (
+                    <div
+                      key={item.dayKey}
+                      className="manager-analytics__bar-col"
+                      onMouseEnter={() => setHoveredWeekIndex(index)}
+                      onMouseLeave={() => setHoveredWeekIndex(null)}
+                    >
+                      <div className="manager-analytics__bar-area">
+                        {hoveredWeekIndex === index && (
+                          <div className="manager-analytics__chart-tooltip manager-analytics__chart-tooltip--bar">
+                            <p className="manager-analytics__chart-tooltip__title">{item.weekdayLong}</p>
+                            <p className="manager-analytics__chart-tooltip__value">
+                              {weeklyVolumePhrase(item.value, analytics.weeklyBarTitleSuffix)}
+                            </p>
+                          </div>
+                        )}
+                        <div
+                          className={
+                            hoveredWeekIndex === index
+                              ? 'manager-analytics__bar manager-analytics__bar--hover'
+                              : 'manager-analytics__bar'
+                          }
+                          style={{ height: `${Math.max(8, (item.value / maxWeeklySales) * 100)}%` }}
+                        />
+                      </div>
                       <span>{item.label}</span>
                     </div>
                   ))}
@@ -429,7 +571,16 @@ export default function ManagerAnalytics() {
                       <span className="manager-analytics__event-rank">#{index + 1}</span>
                       <div className="manager-analytics__event-info">
                         <p>{event.name}</p>
-                        <span>{event.tickets.toLocaleString('en-US')} tickets sold</span>
+                        <span>
+                          {event.volume.toLocaleString('en-US')}{' '}
+                          {event.isPaid
+                            ? event.volume === 1
+                              ? 'ticket sold'
+                              : 'tickets sold'
+                            : event.volume === 1
+                              ? 'reservation'
+                              : 'reservations'}
+                        </span>
                       </div>
                       <div className="manager-analytics__event-revenue">
                         <strong>{formatCurrency(event.revenue, false)}</strong>

@@ -65,6 +65,22 @@ function computedStaffRole(staffRole: string | null, status: string | null) {
   return staffRole;
 }
 
+function normalizeStaffStatus(value: unknown): StaffStatus | null {
+  if (typeof value !== 'string') return null;
+  const s = value.toLowerCase() as StaffStatus;
+  return STAFF_STATUSES.includes(s) ? s : null;
+}
+
+/** Flat metadata object safe for GoTrue (no undefined values). */
+function mergeUserMetadata(
+  existing: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries({ ...existing, ...patch }).filter(([, v]) => v !== undefined),
+  );
+}
+
 @Injectable()
 export class StaffService {
   private async resolveManagerClubId(managerUserId: string): Promise<string> {
@@ -123,8 +139,13 @@ export class StaffService {
         const metadata = user.user_metadata ?? {};
         const profile = profileById.get(user.id);
         const staffRole = String(metadata.staff_role ?? '');
-        const storedStatus = String(metadata.staff_status ?? 'approved');
-        const staffStatus = storedStatus === 'rejected' ? 'rejected' : 'approved';
+        const rawStatus = String(metadata.staff_status ?? 'approved').toLowerCase();
+        const staffStatus: StaffStatus =
+          rawStatus === 'rejected'
+            ? 'rejected'
+            : rawStatus === 'pending'
+              ? 'pending'
+              : 'approved';
         const metadataName = String(metadata.name ?? '') || null;
         const metadataSurname = String(metadata.surname ?? '') || null;
         return {
@@ -216,8 +237,8 @@ export class StaffService {
     staffUserId: string,
     dto: StaffStatusDto,
   ): Promise<StaffInviteResult> {
-    const status = dto.status;
-    if (!status || !STAFF_STATUSES.includes(status)) {
+    const status = normalizeStaffStatus(dto.status);
+    if (!status) {
       throw new BadRequestException('A valid staff status is required.');
     }
 
@@ -226,30 +247,45 @@ export class StaffService {
     const { data: userData, error: userErr } = await supabase.auth.admin.getUserById(staffUserId);
     if (userErr) throw new Error(userErr.message);
 
-    const metadata = userData.user.user_metadata ?? {};
+    const metadata = (userData.user.user_metadata ?? {}) as Record<string, unknown>;
     if (metadata.club_id !== clubId || typeof metadata.staff_role !== 'string') {
       throw new NotFoundException('Staff member not found for this club.');
     }
 
+    const user_metadata = mergeUserMetadata(metadata, { staff_status: status });
+
     const { error: updateErr } = await supabase.auth.admin.updateUserById(staffUserId, {
-      user_metadata: {
-        ...metadata,
-        staff_status: status,
-      },
+      user_metadata,
     });
     if (updateErr) throw new Error(updateErr.message);
+
+    const { data: refreshedUser, error: refreshErr } = await supabase.auth.admin.getUserById(staffUserId);
+    if (refreshErr) throw new Error(refreshErr.message);
+
+    const freshMeta = (refreshedUser.user.user_metadata ?? {}) as Record<string, unknown>;
+    const staffRole = String(freshMeta.staff_role ?? '');
 
     const { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('id, name, surname, email, phone_number, role, club_id, created_at')
       .eq('id', staffUserId)
-      .single();
+      .maybeSingle();
 
     if (profileErr) throw new Error(profileErr.message);
+
+    const metadataName = String(freshMeta.name ?? '') || null;
+    const metadataSurname = String(freshMeta.surname ?? '') || null;
+
     return {
       profile: {
-        ...profile,
-        role: computedStaffRole(String(metadata.staff_role), status),
+        id: staffUserId,
+        name: profile?.name ?? metadataName,
+        surname: profile?.surname ?? metadataSurname,
+        email: profile?.email ?? refreshedUser.user.email ?? null,
+        phone_number: profile?.phone_number ?? null,
+        role: computedStaffRole(staffRole, status),
+        club_id: profile?.club_id ?? clubId,
+        created_at: profile?.created_at ?? refreshedUser.user.created_at ?? null,
       },
     };
   }

@@ -22,7 +22,7 @@ function buildSuggestionsUrl(q: string, filters: SearchFilters): string {
   if (filters.musicType !== 'all') p.set('musicType', filters.musicType)
   if (filters.time !== 'all') p.set('time', filters.time)
   if (filters.category !== 'all') p.set('category', filters.category)
-  return `/api/suggestions?${p.toString()}`
+  return `/suggestions?${p.toString()}`
 }
 
 export async function fetchSuggestions(

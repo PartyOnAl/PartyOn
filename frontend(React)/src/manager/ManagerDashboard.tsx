@@ -4,6 +4,7 @@ import './ManagerDashboard.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
+import { isPaidTicketEvent } from './eventPaidEntry'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,9 @@ type EventRow = {
   event_starting_date: string
   event_capacity: number | null
   event_image: string | null
+  event_type: string | null
+  ticket_price: string | null
+  final_ticket_price: string | null
 }
 
 type RawReservation = {
@@ -34,6 +38,12 @@ type RawReservation = {
   event_id: string | null
   reservation_date: string | null
   created_at: string | null
+}
+
+type ClubEventPriceRow = {
+  ticket_price: string | null
+  final_ticket_price: string | null
+  event_type: string | null
 }
 
 type RecentReservation = {
@@ -50,14 +60,6 @@ type RecentReservation = {
 const THUMB_COLORS = ['violet', 'cyan', 'amber'] as const
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function typeLabel(t: string | null) {
-  switch (t) {
-    case 'vip_table':      return 'VIP Table'
-    case 'standard_table': return 'Standard Table'
-    default:               return 'Ticket'
-  }
-}
 
 function formatCurrency(n: number) {
   return `€${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
@@ -192,6 +194,7 @@ export default function ManagerDashboard() {
   const [reservations,       setReservations]       = useState<RawReservation[]>([])
   const [recentReservations, setRecentReservations] = useState<RecentReservation[]>([])
   const [listLoading,        setListLoading]        = useState(true)
+  const [clubEventPricing, setClubEventPricing] = useState<ClubEventPriceRow[]>([])
 
   // ── Fetch stats from backend ──────────────────────────────────────────────
   useEffect(() => {
@@ -230,6 +233,7 @@ export default function ManagerDashboard() {
     if (authLoading || !stats || !user) return
     if (!supabase || !isSupabaseConfigured) {
       setListLoading(false)
+      setClubEventPricing([])
       return
     }
 
@@ -248,13 +252,22 @@ export default function ManagerDashboard() {
           setEvents([])
           setReservations([])
           setRecentReservations([])
+          setClubEventPricing([])
           return
         }
         const clubId = clubData.club_id
 
+        const { data: priceRows } = await supabase!
+          .from('events')
+          .select('ticket_price, final_ticket_price, event_type')
+          .eq('club_id', clubId)
+        setClubEventPricing((priceRows ?? []) as ClubEventPriceRow[])
+
         const { data: evData } = await supabase!
           .from('events')
-          .select('event_id, event_name, event_starting_date, event_capacity, event_image')
+          .select(
+            'event_id, event_name, event_starting_date, event_capacity, event_image, event_type, ticket_price, final_ticket_price',
+          )
           .eq('club_id', clubId)
           .gt('event_starting_date', new Date().toISOString())
           .order('event_starting_date', { ascending: true })
@@ -299,13 +312,24 @@ export default function ManagerDashboard() {
   // ── Derived data for the lists ────────────────────────────────────────────
   const now = new Date()
 
-  const upcomingList = useMemo(
-    () => events.filter((e) => new Date(e.event_starting_date) > now).slice(0, 5),
+  const eventById = useMemo(
+    () => Object.fromEntries(events.map((e) => [e.event_id, e])),
     [events],
   )
 
-  const eventNameById = useMemo(
-    () => Object.fromEntries(events.map((e) => [e.event_id, e.event_name])),
+  const metricLabels = useMemo(() => {
+    const rows = clubEventPricing
+    if (rows.length === 0) {
+      return { tickets: 'Tickets Sold', tables: 'Table Reservations' }
+    }
+    const hasPaid = rows.some(isPaidTicketEvent)
+    const hasFree = rows.some((e) => !isPaidTicketEvent(e))
+    const tickets = !hasPaid && hasFree ? 'Reservations' : 'Tickets Sold'
+    return { tickets, tables: 'Table Reservations' }
+  }, [clubEventPricing])
+
+  const upcomingList = useMemo(
+    () => events.filter((e) => new Date(e.event_starting_date) > now).slice(0, 5),
     [events],
   )
 
@@ -370,8 +394,8 @@ export default function ManagerDashboard() {
               </>
             ) : (
               [
-                { label: 'Tickets Sold',       value: stats?.ticketsSold ?? 0,                    idx: 0, trend: true },
-                { label: 'Table Reservations',  value: stats?.tableReservations ?? 0,              idx: 1, trend: true },
+                { label: metricLabels.tickets, value: stats?.ticketsSold ?? 0,                    idx: 0, trend: true },
+                { label: metricLabels.tables,  value: stats?.tableReservations ?? 0,              idx: 1, trend: true },
                 { label: 'Total Revenue',        value: formatCurrency(stats?.totalRevenue ?? 0),  idx: 2, trend: true },
                 { label: 'Upcoming Events',      value: stats?.upcomingEvents ?? 0,                idx: 3, trend: false },
               ].map(({ label, value, idx, trend }) => (
@@ -524,7 +548,7 @@ export default function ManagerDashboard() {
                                 />
                               </div>
                               <p className="manager-dash__progress-label">
-                                {sold} / {cap} tickets
+                                {sold} / {cap} {isPaidTicketEvent(ev) ? 'tickets' : 'reservations'}
                               </p>
                             </>
                           )}
@@ -564,7 +588,8 @@ export default function ManagerDashboard() {
                     const guestName = profile
                       ? `${profile.name ?? ''} ${profile.surname ?? ''}`.trim() || 'Guest'
                       : 'Guest'
-                    const eventName = r.event_id ? (eventNameById[r.event_id] ?? '—') : '—'
+                    const evRow = r.event_id ? eventById[r.event_id] : undefined
+                    const eventName = evRow?.event_name ?? '—'
                     const amount = payments
                       .filter((p) => p.reservation_id === r.reservation_id)
                       .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
@@ -573,7 +598,7 @@ export default function ManagerDashboard() {
                         <div>
                           <p className="manager-dash__res-guest">{guestName}</p>
                           <p className="manager-dash__res-detail">
-                            {typeLabel(r.type)} • {eventName}
+                            {evRow && isPaidTicketEvent(evRow) ? 'Ticket' : 'Reservation'} • {eventName}
                           </p>
                         </div>
                         <div className="manager-dash__res-right">

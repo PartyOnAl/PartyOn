@@ -31,15 +31,197 @@
   background: #ffffff;
 }
 
-.staff-approval__toast {
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  color: #d4d4d4;
-  background: rgba(255, 255, 255, 0.06);
+.staff-approval__access-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.staff-approval__access-confirm {
+  width: 100%;
+  max-width: 400px;
+  background: #141416;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 24px 24px 22px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.staff-approval__access-confirm-icon {
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+
+.staff-approval__access-confirm-icon--remove {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  color: #f87171;
+}
+
+.staff-approval__access-confirm-icon--restore {
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #34d399;
+}
+
+.staff-approval__access-confirm-lucide {
+  width: 28px;
+  height: 28px;
+}
+
+.staff-approval__access-confirm-title {
+  margin: 0 0 10px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fafafa;
+  letter-spacing: -0.02em;
+}
+
+.staff-approval__access-confirm-message {
+  margin: 0 0 22px;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #a3a3a3;
+}
+
+.staff-approval__access-confirm-message strong {
+  color: #e5e5e5;
+  font-weight: 700;
+}
+
+.staff-approval__access-confirm-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+}
+
+@media (min-width: 400px) {
+  .staff-approval__access-confirm-actions {
+    flex-direction: row;
+    justify-content: stretch;
+  }
+
+  .staff-approval__access-confirm-actions .staff-approval__access-confirm-btn {
+    flex: 1;
+  }
+}
+
+.staff-approval__access-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
   font-size: 0.875rem;
   font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.staff-approval__access-confirm-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.staff-approval__access-confirm-btn--cancel {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #e5e5e5;
+}
+
+.staff-approval__access-confirm-btn--cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.staff-approval__access-confirm-btn--remove {
+  border: 1px solid #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.staff-approval__access-confirm-btn--remove:hover:not(:disabled) {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.staff-approval__access-confirm-btn--restore {
+  border: 1px solid #16a34a;
+  background: #16a34a;
+  color: #fff;
+}
+
+.staff-approval__access-confirm-btn--restore:hover:not(:disabled) {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+.staff-approval__toast-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  left: auto;
+  z-index: 300;
+  max-width: min(92vw, 380px);
+  padding: 14px 18px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: staff-approval-toast-in 220ms ease both;
+}
+
+@keyframes staff-approval-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.staff-approval__toast-float--access-removed {
+  color: #fecaca;
+  background: #1c1414;
+  border: 1px solid rgba(220, 38, 38, 0.45);
+}
+
+.staff-approval__toast-float--access-restored {
+  color: #bbf7d0;
+  background: #0f1c14;
+  border: 1px solid rgba(22, 163, 74, 0.45);
+}
+
+.staff-approval__toast-float--error {
+  color: #fecaca;
+  background: #1c1414;
+  border: 1px solid rgba(220, 38, 38, 0.45);
+}
+
+.staff-approval__toast-float--default {
+  color: #e5e5e5;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .staff-approval__modal-overlay {

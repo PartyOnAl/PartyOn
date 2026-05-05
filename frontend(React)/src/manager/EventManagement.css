@@ -195,6 +195,12 @@
   background: rgba(52, 211, 153, 0.14);
 }
 
+.event-mgmt__badge--status-pending {
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.55);
+  background: rgba(251, 146, 60, 0.08);
+}
+
 .event-mgmt__badge--genre {
   color: #c4c4c4;
   background: rgba(255, 255, 255, 0.06);
@@ -333,6 +339,23 @@
 
 .event-mgmt__action--danger-icon .event-mgmt__action-ic--compact {
   color: currentColor;
+}
+
+.event-mgmt__action--edit-icon {
+  flex: 0 0 auto;
+  padding: 5px;
+  min-width: 0;
+  border-radius: 6px;
+  color: #8a8a8a;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #333;
+  line-height: 0;
+}
+
+.event-mgmt__action--edit-icon:hover {
+  color: #b0b0b0;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #3f3f3f;
 }
 
 .event-mgmt__toast {
@@ -1029,4 +1052,103 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Optional price input with € prefix (Add Promotion) */
+.event-mgmt__currency-input {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  box-sizing: border-box;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #1e1e1e;
+  overflow: hidden;
+}
+
+.event-mgmt__currency-input > span {
+  flex-shrink: 0;
+  padding: 0 4px 0 12px;
+  font-size: 0.875rem;
+  color: #a3a3a3;
+  font-weight: 600;
+}
+
+.event-mgmt__currency-input-field {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-size: 0.875rem;
+  padding: 10px 12px 10px 0;
+}
+
+.event-mgmt__currency-input-field::placeholder {
+  color: #555;
+}
+
+.event-mgmt__currency-input:focus-within {
+  border-color: #ec4899;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.18);
+}
+
+/* Promotion modal: datetime + presets */
+.event-time-picker__popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 280px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.event-time-picker__time-embed {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.event-time-picker__time-embed .event-mgmt__field {
+  gap: 8px;
+}
+
+.event-time-picker__time-embed .event-mgmt__time-popover {
+  z-index: 50;
+}
+
+.event-time-picker__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  grid-column: 1 / -1;
+}
+
+.event-time-picker__preset-chip {
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e2e2e2;
+  background: #252525;
+  cursor: pointer;
+}
+
+.event-time-picker__preset-chip:hover {
+  border-color: #ec4899;
+  color: #fff;
+}
+
+.event-time-picker__range-summary {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  color: #9ca3af;
+  grid-column: 1 / -1;
 }

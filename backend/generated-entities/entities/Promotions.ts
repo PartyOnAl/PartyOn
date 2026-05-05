@@ -37,6 +37,14 @@ export class Promotions {
   discountValue: string | null;
 
   @Column("numeric", {
+    name: "original_price",
+    nullable: true,
+    precision: 10,
+    scale: 2,
+  })
+  originalPrice: string | null;
+
+  @Column("numeric", {
     name: "rating",
     nullable: true,
     precision: 10,

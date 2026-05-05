@@ -14,7 +14,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { SavedModule } from './saved/saved.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { StaffModule } from './staff/staff.module';
-
+import { SuggestionsModule } from './suggestions/suggestions.module';
 
 @Module({
   imports:[
@@ -37,6 +37,7 @@ import { StaffModule } from './staff/staff.module';
     SavedModule,
     DashboardModule,
     StaffModule,
+    SuggestionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

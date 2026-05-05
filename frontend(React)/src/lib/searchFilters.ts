@@ -23,14 +23,18 @@ export const defaultSearchFilters = (): SearchFilters => ({
 
 export function eventMatchesSearchFilters(event: Event, f: SearchFilters): boolean {
   const query = f.query.trim().toLowerCase()
-  const haystack = `${event.title} ${event.club} ${event.city} ${event.musicType}`.toLowerCase()
+  const haystack = [
+    event.title,
+    event.club,
+    event.city,
+    event.musicType,
+    event.genre,
+  ]
+    .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+    .join(' ')
+    .toLowerCase()
 
-  const matchesQuery =
-    query.length === 0 ||
-    event.title.toLowerCase().includes(query) ||
-    event.club.toLowerCase().includes(query) ||
-    event.city.toLowerCase().includes(query) ||
-    event.musicType.toLowerCase().includes(query)
+  const matchesQuery = query.length === 0 || haystack.includes(query)
 
   const matchesCity =
     f.city === 'all' ||
