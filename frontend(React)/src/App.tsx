@@ -43,6 +43,9 @@ import ReservationManagement from './manager/ReservationManagement'
 import ManagerPromotions from './manager/ManagerPromotions'
 import ManagerAnalytics from './manager/ManagerAnalytics'
 import ManagerStaffApproval from './manager/ManagerStaffApproval'
+import ManagerDisputes from './manager/ManagerDisputes'
+import ManagerSettings from './manager/ManagerSettings'
+import ManagerProfile from './manager/ManagerProfile'
 import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
 import StaffMobileOnlyPage from './StaffMobileOnlyPage'
 import { userMustChangePassword } from './lib/mustChangePassword'
@@ -205,6 +208,18 @@ function App() {
               <Route
                 path="/manager/staff-approval"
                 element={<ManagerRoute><ManagerStaffApproval /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/disputes"
+                element={<ManagerRoute><ManagerDisputes /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/settings"
+                element={<ManagerRoute><ManagerSettings /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/profile"
+                element={<ManagerRoute><ManagerProfile /></ManagerRoute>}
               />
 
               <Route path="/header" element={<Header />} />
