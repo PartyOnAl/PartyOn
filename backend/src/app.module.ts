@@ -12,6 +12,7 @@ import { ClubsModule } from './clubs/clubs.module';
 import { PaymentModule } from './payment/payment.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { SavedModule } from './saved/saved.module';
+import { HostessModule } from './hostess/hostess.module';
 
 
 @Module({
@@ -33,6 +34,7 @@ import { SavedModule } from './saved/saved.module';
     PaymentModule,
     CatalogModule,
     SavedModule,
+    HostessModule,
   ],
   controllers: [AppController],
   providers: [AppService],

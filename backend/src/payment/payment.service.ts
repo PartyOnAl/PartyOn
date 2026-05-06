@@ -14,7 +14,11 @@ export type PaymentListItem = {
   payment_date: Date | null;
   status: string | null;
   event_id: string | null;
-};
+  times_used: number | null;
+  event_starting_date: Date | null;
+  event_ending_date: Date | null;
+  event_hours: string | null;
+  };
 
 @Injectable()
 export class PaymentService {
@@ -83,15 +87,16 @@ export class PaymentService {
   }
 
   async findById(id: string) {
+    console.log("HIT PAYMENT ROUTE");
     const payment=await this.paymentRepository.findOne({
-      where: { event: {eventId: id} },
+      where: { paymentId: id },
       relations: ['reservation', 'user' , 'event'], // if needed
     });
-    console.log('PAYMENT Test:', payment);
+    console.log("PAYMENT:", payment);
     if (!payment) {
       throw new Error('Payment not found');
     }
-    console.log('checking if we go here')
+
     return this.toListItem(payment);
   }
 
@@ -172,6 +177,7 @@ async handleEvent(event: any) {
 }
 
 async findPaymentIds(batch_id: string) {
+  console.log("HIT FIND PAYMENT IDS ROUTE");
   const payments = await this.paymentRepository.find({
     where: { batch_id: batch_id },
     select: ['paymentId'], // 🔥 only fetch IDs
@@ -181,13 +187,6 @@ async findPaymentIds(batch_id: string) {
 }
 
   private toListItem(payment: Payments): PaymentListItem { 
-       console.log('PAYMENT Test1:', payment.paymentId,
-        payment.reservation?.reservationId??null,
-         payment.user?.id??null,
-         Number(payment.amount),
-         payment.paymentDate,
-         payment.status,
-         payment.event.eventId,);
     return {
       payment_id: payment.paymentId,
       reservation_id: payment.reservation?.reservationId??null,
@@ -196,6 +195,10 @@ async findPaymentIds(batch_id: string) {
       payment_date: payment.paymentDate,
       status: payment.status,
       event_id: payment.event.eventId,
+      times_used: payment.timesUsed,
+      event_starting_date: payment.event.eventStartingDate,
+      event_ending_date: payment.event.eventEndingDate,
+      event_hours: payment.event.eventHours,
     };
   }
 }

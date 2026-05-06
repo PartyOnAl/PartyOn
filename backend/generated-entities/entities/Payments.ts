@@ -16,6 +16,9 @@ export class Payments {
   @Column("numeric", { name: "amount", precision: 10, scale: 2 })
   amount: string;
 
+  @Column("numeric", { name: "times_used", precision: 10, scale: 2 })
+  timesUsed: number;
+
   @Column("timestamp with time zone", {
     name: "payment_date",
     nullable: true,

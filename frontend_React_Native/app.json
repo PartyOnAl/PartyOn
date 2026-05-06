@@ -7,11 +7,12 @@
     "icon": "./assets/images/icon.png",
     "scheme": "partyon",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "PartyOn uses your location to show nearby clubs and distances."
+        "NSLocationWhenInUseUsageDescription": "PartyOn uses your location to show nearby clubs and distances.",
+        "NSCameraUsageDescription": "PartyOn uses your camera to scan ticket QR codes at the door.",
+        "NSPhotoLibraryUsageDescription": "PartyOn uses your photo library to scan QR codes from saved ticket screenshots."
       }
     },
     "android": {
@@ -19,8 +20,11 @@
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "edgeToEdgeEnabled": true,
-      "permissions": ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"]
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "output": "static",
@@ -28,6 +32,13 @@
     },
     "plugins": [
       "expo-router",
+      "expo-camera",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PartyOn uses your photo library to scan QR codes from saved ticket screenshots."
+        }
+      ],
       "expo-location",
       [
         "expo-splash-screen",

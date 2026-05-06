@@ -14,6 +14,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="hostess" options={{ presentation: 'card', animation: 'slide_from_right' }} />
         <Stack.Screen name="event/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
         <Stack.Screen name="payment" options={{ presentation: 'card', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="payment-method" options={{ presentation: 'card', animation: 'slide_from_right' }} />

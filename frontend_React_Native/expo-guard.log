@@ -1,0 +1,23 @@
+
+> frontend_react_native@1.0.0 web
+> expo start --web --port 8082
+
+Starting project at C:\Users\User\Downloads\PartyOn-1\frontend_React_Native
+Starting Metro Bundler
+Waiting on http://localhost:8082
+Logs for your project will appear below.
+Failed to construct transformer:  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at spawn (node:child_process:796:9)
+    at fork (node:child_process:174:10)
+    at ChildProcessWorker.initialize (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\workers\ChildProcessWorker.js:144:45)
+    at new ChildProcessWorker (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\workers\ChildProcessWorker.js:100:10)
+    at WorkerPool.createWorker (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\WorkerPool.js:30:12)
+    at new BaseWorkerPool (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\base\BaseWorkerPool.js:55:27)
+    at new WorkerPool (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\WorkerPool.js:18:1)
+    at new Worker (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\jest-worker\build\index.js:141:26)
+    at WorkerFarm._makeFarm (C:\Users\User\Downloads\PartyOn-1\frontend_React_Native\node_modules\metro\src\DeltaBundler\WorkerFarm.js:70:12) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}

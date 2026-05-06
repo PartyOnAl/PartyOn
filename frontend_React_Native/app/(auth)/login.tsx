@@ -89,7 +89,7 @@ export default function LoginScreen() {
     const err = await signIn(email.trim(), password)
     setLoading(false)
     if (err) setError(err)
-    else router.replace('/(tabs)')
+    else router.replace('/guard/guard')
   }
 
   async function handleGoogle() {
@@ -98,7 +98,7 @@ export default function LoginScreen() {
     const err = await signInWithGoogle()
     setGoogleLoading(false)
     if (err) setError(err)
-    else router.replace('/(tabs)')
+    else router.replace('/guard/guard')
   }
 
   return (
