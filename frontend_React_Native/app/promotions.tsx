@@ -299,7 +299,7 @@ export default function PromotionsScreen() {
         .select('*, clubs(club_name, club_address, club_id, reservation_only)')
         .in('status', ['active', 'approved'])
         .or('valid_until.is.null,valid_until.gte.' + new Date().toISOString().split('T')[0])
-        .order('created_at', { ascending: false }),
+        .order('valid_from', { ascending: true, nullsFirst: false }),
       user
         ? supabase.from('saved_promotions').select('promotion_id').eq('user_id', user.id)
         : Promise.resolve({ data: [] }),
@@ -377,6 +377,15 @@ export default function PromotionsScreen() {
         return promotions
     }
   }, [promotions, filter, savedIds, pickedRange])
+
+  // Always sort the visible list by valid_from ascending (soonest first, nulls last)
+  const sorted = useMemo(() =>
+    [...filtered].sort((a, b) => {
+      const aT = a.valid_from ? new Date(a.valid_from).getTime() : Infinity
+      const bT = b.valid_from ? new Date(b.valid_from).getTime() : Infinity
+      return aT - bT
+    }),
+  [filtered])
 
   const pillLabel = filter === 'range' && pickedRange
     ? formatRangeLabel(pickedRange.from, pickedRange.to)
@@ -457,7 +466,7 @@ export default function PromotionsScreen() {
 
       {loading ? (
         <ActivityIndicator color={COLORS.purple} style={{ marginTop: SPACING.xl }} />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <View style={styles.center}>
           <Ionicons
             name={filter === 'saved' ? 'bookmark-outline' : 'pricetag-outline'}
@@ -472,7 +481,7 @@ export default function PromotionsScreen() {
         </View>
       ) : (
         <FlatList
-          data={filtered}
+          data={sorted}
           keyExtractor={(p) => p.promotion_id}
           contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingTop: SPACING.xs, paddingBottom: SPACING.xxl }}
           showsVerticalScrollIndicator={false}
