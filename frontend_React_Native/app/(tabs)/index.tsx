@@ -17,6 +17,8 @@ import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const CARD_WIDTH = SCREEN_WIDTH - SPACING.lg * 2
 const CARD_HEIGHT = 240
+const CLUB_CARD_W = 120
+const CLUB_IMG_H = 100
 
 const FALLBACK_COLORS = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
 function fallbackColor(id: string) {
@@ -35,61 +37,177 @@ function badgeLabel(promo: Promotion): string | null {
   return null
 }
 
-// ── Promotion row (list style matching screenshot) ────────────────────────────
-function PromoRow({ promo, onPress }: { promo: Promotion; onPress: () => void }) {
+// ── Week range helpers ────────────────────────────────────────────────────────
+function thisWeekRange(): { start: string; end: string } {
+  const now = new Date()
+  const day = now.getDay()
+  const diffToMon = day === 0 ? -6 : 1 - day
+  const weekStart = new Date(now)
+  weekStart.setDate(now.getDate() + diffToMon)
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 6)
+  weekEnd.setHours(23, 59, 59, 999)
+  return {
+    start: now.toISOString(),           // not before right now
+    end: weekEnd.toISOString(),
+  }
+}
+
+// ── Club gallery carousel card ────────────────────────────────────────────────
+type ClubWithEvents = Club & { events?: { event_image: string | null }[] }
+
+function ClubGalleryCard({ club, onPress }: { club: ClubWithEvents; onPress: () => void }) {
+  const [activeIdx, setActiveIdx] = useState(0)
+  const scrollRef = useRef<ScrollView>(null)
+
+  // Build photo list: club image first, then unique event images
+  const photos: string[] = []
+  if (club.club_image) photos.push(club.club_image)
+  for (const ev of club.events ?? []) {
+    if (ev.event_image && !photos.includes(ev.event_image)) photos.push(ev.event_image)
+  }
+  if (photos.length === 0) photos.push('') // placeholder
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / CLUB_CARD_W)
+    setActiveIdx(Math.max(0, Math.min(idx, photos.length - 1)))
+  }
+
+  return (
+    <TouchableOpacity style={clubStyles.card} onPress={onPress} activeOpacity={0.85}>
+      {/* Gallery */}
+      <View style={clubStyles.galleryWrap}>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          style={{ width: CLUB_CARD_W, height: CLUB_IMG_H }}
+        >
+          {photos.map((uri, i) =>
+            uri ? (
+              <Image
+                key={i}
+                source={{ uri }}
+                style={{ width: CLUB_CARD_W, height: CLUB_IMG_H }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                key={i}
+                style={[{ width: CLUB_CARD_W, height: CLUB_IMG_H }, { backgroundColor: fallbackColor(club.club_id) }]}
+              />
+            )
+          )}
+        </ScrollView>
+
+        {/* Dot indicators */}
+        {photos.length > 1 && (
+          <View style={clubStyles.dots}>
+            {photos.map((_, i) => (
+              <View key={i} style={[clubStyles.dot, i === activeIdx && clubStyles.dotActive]} />
+            ))}
+          </View>
+        )}
+
+        {/* Photo count */}
+        {photos.length > 1 && (
+          <View style={clubStyles.counter}>
+            <Text style={clubStyles.counterText}>{activeIdx + 1}/{photos.length}</Text>
+          </View>
+        )}
+      </View>
+
+      <Text style={clubStyles.name} numberOfLines={1}>{club.club_name}</Text>
+    </TouchableOpacity>
+  )
+}
+
+const clubStyles = StyleSheet.create({
+  card: { width: CLUB_CARD_W, borderRadius: RADIUS.md, overflow: 'hidden' },
+  galleryWrap: { width: CLUB_CARD_W, height: CLUB_IMG_H, position: 'relative' },
+  dots: {
+    position: 'absolute', bottom: 5, left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'center', gap: 3,
+  },
+  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)' },
+  dotActive: { backgroundColor: '#fff', width: 10 },
+  counter: {
+    position: 'absolute', top: 5, right: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: 8,
+  },
+  counterText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  name: {
+    color: COLORS.white, fontSize: FONT.sm, fontWeight: '600',
+    textAlign: 'center', paddingHorizontal: 4, paddingTop: 6, paddingBottom: 2,
+    backgroundColor: COLORS.bgCard,
+  },
+})
+
+// ── Promotion card (individually clickable, standalone style) ─────────────────
+function PromoCard({ promo, onPress }: { promo: Promotion; onPress: () => void }) {
   const badge = badgeLabel(promo)
   const club = promo.clubs as any
 
   return (
-    <TouchableOpacity style={pr.row} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity style={promoCardStyles.card} onPress={onPress} activeOpacity={0.75}>
       {/* Thumbnail */}
-      <View style={pr.thumbWrap}>
+      <View style={promoCardStyles.thumbWrap}>
         {promo.image_url ? (
-          <Image source={{ uri: promo.image_url }} style={pr.thumb} resizeMode="cover" />
+          <Image source={{ uri: promo.image_url }} style={promoCardStyles.thumb} resizeMode="cover" />
         ) : (
-          <View style={[pr.thumb, { backgroundColor: fallbackColor(promo.promotion_id) }]}>
-            <Ionicons name="pricetag" size={22} color="rgba(255,255,255,0.35)" />
+          <View style={[promoCardStyles.thumb, { backgroundColor: fallbackColor(promo.promotion_id) }]}>
+            <Ionicons name="pricetag" size={20} color="rgba(255,255,255,0.35)" />
           </View>
         )}
         {badge && (
-          <View style={pr.badge}>
-            <Text style={pr.badgeText}>{badge}</Text>
+          <View style={promoCardStyles.badge}>
+            <Text style={promoCardStyles.badgeText}>{badge}</Text>
           </View>
         )}
       </View>
 
       {/* Body */}
-      <View style={pr.body}>
-        <Text style={pr.title} numberOfLines={1}>{promo.title}</Text>
+      <View style={promoCardStyles.body}>
+        <Text style={promoCardStyles.title} numberOfLines={1}>{promo.title}</Text>
         {promo.description && (
-          <Text style={pr.desc} numberOfLines={2}>{promo.description}</Text>
+          <Text style={promoCardStyles.desc} numberOfLines={2}>{promo.description}</Text>
         )}
         {club?.club_name && (
-          <View style={pr.meta}>
+          <View style={promoCardStyles.meta}>
             <Ionicons name="location-outline" size={11} color={COLORS.mutedDark} />
-            <Text style={pr.metaText} numberOfLines={1}>{club.club_name}</Text>
+            <Text style={promoCardStyles.metaText} numberOfLines={1}>{club.club_name}</Text>
           </View>
         )}
       </View>
 
-      {/* Bookmark */}
-      <Ionicons name="bookmark-outline" size={18} color={COLORS.mutedDark} style={pr.bookmark} />
+      <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} style={{ flexShrink: 0 }} />
     </TouchableOpacity>
   )
 }
 
-const pr = StyleSheet.create({
-  row: {
+const promoCardStyles = StyleSheet.create({
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: SPACING.md,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.sm + 2,
     gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   thumbWrap: { position: 'relative', flexShrink: 0 },
   thumb: {
-    width: 72, height: 72,
+    width: 68, height: 68,
     borderRadius: RADIUS.md,
-    backgroundColor: COLORS.bgCard,
+    backgroundColor: COLORS.bgCard2,
     alignItems: 'center', justifyContent: 'center',
   },
   badge: {
@@ -99,12 +217,11 @@ const pr = StyleSheet.create({
     paddingHorizontal: 5, paddingVertical: 2,
   },
   badgeText: { color: '#000', fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
-  body: { flex: 1, gap: 4 },
+  body: { flex: 1, gap: 3 },
   title: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
   desc: { color: COLORS.mutedDark, fontSize: FONT.sm, lineHeight: FONT.sm * 1.4 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { color: COLORS.mutedDark, fontSize: 12, flex: 1 },
-  bookmark: { flexShrink: 0 },
 })
 
 // ── Main screen ───────────────────────────────────────────────────────────────
@@ -113,7 +230,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets()
   const { user } = useAuth()
   const [events, setEvents] = useState<Event[]>([])
-  const [clubs, setClubs] = useState<Club[]>([])
+  const [clubs, setClubs] = useState<ClubWithEvents[]>([])
   const [promos, setPromos] = useState<Promotion[]>([])
   const [loading, setLoading] = useState(true)
   const carouselRef = useRef<FlatList>(null)
@@ -121,32 +238,45 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      const { start, end } = thisWeekRange()
+      const today = new Date().toISOString().split('T')[0]
+
       Promise.all([
-        supabase.from('events').select('*, clubs(*)').eq('event_status', 'published')
-          .order('event_starting_date', { ascending: true }).limit(10),
-        supabase.from('clubs').select('*').eq('club_status', 'approved').limit(8),
+        // Only events happening this week, starting from now (no past events)
+        supabase.from('events').select('*, clubs(*)')
+          .eq('event_status', 'published')
+          .gte('event_starting_date', start)
+          .lte('event_starting_date', end)
+          .order('event_starting_date', { ascending: true })
+          .limit(10),
+
+        // Clubs with their event images for the gallery carousel
+        supabase.from('clubs').select('*, events(event_image)')
+          .eq('club_status', 'approved')
+          .limit(8),
+
+        // Only active promotions that haven't expired yet
         supabase.from('promotions')
           .select('*, clubs(club_name, club_id)')
           .in('status', ['active', 'approved'])
+          .gte('valid_until', today)
           .order('created_at', { ascending: false })
           .limit(5),
       ]).then(([evRes, clRes, prRes]) => {
         setEvents((evRes.data as Event[]) ?? [])
-        setClubs((clRes.data as Club[]) ?? [])
+        setClubs((clRes.data as ClubWithEvents[]) ?? [])
         setPromos((prRes.data as Promotion[]) ?? [])
         setLoading(false)
       })
     }, []),
   )
 
-  const greeting = 'Turn the'
-
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.greeting}>Turn the</Text>
           <Text style={styles.headerTitle}>
             <Text style={{ color: COLORS.white }}>Party</Text>
             <Text style={{ color: COLORS.purple }}>On</Text>
@@ -163,24 +293,31 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* This Week — horizontal card scroll */}
+
+        {/* ── This Week ── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>This Week</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
-              <Text style={styles.seeAll}>See all</Text>
+            {/* Goes to dedicated all-events page, not search */}
+            <TouchableOpacity onPress={() => router.push('/all-events')}>
+              <Text style={styles.seeAll}>See All Events</Text>
             </TouchableOpacity>
           </View>
 
           {loading ? (
             <ActivityIndicator color={COLORS.purple} style={{ marginVertical: SPACING.xl }} />
           ) : events.length === 0 ? (
-            <Text style={styles.empty}>No upcoming events yet.</Text>
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyIcon}>🎭</Text>
+              <Text style={styles.emptyText}>No events this week</Text>
+              <TouchableOpacity onPress={() => router.push('/all-events')}>
+                <Text style={styles.emptyLink}>Browse upcoming events →</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <FlatList
               ref={carouselRef}
               horizontal
-              // Triple the data: [copy1, original, copy2] — start in the middle
               data={events.length > 0 ? [...events, ...events, ...events] : events}
               keyExtractor={(e, i) => `${e.event_id}-${i}`}
               showsHorizontalScrollIndicator={false}
@@ -193,7 +330,6 @@ export default function HomeScreen() {
                 index,
               })}
               onLayout={() => {
-                // Start in the middle copy so both directions have room to scroll
                 if (events.length > 0) {
                   const itemW = CARD_WIDTH + SPACING.md
                   carouselRef.current?.scrollToOffset({
@@ -207,16 +343,13 @@ export default function HomeScreen() {
                 const itemW = CARD_WIDTH + SPACING.md
                 const offset = e.nativeEvent.contentOffset.x
                 const total = events.length
-                const midStart = itemW * total        // start of middle copy
-                const midEnd   = itemW * total * 2   // start of last copy
-
+                const midStart = itemW * total
+                const midEnd   = itemW * total * 2
                 if (offset < midStart) {
-                  // Scrolled back into first copy → teleport to same position in middle
                   isJumping.current = true
                   carouselRef.current?.scrollToOffset({ offset: offset + total * itemW, animated: false })
                   setTimeout(() => { isJumping.current = false }, 50)
                 } else if (offset >= midEnd) {
-                  // Scrolled forward into last copy → teleport to same position in middle
                   isJumping.current = true
                   carouselRef.current?.scrollToOffset({ offset: offset - total * itemW, animated: false })
                   setTimeout(() => { isJumping.current = false }, 50)
@@ -264,7 +397,7 @@ export default function HomeScreen() {
           )}
         </View>
 
-        {/* Top Clubs — horizontal strip */}
+        {/* ── Top Clubs with gallery carousel ── */}
         {!loading && clubs.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -279,30 +412,17 @@ export default function HomeScreen() {
               contentContainerStyle={{ paddingHorizontal: SPACING.md, gap: SPACING.sm }}
             >
               {clubs.map((club) => (
-                <TouchableOpacity
+                <ClubGalleryCard
                   key={club.club_id}
-                  style={styles.clubCard}
+                  club={club}
                   onPress={() => router.push(`/club/${club.club_id}`)}
-                  activeOpacity={0.85}
-                >
-                  {club.club_image ? (
-                    <Image source={{ uri: club.club_image }} style={styles.clubCardImage} resizeMode="cover" />
-                  ) : (
-                    <View style={[styles.clubCardImage, { backgroundColor: fallbackColor(club.club_id) }]} />
-                  )}
-                  {club.reservation_only && (
-                    <View style={styles.clubBadge}>
-                      <Text style={styles.clubBadgeText}>Free</Text>
-                    </View>
-                  )}
-                  <Text style={styles.clubName} numberOfLines={1}>{club.club_name}</Text>
-                </TouchableOpacity>
+                />
               ))}
             </ScrollView>
           </View>
         )}
 
-        {/* Promotions — vertical list rows */}
+        {/* ── Promotions — individual cards, each separately clickable ── */}
         {!loading && promos.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -312,12 +432,13 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.promoList}>
-              {promos.map((p, i) => (
-                <View key={p.promotion_id}>
-                  <PromoRow promo={p} onPress={() => router.push('/promotions')} />
-                  {i < promos.length - 1 && <View style={styles.promoSeparator} />}
-                </View>
+            <View style={styles.promoCards}>
+              {promos.map((p) => (
+                <PromoCard
+                  key={p.promotion_id}
+                  promo={p}
+                  onPress={() => router.push(`/promotion/${p.promotion_id}`)}
+                />
               ))}
             </View>
           </View>
@@ -361,9 +482,23 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: FONT.md, fontWeight: '700', color: COLORS.white },
   seeAll: { fontSize: FONT.sm, color: COLORS.purple, fontWeight: '600' },
-  empty: { color: COLORS.muted, fontSize: FONT.sm, paddingHorizontal: SPACING.md },
 
-  // Event cards (unchanged)
+  // Empty state for This Week
+  emptyBox: {
+    marginHorizontal: SPACING.md,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.xl,
+    alignItems: 'center',
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyIcon: { fontSize: 28 },
+  emptyText: { fontSize: FONT.sm, color: COLORS.muted, fontWeight: '500' },
+  emptyLink: { fontSize: FONT.sm, color: COLORS.purple, fontWeight: '600', marginTop: 4 },
+
+  // Event cards
   eventCard: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
@@ -382,7 +517,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
     padding: SPACING.md,
-    paddingTop: SPACING.md,
   },
   reserveBadge: {
     alignSelf: 'flex-start',
@@ -410,35 +544,8 @@ const styles = StyleSheet.create({
   },
   priceTagText: { color: COLORS.ctaText, fontSize: 12, fontWeight: '800' },
 
-  // Club strip (unchanged)
-  clubCard: { width: 110, borderRadius: RADIUS.md, overflow: 'hidden' },
-  clubCardImage: {
-    width: 110, height: 90,
-    borderRadius: RADIUS.md, marginBottom: 6, backgroundColor: COLORS.bgCard,
-  },
-  clubBadge: {
-    position: 'absolute', top: 6, right: 6,
-    backgroundColor: COLORS.cta, borderRadius: RADIUS.pill,
-    paddingHorizontal: 6, paddingVertical: 2,
-  },
-  clubBadgeText: { color: COLORS.ctaText, fontSize: 9, fontWeight: '800' },
-  clubName: {
-    color: COLORS.white, fontSize: FONT.sm, fontWeight: '600',
-    textAlign: 'center', paddingHorizontal: 4,
-  },
-
-  // Promotions list card
-  promoList: {
-    marginHorizontal: SPACING.md,
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    overflow: 'hidden',
-  },
-  promoSeparator: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginLeft: SPACING.md + 72 + SPACING.sm, // skip thumbnail
+  // Promotions — individual cards, not a grouped box
+  promoCards: {
+    paddingHorizontal: SPACING.md,
   },
 })
