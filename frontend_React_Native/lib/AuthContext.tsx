@@ -11,7 +11,11 @@ type AuthCtx = {
   user: User | null
   session: Session | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<string | null>
+  signIn: (email: string, password: string) => Promise<{
+    error: string | null
+    role: string | null
+    id: string | null
+  }>
   signUp: (email: string, password: string, name: string, surname: string) => Promise<string | null>
   signOut: () => Promise<void>
   signInWithGoogle: () => Promise<string | null>
@@ -41,8 +45,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return error ? error.message : null
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+  
+    if (error || !data.user) {
+      return {
+        error: error?.message ?? 'Login failed',
+        role: null,
+        id: null,
+      }
+    }
+  
+    const userId = data.user.id
+    console.log('userId', userId);
+  
+    const { data: profile, error: profileError} = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+  
+    if (profileError) {
+      return {
+        error: profileError.message,
+        role: null,
+        id: null,
+      }
+    }
+  console.log('id', userId);
+    return {
+      error: null,
+      role: profile?.role ?? null,
+      id: userId,
+    }
   }
 
   async function signUp(email: string, password: string, name: string, surname: string) {

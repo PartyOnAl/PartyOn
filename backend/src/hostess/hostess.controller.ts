@@ -6,8 +6,13 @@ export class HostessController {
   constructor(private readonly hostessService: HostessService) {}
 
   @Get('flow')
-  getFlow() {
-    return this.hostessService.getFlow();
+  getFlowFallback() {
+    return this.hostessService.getFlow('');
+  }
+
+  @Get('flow/:id')
+  getFlow(@Param('id') id: string) {
+    return this.hostessService.getFlow(id);
   }
 
   @Patch('reservations/:id')

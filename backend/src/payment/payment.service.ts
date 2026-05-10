@@ -162,6 +162,25 @@ async updatePayment(id: string, dto: Partial<Payments>) {
   });
 }
 
+async updateTicketUses(id: string) {
+  // optional: check if exists
+  const payment = await this.paymentRepository.findOne({
+    where: { paymentId: id },
+  });
+
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  // update
+  await this.paymentRepository.update({paymentId: id}, {timesUsed: 1});
+
+  // return updated record
+  return this.paymentRepository.findOne({
+    where: { paymentId: id },
+  });
+}
+
 async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {

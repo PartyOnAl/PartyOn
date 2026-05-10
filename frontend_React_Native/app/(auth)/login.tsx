@@ -86,10 +86,14 @@ export default function LoginScreen() {
       return
     }
     setLoading(true)
-    const err = await signIn(email.trim(), password)
+    const { error, role, id } = await signIn(email.trim(), password)
+    console.log('id at login.tsx is: ', id);
     setLoading(false)
-    if (err) setError(err)
-    else router.replace('/guard/guard')
+    console.log(role)
+    if (error) setError(error)
+    else if (role === 'user') router.replace('/(tabs)')
+    else if (role === 'staff') router.replace('/guard/guard')
+    else if (role === 'host') router.replace({pathname: '/hostess', params: {id: id}})
   }
 
   async function handleGoogle() {

@@ -73,4 +73,11 @@ async updatePayment(
   return this.paymentService.updatePayment(id, dto);
 }
 
+@Patch('ticket-uses/:id')
+async updateTicketUses(
+  @Param('id') id: string,
+) {
+  return this.paymentService.updateTicketUses(id);
+}
+
 }

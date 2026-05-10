@@ -31,6 +31,7 @@ import {
   XCircle,
 } from 'lucide-react-native'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { useAuth } from '@/lib/AuthContext'
 
 type ScanMode = 'camera' | 'photo' | 'queue'
 type ScanState = 'idle' | 'checking' | 'valid' | 'warning'
@@ -77,6 +78,7 @@ const FEEDBACK_TONE = {
 
 export default function GuardScreen() {
   const router = useRouter()
+  const { user } = useAuth()
   const insets = useSafeAreaInsets()
   const [permission, requestPermission] = useCameraPermissions()
   const [mode, setMode] = useState<ScanMode>('camera')
@@ -437,6 +439,21 @@ export default function GuardScreen() {
                   detail: 'Payment complete, unused ticket, and event time is active.',
                   code: ticket_id,
                 })
+                const res = await fetch(`http://192.168.16.102:3000/payment/ticket-uses/${ticket_id}`,
+                  {
+                    method: 'PATCH',
+                  }
+                )
+                const result = await res.json()
+                console.log("the result is", result)
+                console.log("the times used is", result.timesUsed)
+                if(!result){
+                  showValidationResult('warning', {
+                    title: 'Ticket couldnt be updated',
+                    detail: 'The scanned QR did wasn\'t marked as checked in.',
+                    code: ticket_id,
+                  })
+                }
               }
             } else {
               showValidationResult('warning', {
@@ -734,7 +751,11 @@ export default function GuardScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.hostessLink} activeOpacity={0.84} onPress={() => router.push('/hostess')}>
+        <TouchableOpacity
+          style={styles.hostessLink}
+          activeOpacity={0.84}
+          onPress={() => router.push({ pathname: '/hostess', params: user?.id ? { id: user.id } : {} })}
+        >
           <View style={styles.hostessLinkIcon}>
             <Users size={18} color="#050505" />
           </View>
