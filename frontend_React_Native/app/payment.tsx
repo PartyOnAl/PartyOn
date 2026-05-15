@@ -1,15 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { usePlatformSettings } from '@/lib/platformSettings'
+import { useAuth } from '@/lib/AuthContext'
 
 export default function PaymentScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { settings } = usePlatformSettings()
+  const { profile } = useAuth()
+
   const params = useLocalSearchParams<{
     eventId: string; eventName: string; ticketTypeId: string
     ticketTypeName: string; price: string; isReservation: string
@@ -21,10 +26,48 @@ export default function PaymentScreen() {
   const [nrOfPeople, setNrOfPeople] = useState(2)
   const [updates, setUpdates] = useState(false)
 
-  const total = isReservation ? 0 : pricePerTicket * quantity
-  const SERVICE_FEE = isReservation ? 0 : total * 0.05
+  const buyerName = useMemo(() => {
+    const full = [profile?.name, profile?.surname].filter(Boolean).join(' ').trim()
+    return full || profile?.username || profile?.email?.split('@')[0] || 'Me'
+  }, [profile])
+
+  // Attendee names: index 0 is the buyer (locked to their profile name).
+  // Indices 1..quantity-1 are guests the buyer needs to name.
+  const [attendeeNames, setAttendeeNames] = useState<string[]>([buyerName])
+
+  useEffect(() => {
+    setAttendeeNames(prev => {
+      const next = Array.from({ length: quantity }, (_, i) =>
+        i === 0 ? buyerName : prev[i] ?? '',
+      )
+      return next
+    })
+  }, [quantity, buyerName])
+
+  function setAttendeeName(i: number, v: string) {
+    setAttendeeNames(prev => prev.map((n, idx) => (idx === i ? v : n)))
+  }
+
+  const subtotal = isReservation ? 0 : pricePerTicket * quantity
+  const vatAmount = (!isReservation && settings.vat_enabled && subtotal > 0)
+    ? subtotal * (settings.vat_rate / 100)
+    : 0
+  const processingFee = (!isReservation && subtotal > 0)
+    ? (subtotal + vatAmount) * (settings.stripe_fee_percent / 100) + settings.stripe_fee_fixed
+    : 0
+  const grandTotal = subtotal + vatAmount + processingFee
 
   function handleContinue() {
+    if (!isReservation && quantity > 1) {
+      const guestNames = attendeeNames.slice(1).map(n => n.trim())
+      if (guestNames.some(n => n.length === 0)) {
+        Alert.alert('Add guest names', 'Please enter the name of every additional ticket holder.')
+        return
+      }
+    }
+    const finalNames = isReservation
+      ? []
+      : [buyerName, ...attendeeNames.slice(1).map(n => n.trim())].slice(0, quantity)
     router.push({
       pathname: '/payment-method',
       params: {
@@ -33,8 +76,9 @@ export default function PaymentScreen() {
         ticketTypeId: params.ticketTypeId ?? '',
         ticketTypeName: isReservation ? 'Table Reservation' : (params.ticketTypeName ?? 'General Admission'),
         quantity: String(isReservation ? nrOfPeople : quantity),
-        total: String((total + SERVICE_FEE).toFixed(2)),
+        total: String(grandTotal.toFixed(2)),
         isReservation: String(isReservation),
+        attendees: JSON.stringify(finalNames),
       },
     })
   }
@@ -88,14 +132,30 @@ export default function PaymentScreen() {
                 <Text style={styles.lineLabel}>Price per ticket</Text>
                 <Text style={styles.lineValue}>€{pricePerTicket.toFixed(2)}</Text>
               </View>
-              <View style={styles.lineItem}>
-                <Text style={styles.lineLabel}>Service fee (5%)</Text>
-                <Text style={styles.lineValue}>€{SERVICE_FEE.toFixed(2)}</Text>
-              </View>
+              {quantity > 1 && (
+                <View style={styles.lineItem}>
+                  <Text style={styles.lineLabel}>Subtotal ({quantity}×)</Text>
+                  <Text style={styles.lineValue}>€{subtotal.toFixed(2)}</Text>
+                </View>
+              )}
+              {settings.vat_enabled && vatAmount > 0 && (
+                <View style={styles.lineItem}>
+                  <Text style={styles.lineLabel}>VAT ({settings.vat_rate}%)</Text>
+                  <Text style={styles.lineValue}>€{vatAmount.toFixed(2)}</Text>
+                </View>
+              )}
+              {processingFee > 0 && (
+                <View style={styles.lineItem}>
+                  <Text style={styles.lineLabel}>
+                    Service fee ({settings.stripe_fee_percent}% + €{settings.stripe_fee_fixed.toFixed(2)})
+                  </Text>
+                  <Text style={styles.lineValue}>€{processingFee.toFixed(2)}</Text>
+                </View>
+              )}
               <View style={styles.divider} />
               <View style={styles.lineItem}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>€{(total + SERVICE_FEE).toFixed(2)}</Text>
+                <Text style={styles.totalValue}>€{grandTotal.toFixed(2)}</Text>
               </View>
             </>
           )}
@@ -107,6 +167,38 @@ export default function PaymentScreen() {
             </View>
           )}
         </View>
+
+        {/* Attendee names — only when buying multiple tickets */}
+        {!isReservation && quantity > 1 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Ticket Holders</Text>
+            <Text style={styles.attendeeHint}>
+              Each ticket gets its own QR. Add the name of every guest so they can be admitted at the door.
+            </Text>
+            {attendeeNames.map((value, i) => (
+              <View key={i} style={styles.attendeeField}>
+                <View style={styles.attendeeBadge}>
+                  <Text style={styles.attendeeBadgeText}>{i + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attendeeLabel}>
+                    {i === 0 ? 'Ticket 1 — You' : `Ticket ${i + 1} — Guest`}
+                  </Text>
+                  <TextInput
+                    style={[styles.attendeeInput, i === 0 && styles.attendeeInputDisabled]}
+                    value={value}
+                    onChangeText={t => setAttendeeName(i, t)}
+                    placeholder={i === 0 ? buyerName : 'Full name'}
+                    placeholderTextColor={COLORS.mutedDark}
+                    editable={i !== 0}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Updates opt-in */}
         <TouchableOpacity style={styles.optinRow} onPress={() => setUpdates((v) => !v)} activeOpacity={0.8}>
@@ -145,7 +237,7 @@ const styles = StyleSheet.create({
   qtyValue: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '800', minWidth: 40, textAlign: 'center' },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.sm },
   lineItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  lineLabel: { color: COLORS.muted, fontSize: FONT.base },
+  lineLabel: { color: COLORS.muted, fontSize: FONT.base, flex: 1 },
   lineValue: { color: COLORS.white, fontSize: FONT.base },
   totalLabel: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
   totalValue: { color: COLORS.purple, fontSize: FONT.md, fontWeight: '800' },
@@ -156,6 +248,13 @@ const styles = StyleSheet.create({
   checkboxActive: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },
   optinText: { color: COLORS.muted, fontSize: FONT.sm, flex: 1 },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.bgCard, borderTopWidth: 1, borderTopColor: COLORS.border, padding: SPACING.md, paddingTop: SPACING.sm },
-  cta: { backgroundColor: COLORS.cta, borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
-  ctaText: { color: COLORS.ctaText, fontWeight: '800', fontSize: FONT.base },
+  cta: { backgroundColor: COLORS.purple, borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
+  ctaText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
+  attendeeHint: { color: COLORS.muted, fontSize: FONT.sm, marginTop: -SPACING.sm, marginBottom: SPACING.md, lineHeight: FONT.sm * 1.4 },
+  attendeeField: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, marginBottom: SPACING.sm },
+  attendeeBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(167,139,250,0.15)', borderWidth: 1, borderColor: COLORS.purple, alignItems: 'center', justifyContent: 'center', marginTop: 22 },
+  attendeeBadgeText: { color: COLORS.purple, fontSize: 11, fontWeight: '800' },
+  attendeeLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  attendeeInput: { backgroundColor: COLORS.bgInput, borderRadius: RADIUS.sm, borderWidth: 1, borderColor: COLORS.border, paddingVertical: SPACING.sm + 2, paddingHorizontal: SPACING.md, color: COLORS.white, fontSize: FONT.base },
+  attendeeInputDisabled: { opacity: 0.6 },
 })

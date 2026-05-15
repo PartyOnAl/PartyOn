@@ -387,7 +387,7 @@ export default function HomeScreen() {
                     </View>
                     {ev.final_ticket_price != null && !ev.clubs?.reservation_only && (
                       <View style={styles.priceTag}>
-                        <Text style={styles.priceTagText}>€{Number(ev.final_ticket_price).toFixed(0)}</Text>
+                        <Text style={styles.priceTagText}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
                       </View>
                     )}
                   </View>
@@ -539,10 +539,10 @@ const styles = StyleSheet.create({
   metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.4)' },
   priceTag: {
     alignSelf: 'flex-start', marginTop: SPACING.xs,
-    backgroundColor: COLORS.cta, borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.purple, borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm + 2, paddingVertical: 3,
   },
-  priceTagText: { color: COLORS.ctaText, fontSize: 12, fontWeight: '800' },
+  priceTagText: { color: COLORS.white, fontSize: 12, fontWeight: '800' },
 
   // Promotions — individual cards, not a grouped box
   promoCards: {

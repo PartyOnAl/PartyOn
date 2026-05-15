@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Image, Share, Linking, Alert, Platform,
+  ActivityIndicator, Image, Share, Linking, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -29,21 +30,26 @@ export default function ClubDetailScreen() {
   const [loading, setLoading] = useState(true)
   const [descExpanded, setDescExpanded] = useState(false)
 
-  useEffect(() => {
-    if (!id) { setLoading(false); return }
-    Promise.all([
-      supabase.from('clubs').select('*').eq('club_id', id).single(),
-      supabase.from('events').select('*')
-        .eq('club_id', id)
-        .eq('event_status', 'published')
-        .order('event_starting_date', { ascending: true })
-        .limit(5),
-    ]).then(([clubRes, evRes]) => {
-      setClub(clubRes.data as Club)
-      setEvents((evRes.data as Event[]) ?? [])
-      setLoading(false)
-    })
-  }, [id])
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) { setLoading(false); return }
+      setLoading(true)
+      const now = new Date().toISOString()
+      Promise.all([
+        supabase.from('clubs').select('*').eq('club_id', id).single(),
+        supabase.from('events').select('*')
+          .eq('club_id', id)
+          .eq('event_status', 'published')
+          .gte('event_starting_date', now)
+          .order('event_starting_date', { ascending: true })
+          .limit(5),
+      ]).then(([clubRes, evRes]) => {
+        setClub(clubRes.data as Club)
+        setEvents((evRes.data as Event[]) ?? [])
+        setLoading(false)
+      })
+    }, [id]),
+  )
 
   async function handleShare() {
     try {
@@ -137,7 +143,7 @@ export default function ClubDetailScreen() {
           <Text style={styles.clubName}>{club.club_name}</Text>
           {club.club_address && (
             <TouchableOpacity style={styles.addressRow} onPress={handleMaps} activeOpacity={0.75}>
-              <Ionicons name="location" size={14} color={COLORS.cta} />
+              <Ionicons name="location" size={14} color={COLORS.purple} />
               <Text style={styles.addressText}>{club.club_address}</Text>
             </TouchableOpacity>
           )}
@@ -257,7 +263,7 @@ export default function ClubDetailScreen() {
                         {ev.final_ticket_price != null && !club.reservation_only && (
                           <>
                             <View style={styles.dot} />
-                            <Text style={styles.eventRowPrice}>€{Number(ev.final_ticket_price).toFixed(0)}</Text>
+                            <Text style={styles.eventRowPrice}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
                           </>
                         )}
                       </View>
@@ -272,31 +278,15 @@ export default function ClubDetailScreen() {
       </ScrollView>
 
       {/* Sticky bottom CTA */}
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
-        {club.reservation_only ? (
-          <View style={styles.bottomInner}>
-            <View>
-              <Text style={styles.bottomLabel}>Free Reservation</Text>
-              <Text style={styles.bottomSub}>No payment required</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.ctaBtn}
-              activeOpacity={0.85}
-              onPress={() => router.push('/(tabs)/search' as any)}
-            >
-              <Text style={styles.ctaBtnText}>Browse Events</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.ctaBtn, styles.ctaBtnFull]}
-            activeOpacity={0.85}
-            onPress={() => router.push({ pathname: '/(tabs)/search', params: { q: club.club_name } })}
-          >
-            <Ionicons name="search" size={17} color={COLORS.ctaText} />
-            <Text style={styles.ctaBtnText}>View Events</Text>
-          </TouchableOpacity>
-        )}
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom || SPACING.sm }]}>
+        <TouchableOpacity
+          style={[styles.ctaBtn, styles.ctaBtnFull]}
+          activeOpacity={0.85}
+          onPress={() => router.push(`/club-events/${id}`)}
+        >
+          <Ionicons name="calendar-outline" size={17} color={COLORS.white} />
+          <Text style={styles.ctaBtnText}>View All Events</Text>
+        </TouchableOpacity>
       </View>
     </View>
   )
@@ -353,16 +343,16 @@ const styles = StyleSheet.create({
   },
   typeBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(245,166,35,0.2)',
+    backgroundColor: 'rgba(167,139,250,0.18)',
     borderWidth: 1,
-    borderColor: COLORS.cta,
+    borderColor: COLORS.purple,
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
     marginBottom: SPACING.xs,
   },
   typeBadgeText: {
-    color: COLORS.cta,
+    color: COLORS.purple,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
@@ -521,7 +511,7 @@ const styles = StyleSheet.create({
   eventRowMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
   eventRowDate: { color: COLORS.muted, fontSize: 12 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: COLORS.mutedDark },
-  eventRowPrice: { color: COLORS.cta, fontSize: 12, fontWeight: '700' },
+  eventRowPrice: { color: COLORS.purple, fontSize: 12, fontWeight: '700' },
 
   // Bottom bar
   bottomBar: {
@@ -541,7 +531,7 @@ const styles = StyleSheet.create({
   bottomLabel: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
   bottomSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   ctaBtn: {
-    backgroundColor: COLORS.cta,
+    backgroundColor: COLORS.purple,
     borderRadius: RADIUS.md,
     paddingVertical: SPACING.sm + 4,
     paddingHorizontal: SPACING.lg,
@@ -551,7 +541,7 @@ const styles = StyleSheet.create({
   },
   ctaBtnFull: { width: '100%', justifyContent: 'center' },
   ctaBtnText: {
-    color: COLORS.ctaText,
+    color: COLORS.white,
     fontWeight: '800',
     fontSize: FONT.base,
   },

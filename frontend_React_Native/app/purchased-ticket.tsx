@@ -1,10 +1,17 @@
+import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Image,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Image, ActivityIndicator,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { supabase } from '@/lib/supabase'
+import type { Attendee } from '@/lib/types'
+
+function qrFor(code: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(code)}&bgcolor=ffffff&color=000000`
+}
 
 export default function PurchasedTicketScreen() {
   const router = useRouter()
@@ -15,9 +22,18 @@ export default function PurchasedTicketScreen() {
   }>()
 
   const isReservation = params.isReservation === 'true'
-  const qrUrl = params.qrCode
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(params.qrCode)}&bgcolor=ffffff&color=000000`
-    : null
+  const [attendees, setAttendees] = useState<Attendee[] | null>(null)
+
+  useEffect(() => {
+    if (isReservation || !params.reservationId) { setAttendees([]); return }
+    let cancelled = false
+    supabase.from('attendees')
+      .select('*')
+      .eq('reservation_id', params.reservationId)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { if (!cancelled) setAttendees((data as Attendee[]) ?? []) })
+    return () => { cancelled = true }
+  }, [params.reservationId, isReservation])
 
   async function handleShare() {
     try {
@@ -78,11 +94,49 @@ export default function PurchasedTicketScreen() {
             ))}
           </View>
 
-          {/* QR Code */}
-          {qrUrl ? (
+          {/* QR Codes — one per attendee (or single fallback for table reservations) */}
+          {isReservation ? (
+            params.qrCode ? (
+              <View style={styles.qrSection}>
+                <Text style={styles.qrLabel}>Show at the door</Text>
+                <Image source={{ uri: qrFor(params.qrCode) }} style={styles.qrImage} resizeMode="contain" />
+                <Text style={styles.qrCodeText} selectable numberOfLines={1}>{params.qrCode}</Text>
+              </View>
+            ) : (
+              <View style={styles.qrSection}>
+                <Text style={styles.qrLabel}>Booking ID</Text>
+                <Text style={styles.qrCodeText} selectable>{params.reservationId}</Text>
+              </View>
+            )
+          ) : attendees === null ? (
+            <View style={[styles.qrSection, { paddingVertical: SPACING.xl }]}>
+              <ActivityIndicator color={COLORS.purple} />
+            </View>
+          ) : attendees.length > 0 ? (
+            <View style={styles.qrSection}>
+              <Text style={styles.qrLabel}>
+                {attendees.length === 1 ? 'Scan at the door' : `${attendees.length} tickets — one QR per guest`}
+              </Text>
+              {attendees.map((a, i) => (
+                <View key={a.id} style={[styles.attendeeQr, i > 0 && styles.attendeeQrDivider]}>
+                  <View style={styles.attendeeQrHeader}>
+                    <View style={styles.attendeeIndex}>
+                      <Text style={styles.attendeeIndexText}>{i + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.attendeeName} numberOfLines={1}>{a.name}</Text>
+                      <Text style={styles.attendeeRole}>{i === 0 ? 'Buyer' : 'Guest'}</Text>
+                    </View>
+                  </View>
+                  <Image source={{ uri: qrFor(a.qr_code) }} style={styles.qrImage} resizeMode="contain" />
+                  <Text style={styles.qrCodeText} selectable numberOfLines={1}>{a.qr_code}</Text>
+                </View>
+              ))}
+            </View>
+          ) : params.qrCode ? (
             <View style={styles.qrSection}>
               <Text style={styles.qrLabel}>Scan at the door</Text>
-              <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
+              <Image source={{ uri: qrFor(params.qrCode) }} style={styles.qrImage} resizeMode="contain" />
               <Text style={styles.qrCodeText} selectable numberOfLines={1}>{params.qrCode}</Text>
             </View>
           ) : (
@@ -144,6 +198,13 @@ const styles = StyleSheet.create({
   tearLine: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SPACING.sm, marginVertical: SPACING.xs },
   tearDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.border },
   qrSection: { alignItems: 'center', padding: SPACING.md },
+  attendeeQr: { alignItems: 'center', width: '100%', paddingTop: SPACING.md, paddingBottom: SPACING.xs },
+  attendeeQrDivider: { borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: SPACING.md },
+  attendeeQrHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, alignSelf: 'stretch', marginBottom: SPACING.sm },
+  attendeeIndex: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(167,139,250,0.15)', borderWidth: 1, borderColor: COLORS.purple, alignItems: 'center', justifyContent: 'center' },
+  attendeeIndexText: { color: COLORS.purple, fontSize: 12, fontWeight: '800' },
+  attendeeName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
+  attendeeRole: { color: COLORS.mutedDark, fontSize: 11, marginTop: 1 },
   qrLabel: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SPACING.sm },
   qrImage: { width: 180, height: 180, backgroundColor: '#fff', borderRadius: RADIUS.sm, padding: 4 },
   qrCodeText: { color: COLORS.mutedDark, fontSize: 10, marginTop: SPACING.sm, maxWidth: 240, textAlign: 'center' },
@@ -154,6 +215,6 @@ const styles = StyleSheet.create({
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.bgCard, borderTopWidth: 1, borderTopColor: COLORS.border, flexDirection: 'row', gap: SPACING.sm, padding: SPACING.md, paddingTop: SPACING.sm },
   browseBtn: { flex: 1, padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
   browseBtnText: { color: COLORS.white, fontWeight: '700', fontSize: FONT.sm },
-  homeBtn: { backgroundColor: COLORS.cta, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, paddingHorizontal: SPACING.lg, flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
-  homeBtnText: { color: COLORS.ctaText, fontWeight: '800', fontSize: FONT.base },
+  homeBtn: { backgroundColor: COLORS.purple, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, paddingHorizontal: SPACING.lg, flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  homeBtnText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
 })

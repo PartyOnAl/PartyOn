@@ -267,7 +267,7 @@ function EventListCard({ event }: { event: Event }) {
       {event.final_ticket_price != null && (
         <View style={[eventCardS.priceChip, isFree && eventCardS.priceChipFree]}>
           <Text style={[eventCardS.priceText, isFree && eventCardS.priceTextFree]}>
-            {isFree ? 'FREE' : `€${Number(event.final_ticket_price).toFixed(0)}`}
+            {isFree ? 'FREE' : `€${Number(event.final_ticket_price).toFixed(2)}`}
           </Text>
         </View>
       )}

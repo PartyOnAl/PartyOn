@@ -8,7 +8,7 @@ import { MapPin, Search, ChevronRight, Navigation } from 'lucide-react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const { width, height } = Dimensions.get('window')
-const YELLOW = '#f5c518'
+const YELLOW = '#a78bfa'
 
 const POPULAR_CITIES = ['Tirana', 'Durrës', 'Vlorë']
 const ALL_CITIES = ['Tirana', 'Durrës', 'Vlorë', 'Shkodër', 'Elbasan', 'Sarandë', 'Korçë', 'Berat', 'Lushnjë', 'Kavajë']

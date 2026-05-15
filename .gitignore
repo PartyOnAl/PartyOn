@@ -1,0 +1,8 @@
+frontend_React_Native.zip
+
+node_modules/
+.env
+.env.*
+!.env.example
+
+.claude/

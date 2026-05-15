@@ -9,7 +9,7 @@ import Svg, { Rect } from 'react-native-svg'
 import { supabase } from '@/lib/supabase'
 import type { Reservation } from '@/types'
 
-const YELLOW = '#f5c518'
+const YELLOW = '#a78bfa'
 
 const STATUS: Record<string, { bg: string; color: string; label: string }> = {
   confirmed: { bg: 'rgba(34,197,94,0.1)',   color: '#22c55e', label: 'Confirmed' },
@@ -88,10 +88,10 @@ export default function TicketsScreen() {
         <Text style={s.headerTitle}>My Nights</Text>
         <View style={s.seg}>
           <TouchableOpacity style={[s.segBtn, tab === 'upcoming' && s.segBtnActive]} onPress={() => setTab('upcoming')}>
-            <Text style={[s.segText, { color: tab === 'upcoming' ? '#000' : '#555' }]}>Upcoming ({upcoming.length})</Text>
+            <Text style={[s.segText, { color: tab === 'upcoming' ? '#fff' : '#555' }]}>Upcoming ({upcoming.length})</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.segBtn, tab === 'past' && s.segBtnActive]} onPress={() => setTab('past')}>
-            <Text style={[s.segText, { color: tab === 'past' ? '#000' : '#555' }]}>Past ({past.length})</Text>
+            <Text style={[s.segText, { color: tab === 'past' ? '#fff' : '#555' }]}>Past ({past.length})</Text>
           </TouchableOpacity>
         </View>
       </View>

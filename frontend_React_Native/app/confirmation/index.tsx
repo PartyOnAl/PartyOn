@@ -2,8 +2,9 @@ import { View, Text, TouchableOpacity, StyleSheet, Share, Dimensions } from 'rea
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { CheckCircle, Calendar, MapPin, Eye, Download, X } from 'lucide-react-native'
 import Svg, { Rect, Path } from 'react-native-svg'
+import { COLORS } from '@/lib/theme'
 
-const YELLOW = '#f5c518'
+const ACCENT = COLORS.purple
 const { width } = Dimensions.get('window')
 
 function QRCode({ size = 160 }: { size?: number }) {
@@ -69,7 +70,7 @@ export default function ConfirmationScreen() {
 
       {/* Check icon */}
       <View style={s.checkWrap}>
-        <CheckCircle size={40} color={YELLOW} />
+        <CheckCircle size={40} color={ACCENT} />
       </View>
 
       <Text style={s.title}>You're in</Text>
@@ -136,7 +137,7 @@ export default function ConfirmationScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a', alignItems: 'center', paddingHorizontal: 24, paddingTop: 60, paddingBottom: 40 },
   closeBtn: { position: 'absolute', top: 56, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' },
-  checkWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(245,197,24,0.1)', borderWidth: 1.5, borderColor: 'rgba(245,197,24,0.3)', alignItems: 'center', justifyContent: 'center', marginTop: 10, marginBottom: 16 },
+  checkWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(167,139,250,0.12)', borderWidth: 1.5, borderColor: 'rgba(167,139,250,0.3)', alignItems: 'center', justifyContent: 'center', marginTop: 10, marginBottom: 16 },
   title: { color: '#fff', fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginBottom: 6 },
   subtitle: { color: '#555', fontSize: 15, marginBottom: 24 },
   eventInfo: { width: '100%', backgroundColor: '#111', borderRadius: 20, borderWidth: 1, borderColor: '#1e1e1e', padding: 18, marginBottom: 20 },
@@ -151,8 +152,8 @@ const s = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, marginBottom: 16, width: '100%', justifyContent: 'center' },
   actionBtn: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: '#161616', borderRadius: 14, borderWidth: 1, borderColor: '#222', paddingVertical: 12 },
   actionBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  goBtn: { width: '100%', backgroundColor: YELLOW, borderRadius: 30, height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  goBtnText: { color: '#000', fontSize: 15, fontWeight: '800' },
+  goBtn: { width: '100%', backgroundColor: ACCENT, borderRadius: 30, height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  goBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   shareBtn: { padding: 10 },
   shareBtnText: { color: '#555', fontSize: 14 },
 })

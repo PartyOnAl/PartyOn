@@ -406,7 +406,7 @@ export default function PromotionsScreen() {
           <Ionicons
             name={filter === 'saved' ? 'bookmark' : 'bookmark-outline'}
             size={18}
-            color={filter === 'saved' ? COLORS.cta : COLORS.muted}
+            color={filter === 'saved' ? COLORS.purple : COLORS.muted}
           />
         </TouchableOpacity>
       </View>
@@ -662,7 +662,7 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
     backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border,
   },
-  savedHeaderBtnActive: { borderColor: COLORS.cta, backgroundColor: 'rgba(245,166,35,0.1)' },
+  savedHeaderBtnActive: { borderColor: COLORS.purple, backgroundColor: 'rgba(167,139,250,0.12)' },
   filterScroll: {
     height: 42,
     flexGrow: 0,

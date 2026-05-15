@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Scr
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronLeft, CreditCard, ChevronRight } from 'lucide-react-native'
 import { supabase } from '@/lib/supabase'
+import { COLORS } from '@/lib/theme'
 
-const YELLOW = '#f5c518'
 const HOLD_SECONDS = 4 * 60 + 45 // 4 min 45 sec
 
 export default function CheckoutScreen() {
@@ -98,6 +98,7 @@ export default function CheckoutScreen() {
             <Text style={s.totalLabel}>Total</Text>
             <Text style={s.totalAmt}>€{total.toFixed(2)}</Text>
           </View>
+          <Text style={s.feeNote}>Includes platform service fee</Text>
         </View>
 
         {/* Payment */}
@@ -125,7 +126,7 @@ export default function CheckoutScreen() {
         {/* Pay button */}
         <TouchableOpacity style={[s.payBtn, loading && { opacity: 0.7 }]} onPress={payNow} disabled={loading || timeLeft === 0}>
           {loading
-            ? <ActivityIndicator color="#000" size="small" />
+            ? <ActivityIndicator color="#fff" size="small" />
             : <Text style={s.payBtnText}>PAY NOW</Text>
           }
         </TouchableOpacity>
@@ -161,20 +162,21 @@ const s = StyleSheet.create({
   summaryQty: { color: '#fff', fontSize: 16, fontWeight: '700', minWidth: 24 },
   summaryItem: { flex: 1, color: '#fff', fontSize: 15 },
   summaryPrice: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  discountLabel: { flex: 1, color: '#f5c518', fontSize: 14 },
-  discountAmt: { color: '#f5c518', fontSize: 14, fontWeight: '700' },
+  discountLabel: { flex: 1, color: COLORS.purple, fontSize: 14 },
+  discountAmt: { color: COLORS.purple, fontSize: 14, fontWeight: '700' },
   summaryDivider: { height: 1, backgroundColor: '#1e1e1e', marginVertical: 14 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalLabel: { color: '#555', fontSize: 14 },
   totalAmt: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  feeNote: { color: '#555', fontSize: 11, textAlign: 'right', marginTop: 4 },
   paymentCard: { backgroundColor: '#111', borderRadius: 18, borderWidth: 1, borderColor: '#1e1e1e', padding: 18, marginBottom: 20 },
   paymentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   paymentLabel: { color: '#aaa', fontSize: 14 },
   cardLabel: { color: '#fff', fontSize: 14 },
   paymentDivider: { height: 1, backgroundColor: '#1e1e1e', marginVertical: 14 },
-  infoDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#f5c518', alignItems: 'center', justifyContent: 'center' },
-  payBtn: { backgroundColor: '#f5c518', borderRadius: 30, height: 54, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  payBtnText: { color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1 },
+  infoDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.purple, alignItems: 'center', justifyContent: 'center' },
+  payBtn: { backgroundColor: COLORS.purple, borderRadius: 30, height: 54, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  payBtnText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 1 },
   timerText: { color: '#555', fontSize: 13, textAlign: 'center', marginBottom: 16 },
   legal: { color: '#333', fontSize: 11, lineHeight: 17, textAlign: 'center' },
   legalLink: { color: '#555', textDecorationLine: 'underline' },

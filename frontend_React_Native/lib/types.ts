@@ -9,8 +9,38 @@ export type Club = {
   club_status: 'pending' | 'approved' | 'rejected' | 'suspended'
   manager_id: string | null
   reservation_only: boolean
+  subscription_type: 'monthly' | 'annual'
+  subscription_due_date: string | null
+  subscription_price: number | null
+  commission_ticket_rate: number | null
+  commission_table_rate: number | null
   created_at: string | null
   updated_at: string | null
+}
+
+export type Payment = {
+  payment_id: string
+  reservation_id: string | null
+  user_id: string | null
+  amount: number
+  gross_amount: number | null
+  commission_rate: number | null
+  commission_amount: number | null
+  net_amount: number | null
+  payment_type: 'ticket' | 'table' | null
+  payment_date: string | null
+  status: 'pending' | 'completed' | 'failed' | 'refunded'
+}
+
+export type ClubCommissionSummary = {
+  club_id: string
+  club_name: string
+  completed_payments: number
+  gross_revenue: number
+  commission_collected: number
+  club_payout: number
+  gross_tickets: number
+  gross_tables: number
 }
 
 export type Event = {
@@ -61,6 +91,9 @@ export type VenueTable = {
   created_at: string | null
 }
 
+// DB table name alias
+export type ClubTable = VenueTable
+
 export type Reservation = {
   reservation_id: string
   user_id: string | null
@@ -103,4 +136,13 @@ export type Profile = {
   phone_number: string | null
   role: string
   club_id: string | null
+}
+
+export type Attendee = {
+  id: string
+  reservation_id: string
+  name: string
+  qr_code: string
+  checked_in_at: string | null
+  created_at: string | null
 }

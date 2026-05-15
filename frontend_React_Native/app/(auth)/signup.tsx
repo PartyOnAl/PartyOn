@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/lib/AuthContext'
+import { usePlatformSettings } from '@/lib/platformSettings'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 
 // ── Shared input component ────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ export default function SignupScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { signUp, signInWithGoogle } = useAuth()
+  const { settings } = usePlatformSettings()
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -83,6 +85,10 @@ export default function SignupScreen() {
 
   async function handleSignup() {
     setError(null)
+    if (!settings.new_registrations) {
+      setError('New registrations are currently disabled. Please try again later.')
+      return
+    }
     const parts = fullName.trim().split(' ')
     const name = parts[0] ?? ''
     const surname = parts.slice(1).join(' ') || name

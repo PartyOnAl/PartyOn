@@ -85,11 +85,11 @@ const row = StyleSheet.create({
   labelDanger: { color: COLORS.red },
   subtitle: { color: COLORS.mutedDark, fontSize: 12, marginTop: 1 },
   badge: {
-    backgroundColor: COLORS.cta, borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.purple, borderRadius: RADIUS.pill,
     minWidth: 20, height: 20, paddingHorizontal: 6,
     alignItems: 'center', justifyContent: 'center',
   },
-  badgeText: { color: COLORS.ctaText, fontSize: 11, fontWeight: '800' },
+  badgeText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
 })
 
 // ── Section group ─────────────────────────────────────────────────────────────
@@ -229,6 +229,11 @@ export default function AccountScreen() {
           onPress: () => router.push('/(tabs)/bookings'),
         },
         {
+          icon: 'shield-half-outline',
+          label: 'My Disputes',
+          onPress: () => router.push('/my-disputes'),
+        },
+        {
           icon: 'bookmark-outline',
           label: 'Saved Promotions',
           onPress: () => router.push({ pathname: '/promotions', params: { filter: 'saved' } }),
@@ -297,7 +302,7 @@ export default function AccountScreen() {
             <Text style={s.displayName}>{displayName}</Text>
             <Text style={s.email}>{user.email}</Text>
           </View>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/profile')} hitSlop={8}>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(tabs)/profile', params: { edit: '1' } })} hitSlop={8}>
             <Ionicons name="pencil-outline" size={18} color={COLORS.mutedDark} />
           </TouchableOpacity>
         </View>

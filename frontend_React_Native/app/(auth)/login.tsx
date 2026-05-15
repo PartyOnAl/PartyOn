@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/lib/AuthContext'
+import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 
 // ── Shared input component ────────────────────────────────────────────────────
@@ -87,9 +88,33 @@ export default function LoginScreen() {
     }
     setLoading(true)
     const err = await signIn(email.trim(), password)
+    if (err) {
+      setError(err)
+      setLoading(false)
+      return
+    }
+    // Fetch role and route accordingly
+    const { data: authData } = await supabase.auth.getUser()
+    if (authData.user) {
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
+      if (prof?.role === 'admin') {
+        router.replace('/(admin)/(admin-tabs)/dashboard')
+        setLoading(false)
+        return
+      }
+      if (prof?.role === 'manager') {
+        router.replace('/(manager)/(manager-tabs)/dashboard')
+        setLoading(false)
+        return
+      }
+      if (prof?.role === 'host' || prof?.role === 'staff') {
+        router.replace('/(staff)')
+        setLoading(false)
+        return
+      }
+    }
     setLoading(false)
-    if (err) setError(err)
-    else router.replace('/(tabs)')
+    router.replace('/(tabs)')
   }
 
   async function handleGoogle() {
@@ -97,8 +122,24 @@ export default function LoginScreen() {
     setGoogleLoading(true)
     const err = await signInWithGoogle()
     setGoogleLoading(false)
-    if (err) setError(err)
-    else router.replace('/(tabs)')
+    if (err) { setError(err); return }
+    const { data: authData } = await supabase.auth.getUser()
+    if (authData.user) {
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
+      if (prof?.role === 'admin') {
+        router.replace('/(admin)/(admin-tabs)/dashboard')
+        return
+      }
+      if (prof?.role === 'manager') {
+        router.replace('/(manager)/(manager-tabs)/dashboard')
+        return
+      }
+      if (prof?.role === 'host' || prof?.role === 'staff') {
+        router.replace('/(staff)')
+        return
+      }
+    }
+    router.replace('/(tabs)')
   }
 
   return (

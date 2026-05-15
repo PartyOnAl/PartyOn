@@ -1,5 +1,11 @@
 {
-  "dependencies": {
-    "react-router-dom": "^7.14.0"
+  "name": "partyon",
+  "private": true,
+  "scripts": {
+    "start": "npm run start --prefix frontend_React_Native",
+    "android": "npm run android --prefix frontend_React_Native",
+    "ios": "npm run ios --prefix frontend_React_Native",
+    "web": "npm run web --prefix frontend_React_Native",
+    "lint": "npm run lint --prefix frontend_React_Native"
   }
 }
