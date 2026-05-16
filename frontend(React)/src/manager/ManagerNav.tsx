@@ -5,7 +5,7 @@ export const MANAGER_NAV = [
   { id: 'dashboard', label: 'Dashboard', to: '/manager/dashboard' },
   { id: 'club', label: 'Club Profile', to: '/manager/club-profile' },
   { id: 'events', label: 'Events', to: '/manager/events' },
-  { id: 'tables', label: 'Tables', to: '/manager/reservations#tables' },
+  { id: 'tables', label: 'Tables', to: '/manager/tables' },
   { id: 'reservations', label: 'Reservations', to: '/manager/reservations' },
   { id: 'promotions', label: 'Promotions', to: '/manager/promotions' },
   { id: 'analytics', label: 'Analytics', to: '/manager/analytics' },
@@ -161,15 +161,14 @@ function NavIcon({ id }: { id: string }) {
 }
 
 export function ManagerSidebar() {
-  const { pathname, hash } = useLocation()
+  const { pathname } = useLocation()
   const { profile, signOut } = useAuth()
 
   function getActiveId(): ManagerNavId {
+    if (pathname.startsWith('/manager/tables')) return 'tables'
     if (pathname.startsWith('/manager/club')) return 'club'
     if (pathname.startsWith('/manager/events')) return 'events'
-    if (pathname.startsWith('/manager/reservations')) {
-      return hash === '#tables' ? 'tables' : 'reservations'
-    }
+    if (pathname.startsWith('/manager/reservations')) return 'reservations'
     if (pathname.startsWith('/manager/promotions')) return 'promotions'
     if (pathname.startsWith('/manager/analytics')) return 'analytics'
     if (pathname.startsWith('/manager/staff-approval')) return 'staff'

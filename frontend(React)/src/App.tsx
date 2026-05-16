@@ -46,6 +46,7 @@ import ManagerStaffApproval from './manager/ManagerStaffApproval'
 import ManagerDisputes from './manager/ManagerDisputes'
 import ManagerSettings from './manager/ManagerSettings'
 import ManagerProfile from './manager/ManagerProfile'
+import TableManagement from './manager/TableManagement'
 import AdminRoute from './admin/AdminRoute'
 import AdminPlatformAnalysis from './admin/AdminPlatformAnalysis'
 import ClubApproving from './admin/ClubApproving'
@@ -209,6 +210,10 @@ function App() {
               <Route
                 path="/manager/reservations"
                 element={<ManagerRoute><ReservationManagement /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/tables"
+                element={<ManagerRoute><TableManagement /></ManagerRoute>}
               />
               <Route
                 path="/manager/promotions"

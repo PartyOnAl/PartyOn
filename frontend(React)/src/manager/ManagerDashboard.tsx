@@ -58,7 +58,7 @@ type RecentReservation = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const THUMB_COLORS = ['violet', 'cyan', 'amber'] as const
-const TABLES_NAV_TARGET = MANAGER_NAV.find((item) => item.id === 'tables')?.to ?? '/manager/reservations#tables'
+const TABLES_NAV_TARGET = MANAGER_NAV.find((item) => item.id === 'tables')?.to ?? '/manager/tables'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
