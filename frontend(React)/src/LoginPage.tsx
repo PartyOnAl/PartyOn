@@ -124,6 +124,10 @@ function safeInternalPath(path: unknown): string | null {
   return path
 }
 
+function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'superadmin' || role === 'super_admin'
+}
+
 /**
  * Manager/admin routes use a separate Supabase auth storage key. Prefer moving
  * the session from the user client; if that fails, sign in again on the
@@ -294,7 +298,7 @@ export default function LoginPage() {
           return
         }
 
-        if (roleNorm === 'admin') {
+        if (isAdminRole(roleNorm)) {
           const { error: mgrSessErr } = await ensureManagerSideSession(
             normalizedEmail,
             password,
@@ -307,7 +311,7 @@ export default function LoginPage() {
             return
           }
           await supabase.auth.signOut({ scope: 'local' })
-          navigate('/admin/dashboard', { replace: true })
+          navigate('/admin/platform-analysis', { replace: true })
           return
         }
 
@@ -340,7 +344,7 @@ export default function LoginPage() {
         if (target.startsWith('/manager') && roleNorm !== 'manager') {
           target = '/home'
         }
-        if (target.startsWith('/admin') && roleNorm !== 'admin') {
+        if (target.startsWith('/admin') && !isAdminRole(roleNorm)) {
           target = '/home'
         }
         navigate(target, { replace: true })

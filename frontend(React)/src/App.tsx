@@ -43,6 +43,14 @@ import ReservationManagement from './manager/ReservationManagement'
 import ManagerPromotions from './manager/ManagerPromotions'
 import ManagerAnalytics from './manager/ManagerAnalytics'
 import ManagerStaffApproval from './manager/ManagerStaffApproval'
+import ManagerDisputes from './manager/ManagerDisputes'
+import ManagerSettings from './manager/ManagerSettings'
+import ManagerProfile from './manager/ManagerProfile'
+import AdminRoute from './admin/AdminRoute'
+import AdminPlatformAnalysis from './admin/AdminPlatformAnalysis'
+import ClubApproving from './admin/ClubApproving'
+import UserManagement from './admin/UserManagement'
+import RevenueAndPayments from './admin/RevenueAndPayments'
 import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
 import StaffMobileOnlyPage from './StaffMobileOnlyPage'
 import { userMustChangePassword } from './lib/mustChangePassword'
@@ -73,7 +81,7 @@ function MustChangePasswordGuard() {
 }
 
 function WebStaffAccessGuard() {
-  const { user, isLoading } = useAuth()
+  const { user, profile, isLoading } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const isManagerPath =
@@ -82,6 +90,14 @@ function WebStaffAccessGuard() {
   useEffect(() => {
     if (isLoading) return
     if (isManagerPath) return
+
+    const roleNorm = String(profile?.role ?? '').toLowerCase().trim()
+    const isAdminRole =
+      roleNorm === 'admin' || roleNorm === 'superadmin' || roleNorm === 'super_admin'
+    if (isAdminRole) {
+      navigate('/admin/platform-analysis', { replace: true })
+      return
+    }
 
     const staffRole = getStaffRoleFromUser(user ?? null)
     if (!staffRole) return
@@ -107,7 +123,7 @@ function WebStaffAccessGuard() {
 
     void supabase.auth.signOut({ scope: 'local' })
     navigate('/login', { replace: true, state: { staffWebBlocked: true } })
-  }, [user, isLoading, location.pathname, isManagerPath, navigate])
+  }, [user, profile, isLoading, location.pathname, isManagerPath, navigate])
 
   return null
 }
@@ -205,6 +221,34 @@ function App() {
               <Route
                 path="/manager/staff-approval"
                 element={<ManagerRoute><ManagerStaffApproval /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/disputes"
+                element={<ManagerRoute><ManagerDisputes /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/settings"
+                element={<ManagerRoute><ManagerSettings /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/profile"
+                element={<ManagerRoute><ManagerProfile /></ManagerRoute>}
+              />
+              <Route
+                path="/admin/platform-analysis"
+                element={<AdminRoute><AdminPlatformAnalysis /></AdminRoute>}
+              />
+              <Route
+                path="/admin/club-approvals"
+                element={<AdminRoute><ClubApproving /></AdminRoute>}
+              />
+              <Route
+                path="/admin/user-management"
+                element={<AdminRoute><UserManagement /></AdminRoute>}
+              />
+              <Route
+                path="/admin/revenue-payments"
+                element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
               />
 
               <Route path="/header" element={<Header />} />

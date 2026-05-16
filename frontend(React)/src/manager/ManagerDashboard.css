@@ -16,9 +16,8 @@
   --md-bar: #ffffff;
 
   min-height: 100svh;
-  width: 100vw;
-  max-width: 100vw;
-  margin-inline: calc(50% - 50vw);
+  width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
   background: var(--md-bg);
   color: var(--md-text);
@@ -26,6 +25,7 @@
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
 }
 
 .manager-dash *,
@@ -49,6 +49,11 @@
   flex-direction: column;
   border-right: 1px solid var(--md-card-border);
   background: var(--md-bg);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100svh;
+  overflow-y: auto;
 }
 
 .manager-dash__brand {
@@ -673,6 +678,10 @@
     border-right: none;
     border-bottom: 1px solid var(--md-card-border);
     padding: 16px;
+    position: static;
+    height: auto;
+    overflow-y: visible;
+    align-self: stretch;
   }
 
   .manager-dash__brand {

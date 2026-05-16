@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import './ManagerDashboard.css'
-import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
+import { MANAGER_NAV, ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent } from './eventPaidEntry'
@@ -58,6 +58,7 @@ type RecentReservation = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const THUMB_COLORS = ['violet', 'cyan', 'amber'] as const
+const TABLES_NAV_TARGET = MANAGER_NAV.find((item) => item.id === 'tables')?.to ?? '/manager/reservations#tables'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -488,7 +489,11 @@ export default function ManagerDashboard() {
                   <span className="manager-dash__qa-label">Add Promotion</span>
                   <IconPlus />
                 </button>
-                <button type="button" className="manager-dash__qa-btn">
+                <button
+                  type="button"
+                  className="manager-dash__qa-btn"
+                  onClick={() => navigate(TABLES_NAV_TARGET)}
+                >
                   <span className="manager-dash__qa-icon-wrap"><IconSeats /></span>
                   <span className="manager-dash__qa-label">Manage Tables</span>
                   <IconExternal />

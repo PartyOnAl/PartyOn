@@ -10,8 +10,8 @@ export const MANAGER_NAV = [
   { id: 'promotions', label: 'Promotions', to: '/manager/promotions' },
   { id: 'analytics', label: 'Analytics', to: '/manager/analytics' },
   { id: 'staff', label: 'Staff Approval', to: '/manager/staff-approval' },
-  { id: 'disputes', label: 'Disputes', to: '#disputes' },
-  { id: 'settings', label: 'Settings', to: '#settings' },
+  { id: 'disputes', label: 'Disputes', to: '/manager/disputes' },
+  { id: 'settings', label: 'Settings', to: '/manager/settings' },
 ] as const
 
 export type ManagerNavId = (typeof MANAGER_NAV)[number]['id']
@@ -173,6 +173,8 @@ export function ManagerSidebar() {
     if (pathname.startsWith('/manager/promotions')) return 'promotions'
     if (pathname.startsWith('/manager/analytics')) return 'analytics'
     if (pathname.startsWith('/manager/staff-approval')) return 'staff'
+    if (pathname.startsWith('/manager/disputes')) return 'disputes'
+    if (pathname.startsWith('/manager/settings')) return 'settings'
     return 'dashboard'
   }
 
@@ -256,9 +258,9 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   return (
     <header className="manager-dash__topbar">
       <span className="manager-dash__club-name">{clubName ?? '—'}</span>
-      <button type="button" className="manager-dash__avatar-btn" aria-label="Account menu">
+      <Link to="/manager/profile" className="manager-dash__avatar-btn" aria-label="My profile">
         <span className="manager-dash__avatar-ring" />
-      </button>
+      </Link>
     </header>
   )
 }

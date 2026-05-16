@@ -15,6 +15,7 @@ import { SavedModule } from './saved/saved.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { StaffModule } from './staff/staff.module';
 import { SuggestionsModule } from './suggestions/suggestions.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports:[
@@ -38,6 +39,7 @@ import { SuggestionsModule } from './suggestions/suggestions.module';
     DashboardModule,
     StaffModule,
     SuggestionsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
