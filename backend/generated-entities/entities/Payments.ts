@@ -2,6 +2,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { Reservations } from "./Reservations";
 import { Profiles } from "./Profiles";
 import { Events } from "./Events";
+import { Tables } from "./Tables";
 
 @Index("payments_pkey", ["paymentId"], { unique: true })
 @Entity("payments", { schema: "public" })
@@ -58,4 +59,10 @@ export class Payments {
   @ManyToOne(() => Profiles, (profiles) => profiles.payments)
   @JoinColumn([{ name: "user_id", referencedColumnName: "id" }])
   user: Profiles;
+
+  @ManyToOne(() => Tables, (tables) => tables.payments, {
+    onDelete: "SET NULL",
+  })
+  @JoinColumn([{ name: "table_id", referencedColumnName: "id" }])
+  table: Tables | null;
 }

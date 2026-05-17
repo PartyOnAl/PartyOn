@@ -185,13 +185,16 @@ async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
-      const amount=session.metadata.amount
-      const payment_id=session.metadata.payment_id
-      const payment = await this.updatePayment(payment_id,{status: 'completed'});
-      break;
+      const paymentId = session.metadata?.payment_id;
+      if (!paymentId) {
+        console.warn(
+          'checkout.session.completed: missing metadata.payment_id (session %s)',
+          session.id,
+        );
+      }
+
+      await this.updatePayment(String(paymentId), { status: 'completed' });
     }
-    default:
-      break;
   }
 }
 

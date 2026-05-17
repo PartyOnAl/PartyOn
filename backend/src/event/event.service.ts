@@ -140,8 +140,8 @@ async createPayment(amount:number , quantity:number , events:any){
     success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: 'http://localhost:5173/cancel',
     metadata: {
-      amount: amount*0.01*quantity,
-      event_id: events.event_id,
+      amount: String(amount * 0.01 * quantity),
+      event_id: String(events.event_id),
       payment_id: batch_id,
     },
   });
@@ -173,15 +173,27 @@ async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
-      console.log('Payment success:', session.id);
-      const amount = session.amount_total ?? 0;
-      const email = session.customer_details?.email ?? 'unknown';
-      await this.eventRepository.create({
-      });
-      break;
+      const batchId = session.metadata?.payment_id;
+      if (!batchId) {
+        console.warn(
+          'checkout.session.completed: missing metadata.payment_id (session %s)',
+          session.id,
+        );
+      }
+
+      const result = await this.paymentRepository.update(
+        { batch_id: String(batchId) },
+        { status: 'completed' },
+      );
+      if (result.affected === 0) {
+        console.warn(
+          'checkout.session.completed: no payments matched batch_id %s (session %s)',
+          batchId,
+          session.id,
+        );
+      }
+
     }
-    default:
-      break;
   }
 }
 

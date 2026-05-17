@@ -30,6 +30,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react-native'
+import { API_BASE } from '@/lib/apiBase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 
@@ -405,7 +406,7 @@ export default function GuardScreen() {
     })
 
     try {
-      const res = await fetch(`http://192.168.16.102:3000/payment/${ticket_id}`)
+      const res = await fetch(`${API_BASE}/payment/${ticket_id}`)
       const result = await res.json()
 
       if (result) {
@@ -439,7 +440,7 @@ export default function GuardScreen() {
                   detail: 'Payment complete, unused ticket, and event time is active.',
                   code: ticket_id,
                 })
-                const res = await fetch(`http://192.168.16.102:3000/payment/ticket-uses/${ticket_id}`,
+                const res = await fetch(`${API_BASE}/payment/ticket-uses/${ticket_id}`,
                   {
                     method: 'PATCH',
                   }

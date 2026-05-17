@@ -27,6 +27,8 @@ export default defineConfig(({ mode }) => {
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },
         '/api': { target: apiTarget, changeOrigin: true },
+        '/event': { target: apiTarget, changeOrigin: true },
+        '/payment': { target: apiTarget, changeOrigin: true },
       },
     },
   }

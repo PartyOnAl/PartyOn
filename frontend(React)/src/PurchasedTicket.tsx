@@ -1,6 +1,7 @@
 import './PurchasedTicket.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { getJson } from '@/api'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -114,22 +115,18 @@ export default function PurchasedTicket() {
 
   useEffect(() => {
     const fetchPaymentIds = async () => {
-      try {
-        const res = await fetch(
-          `http://localhost:3000/payment/ids?batch_id=${payment_id}`
-        );
-  
-        if (!res.ok) {
-          throw new Error("Failed to fetch payment ids");
-        }
-  
-        const data: string[] = await res.json();
-        setPaymentIds(data);
-      } catch (err) {
-        console.error(err);
-        setPaymentIds([]);
-        setError("Failed to load payment IDs");
+      const { data, error } = await getJson<string[]>(
+        `/payment/ids?batch_id=${encodeURIComponent(payment_id ?? '')}`
+      )
+
+      if (error || !data) {
+        console.error(error ?? 'Failed to fetch payment ids')
+        setPaymentIds([])
+        setError('Failed to load payment IDs')
+        return
       }
+
+      setPaymentIds(data);
     };
   
     if (payment_id) {
@@ -177,24 +174,21 @@ export default function PurchasedTicket() {
     let active = true
 
     async function loadEvent() {
-      try {
-        const res = await fetch(`http://localhost:3000/event/${id}`)
-        if (!res.ok) throw new Error('Failed to fetch event')
+      const { data, error } = await getJson<any>(`/event/${id}`)
+      if (!active) return
 
-        const data = await res.json()
-        if (!active) return
-
-        setEvent(data)
-      } catch (err) {
-        if (!active) return
-        console.error(err)
+      if (error || !data) {
+        console.error(error ?? 'Failed to fetch event')
         setEvent(null)
         // In simple mode (no bookingId) the event IS the only data source
         if (!bookingId) {
           setLoading(false)
           setError('Could not load event details')
         }
+        return
       }
+
+      setEvent(data)
     }
 
     loadEvent()

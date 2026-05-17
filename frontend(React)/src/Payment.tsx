@@ -1,6 +1,7 @@
 import { useState , useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import './Payment.css'
+import { getJson, postJson } from '@/api'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 
@@ -33,27 +34,30 @@ export default function Payment() {
   useEffect(() => {
     if (!id || id === 'undefined') return
 
-    fetch(`http://localhost:3000/event/${id}`)
-      .then(res => res.json())
-      .then(data => setEvents(data))
+    getJson<any>(`/event/${id}`)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error(error)
+          return
+        }
+        setEvents(data)
+      })
   }, [id])  
   const handleBuy= async () => {
     if (!events?.event_id || events.event_id === 'undefined') {
       return;
     }
-    const res=await fetch('http://localhost:3000/event/pay',{
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-      },
-      body: JSON.stringify({
-         amount: events?.final_ticket_price*100,
-         quantity: quantity,
-         events: events,
-
-      }),
+    const { data, error } = await postJson<{ url?: string }>('/event/pay', {
+      amount: events?.final_ticket_price*100,
+      quantity: quantity,
+      events: events,
     });
-    const data=await res.json();
+
+    if (error || !data?.url) {
+      console.error(error ?? 'Checkout did not return a Stripe URL')
+      return
+    }
+
     window.location.href = data.url;
   };
 
