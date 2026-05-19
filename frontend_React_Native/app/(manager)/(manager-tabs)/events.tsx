@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, StyleSheet, SafeAreaView,
   TouchableOpacity, ActivityIndicator, Alert, RefreshControl,
+  Modal, Pressable,
 } from 'react-native'
 import { Image } from 'expo-image'
 import { useRouter, useFocusEffect } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
@@ -31,65 +33,76 @@ const STATUS_COLOR: Record<string, string> = {
   completed: COLORS.muted,
 }
 
-function EventCard({ ev, router, onDelete, formatDate, isPast = false }: {
+function EventCard({ ev, router, onDelete, formatDate, onExpand, isPast = false }: {
   ev: Event
   router: ReturnType<typeof useRouter>
   onDelete: (id: string, name: string) => void
   formatDate: (d: string | null) => string
+  onExpand: (uri: string) => void
   isPast?: boolean
 }) {
   const statusColor = STATUS_COLOR[ev.event_status] ?? COLORS.muted
   return (
     <View style={[s.eventCard, isPast && s.eventCardPast]}>
       {ev.event_image ? (
-        <Image source={{ uri: ev.event_image }} style={s.eventImage} contentFit="cover" />
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => onExpand(ev.event_image!)}
+        >
+          <Image source={{ uri: ev.event_image }} style={s.eventImage} contentFit="cover" />
+        </TouchableOpacity>
       ) : (
         <View style={[s.eventImage, s.imagePlaceholder]}>
           <Ionicons name="musical-notes" size={40} color="#ffffff44" />
         </View>
       )}
       <View style={s.eventBody}>
-        <View style={s.tagRow}>
-          <View style={[s.badge, { backgroundColor: statusColor + '22' }]}>
-            <Text style={[s.badgeText, { color: statusColor }]}>
-              {ev.event_status.charAt(0).toUpperCase() + ev.event_status.slice(1)}
-            </Text>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => router.push({ pathname: '/(manager)/edit-event', params: { id: ev.event_id } })}
+        >
+          <View style={s.tagRow}>
+            <View style={[s.badge, { backgroundColor: statusColor + '22' }]}>
+              <Text style={[s.badgeText, { color: statusColor }]}>
+                {ev.event_status.charAt(0).toUpperCase() + ev.event_status.slice(1)}
+              </Text>
+            </View>
+            {isPast && (
+              <View style={[s.badge, { backgroundColor: COLORS.mutedDark + '22' }]}>
+                <Text style={[s.badgeText, { color: COLORS.mutedDark }]}>Past</Text>
+              </View>
+            )}
+            {ev.event_type && (
+              <View style={s.tagChip}><Text style={s.tagText}>{ev.event_type}</Text></View>
+            )}
+            {ev.is_featured && (
+              <View style={[s.tagChip, { backgroundColor: COLORS.cta + '22' }]}>
+                <Text style={[s.tagText, { color: COLORS.cta }]}>Featured</Text>
+              </View>
+            )}
           </View>
-          {isPast && (
-            <View style={[s.badge, { backgroundColor: COLORS.mutedDark + '22' }]}>
-              <Text style={[s.badgeText, { color: COLORS.mutedDark }]}>Past</Text>
-            </View>
-          )}
-          {ev.event_type && (
-            <View style={s.tagChip}><Text style={s.tagText}>{ev.event_type}</Text></View>
-          )}
-          {ev.is_featured && (
-            <View style={[s.tagChip, { backgroundColor: COLORS.cta + '22' }]}>
-              <Text style={[s.tagText, { color: COLORS.cta }]}>Featured</Text>
-            </View>
-          )}
-        </View>
 
-        <Text style={[s.eventName, isPast && { color: COLORS.muted }]}>{ev.event_name}</Text>
+          <Text style={[s.eventName, isPast && { color: COLORS.muted }]}>{ev.event_name}</Text>
 
-        <View style={s.metaCol}>
-          <View style={s.metaRow}>
-            <Ionicons name="calendar-outline" size={13} color={COLORS.mutedDark} />
-            <Text style={s.metaText}>{formatDate(ev.event_starting_date)}</Text>
+          <View style={s.metaCol}>
+            <View style={s.metaRow}>
+              <Ionicons name="calendar-outline" size={13} color={COLORS.mutedDark} />
+              <Text style={s.metaText}>{formatDate(ev.event_starting_date)}</Text>
+            </View>
+            {ev.event_capacity && (
+              <View style={s.metaRow}>
+                <Ionicons name="people-outline" size={13} color={COLORS.mutedDark} />
+                <Text style={s.metaText}>Capacity: {ev.event_capacity}</Text>
+              </View>
+            )}
+            {ev.final_ticket_price != null && (
+              <View style={s.metaRow}>
+                <Ionicons name="ticket-outline" size={13} color={COLORS.mutedDark} />
+                <Text style={s.metaText}>€{ev.final_ticket_price.toFixed(2)} / ticket</Text>
+              </View>
+            )}
           </View>
-          {ev.event_capacity && (
-            <View style={s.metaRow}>
-              <Ionicons name="people-outline" size={13} color={COLORS.mutedDark} />
-              <Text style={s.metaText}>Capacity: {ev.event_capacity}</Text>
-            </View>
-          )}
-          {ev.final_ticket_price != null && (
-            <View style={s.metaRow}>
-              <Ionicons name="ticket-outline" size={13} color={COLORS.mutedDark} />
-              <Text style={s.metaText}>€{ev.final_ticket_price.toFixed(2)} / ticket</Text>
-            </View>
-          )}
-        </View>
+        </TouchableOpacity>
 
         <View style={s.actions}>
           <TouchableOpacity
@@ -111,11 +124,13 @@ function EventCard({ ev, router, onDelete, formatDate, isPast = false }: {
 export default function EventsScreen() {
   const router = useRouter()
   const { profile } = useAuth()
+  const insets = useSafeAreaInsets()
 
   const [events, setEvents]         = useState<Event[]>([])
   const [loading, setLoading]       = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [showPast, setShowPast]     = useState(false)
+  const [expandedImage, setExpandedImage] = useState<string | null>(null)
 
   const fetchEvents = useCallback(async () => {
     if (!profile?.club_id) { setLoading(false); return }
@@ -221,7 +236,7 @@ export default function EventsScreen() {
                 <Text style={s.sectionEmptyText}>No upcoming events</Text>
               </View>
             ) : (
-              upcomingEvents.map(ev => <EventCard key={ev.event_id} ev={ev} router={router} onDelete={handleDelete} formatDate={formatDate} />)
+              upcomingEvents.map(ev => <EventCard key={ev.event_id} ev={ev} router={router} onDelete={handleDelete} formatDate={formatDate} onExpand={setExpandedImage} />)
             )}
 
             {/* Past events toggle */}
@@ -238,7 +253,7 @@ export default function EventsScreen() {
                   />
                 </TouchableOpacity>
                 {showPast && pastEvents.map(ev => (
-                  <EventCard key={ev.event_id} ev={ev} router={router} onDelete={handleDelete} formatDate={formatDate} isPast />
+                  <EventCard key={ev.event_id} ev={ev} router={router} onDelete={handleDelete} formatDate={formatDate} onExpand={setExpandedImage} isPast />
                 ))}
               </>
             )}
@@ -253,6 +268,32 @@ export default function EventsScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Fullscreen image lightbox */}
+      <Modal
+        visible={!!expandedImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExpandedImage(null)}
+      >
+        <Pressable style={s.lightboxBackdrop} onPress={() => setExpandedImage(null)}>
+          {expandedImage && (
+            <Image
+              source={{ uri: expandedImage }}
+              style={s.lightboxImage}
+              contentFit="contain"
+            />
+          )}
+        </Pressable>
+        <TouchableOpacity
+          style={[s.lightboxClose, { top: insets.top + SPACING.md }]}
+          onPress={() => setExpandedImage(null)}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="close" size={22} color="#fff" />
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -279,7 +320,7 @@ const s = StyleSheet.create({
   emptySubtitle: { color: COLORS.mutedDark, fontSize: FONT.sm, textAlign: 'center' },
 
   eventCard:     { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.lg, marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
-  eventImage:    { height: 140 },
+  eventImage:    { height: 100 },
   imagePlaceholder: { backgroundColor: '#1e0a3c', alignItems: 'center', justifyContent: 'center' },
   eventBody:     { padding: SPACING.md },
   tagRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.sm },
@@ -311,4 +352,24 @@ const s = StyleSheet.create({
 
   sectionEmpty: { alignItems: 'center', paddingVertical: SPACING.lg },
   sectionEmptyText: { color: COLORS.mutedDark, fontSize: FONT.sm },
+
+  lightboxBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightboxImage: { width: '100%', height: '100%' },
+  lightboxClose: {
+    position: 'absolute',
+    right: SPACING.md,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 })

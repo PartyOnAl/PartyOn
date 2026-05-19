@@ -23,6 +23,19 @@ const STATUS_COLOR: Record<EventStatus, string> = {
   completed: COLORS.muted,
 }
 
+// Convert DD/MM/YYYY (picker display) → YYYY-MM-DD (Postgres date format).
+function toIsoDate(s: string): string | null {
+  const trimmed = s.trim()
+  if (!trimmed) return null
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed)
+  if (!m) return null
+  const [, dd, mm, yyyy] = m
+  const day   = parseInt(dd, 10)
+  const month = parseInt(mm, 10)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return `${yyyy}-${mm}-${dd}`
+}
+
 export default function EditEventScreen() {
   const router = useRouter()
   const { profile } = useAuth()
@@ -49,6 +62,7 @@ export default function EditEventScreen() {
   const [discount, setDiscount]           = useState('')
   const [isFeatured, setIsFeatured]       = useState(false)
   const [eventStatus, setEventStatus]     = useState<EventStatus>('draft')
+  const [bookingType, setBookingType]     = useState<'ticket' | 'reservation'>('ticket')
 
   // Refs so handleSave always reads the latest values even across re-renders
   const nameRef         = useRef(name)
@@ -63,6 +77,7 @@ export default function EditEventScreen() {
   const discountRef     = useRef(discount)
   const isFeaturedRef   = useRef(isFeatured)
   const coverImageRef   = useRef(coverImage)
+  const bookingTypeRef  = useRef(bookingType)
 
   // Keep refs in sync with state so handleSave always reads latest values
   function syncAndSetName(v: string)          { nameRef.current = v;          setName(v) }
@@ -77,6 +92,7 @@ export default function EditEventScreen() {
   function syncAndSetDiscount(v: string)      { discountRef.current = v;      setDiscount(v) }
   function syncAndSetIsFeatured(v: boolean)   { isFeaturedRef.current = v;    setIsFeatured(v) }
   function syncAndSetCoverImage(v: string | null) { coverImageRef.current = v; setCoverImage(v) }
+  function syncAndSetBookingType(v: 'ticket' | 'reservation') { bookingTypeRef.current = v; setBookingType(v) }
 
   const finalPrice = (() => {
     const base = parseFloat(ticketPrice) || 0
@@ -111,6 +127,7 @@ export default function EditEventScreen() {
         syncAndSetTicketPrice(data.ticket_price != null ? String(data.ticket_price) : '')
         syncAndSetDiscount(data.ticket_discount != null ? String(data.ticket_discount) : '')
         syncAndSetIsFeatured(data.is_featured ?? false)
+        syncAndSetBookingType(data.reservation_only ? 'reservation' : 'ticket')
         setEventStatus((data.event_status as EventStatus) ?? 'draft')
         setLoading(false)
       })
@@ -182,13 +199,15 @@ export default function EditEventScreen() {
     const currentDiscount    = discountRef.current
     const currentFeatured    = isFeaturedRef.current
     const currentImage       = coverImageRef.current
+    const currentBooking     = bookingTypeRef.current
 
     if (!currentName.trim()) { Alert.alert('Validation', 'Event name is required.'); return }
     if (!id)                  { Alert.alert('Error', 'No event ID found.'); return }
 
-    const base  = currentTicketPrice !== '' ? parseFloat(currentTicketPrice) : null
-    const disc  = currentDiscount    !== '' ? parseFloat(currentDiscount)    : null
-    const final = base != null && base > 0
+    const isReservation = currentBooking === 'reservation'
+    const base  = isReservation || currentTicketPrice === '' ? null : parseFloat(currentTicketPrice)
+    const disc  = isReservation || currentDiscount    === '' ? null : parseFloat(currentDiscount)
+    const final = !isReservation && base != null && base > 0
       ? parseFloat((base - (base * (disc ?? 0)) / 100).toFixed(2))
       : null
     const status = overrideStatus ?? eventStatus
@@ -200,13 +219,14 @@ export default function EditEventScreen() {
         event_type:          currentEventType || null,
         event_description:   currentDescription.trim() || null,
         special_guests:      currentGuests.trim() || null,
-        event_starting_date: currentStartDate.trim() || null,
-        event_ending_date:   currentEndDate.trim() || null,
+        event_starting_date: toIsoDate(currentStartDate),
+        event_ending_date:   toIsoDate(currentEndDate),
         event_hours:         currentHours.trim() || null,
         event_capacity:      currentCapacity !== '' ? parseInt(currentCapacity) : null,
         ticket_price:        base,
         ticket_discount:     disc,
         final_ticket_price:  final,
+        reservation_only:    isReservation,
         event_image:         currentImage,
         is_featured:         currentFeatured,
         event_status:        status,
@@ -389,11 +409,83 @@ export default function EditEventScreen() {
           placeholderTextColor={COLORS.mutedDark}
         />
 
-        {/* Tickets */}
-        <SectionLabel>Tickets & Capacity</SectionLabel>
+        {/* Booking model */}
+        <SectionLabel>Booking Model</SectionLabel>
+        <View style={s.choiceRow}>
+          <TouchableOpacity
+            style={[s.choiceCard, bookingType === 'ticket' && s.choiceCardActive]}
+            onPress={() => syncAndSetBookingType('ticket')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="ticket-outline" size={22} color={bookingType === 'ticket' ? COLORS.purple : COLORS.muted} />
+            <Text style={[s.choiceTitle, bookingType === 'ticket' && s.choiceTitleActive]}>Ticketed</Text>
+            <Text style={s.choiceSub}>Guests pay per ticket. QR code per attendee.</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.choiceCard, bookingType === 'reservation' && s.choiceCardActive]}
+            onPress={() => syncAndSetBookingType('reservation')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="restaurant-outline" size={22} color={bookingType === 'reservation' ? COLORS.purple : COLORS.muted} />
+            <Text style={[s.choiceTitle, bookingType === 'reservation' && s.choiceTitleActive]}>Reservation</Text>
+            <Text style={s.choiceSub}>Free table reservations, paid in venue.</Text>
+          </TouchableOpacity>
+        </View>
 
-        <View style={s.row2}>
-          <View style={{ flex: 1 }}>
+        {/* Tickets / Capacity */}
+        <SectionLabel>{bookingType === 'ticket' ? 'Tickets & Capacity' : 'Capacity'}</SectionLabel>
+
+        {bookingType === 'ticket' ? (
+          <>
+            <View style={s.row2}>
+              <View style={{ flex: 1 }}>
+                <FieldLabel>Capacity</FieldLabel>
+                <TextInput
+                  style={s.input}
+                  value={capacity}
+                  onChangeText={syncAndSetCapacity}
+                  placeholder="500"
+                  placeholderTextColor={COLORS.mutedDark}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <FieldLabel>Ticket Price (€)</FieldLabel>
+                <TextInput
+                  style={s.input}
+                  value={ticketPrice}
+                  onChangeText={syncAndSetTicketPrice}
+                  placeholder="0.00"
+                  placeholderTextColor={COLORS.mutedDark}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            <View style={s.row2}>
+              <View style={{ flex: 1 }}>
+                <FieldLabel>Discount (%)</FieldLabel>
+                <TextInput
+                  style={s.input}
+                  value={discount}
+                  onChangeText={syncAndSetDiscount}
+                  placeholder="0"
+                  placeholderTextColor={COLORS.mutedDark}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <FieldLabel>Final Price (€)</FieldLabel>
+                <View style={[s.input, s.readonlyField]}>
+                  <Text style={finalPrice ? s.readonlyText : s.readonlyPlaceholder}>
+                    {finalPrice || '–'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </>
+        ) : (
+          <>
             <FieldLabel>Capacity</FieldLabel>
             <TextInput
               style={s.input}
@@ -403,41 +495,12 @@ export default function EditEventScreen() {
               placeholderTextColor={COLORS.mutedDark}
               keyboardType="numeric"
             />
-          </View>
-          <View style={{ flex: 1 }}>
-            <FieldLabel>Ticket Price (€)</FieldLabel>
-            <TextInput
-              style={s.input}
-              value={ticketPrice}
-              onChangeText={syncAndSetTicketPrice}
-              placeholder="0.00"
-              placeholderTextColor={COLORS.mutedDark}
-              keyboardType="decimal-pad"
-            />
-          </View>
-        </View>
-
-        <View style={s.row2}>
-          <View style={{ flex: 1 }}>
-            <FieldLabel>Discount (%)</FieldLabel>
-            <TextInput
-              style={s.input}
-              value={discount}
-              onChangeText={syncAndSetDiscount}
-              placeholder="0"
-              placeholderTextColor={COLORS.mutedDark}
-              keyboardType="numeric"
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <FieldLabel>Final Price (€)</FieldLabel>
-            <View style={[s.input, s.readonlyField]}>
-              <Text style={finalPrice ? s.readonlyText : s.readonlyPlaceholder}>
-                {finalPrice || '–'}
-              </Text>
+            <View style={s.reserveNotice}>
+              <Ionicons name="information-circle-outline" size={16} color={COLORS.green} />
+              <Text style={s.reserveNoticeText}>Guests will reserve a table for free; payment is handled at the venue.</Text>
             </View>
-          </View>
-        </View>
+          </>
+        )}
 
         {/* Options */}
         <SectionLabel>Options</SectionLabel>
@@ -587,4 +650,18 @@ const s = StyleSheet.create({
   draftBtnText: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '600' },
   publishBtn:   { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.md, paddingVertical: SPACING.md },
   publishBtnText:{ color: '#fff', fontSize: FONT.base, fontWeight: '700' },
+
+  choiceRow:        { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },
+  choiceCard:       { flex: 1, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border, padding: SPACING.md, gap: 6 },
+  choiceCardActive: { borderColor: COLORS.purple, backgroundColor: 'rgba(167,139,250,0.08)' },
+  choiceTitle:      { color: COLORS.muted, fontSize: FONT.base, fontWeight: '700' },
+  choiceTitleActive:{ color: COLORS.white },
+  choiceSub:        { color: COLORS.mutedDark, fontSize: 12, lineHeight: 16 },
+  reserveNotice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
+    backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: RADIUS.md,
+    padding: SPACING.md, borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
+    marginBottom: SPACING.md,
+  },
+  reserveNoticeText: { color: COLORS.green, fontSize: FONT.sm, flex: 1, lineHeight: FONT.sm * 1.4 },
 })

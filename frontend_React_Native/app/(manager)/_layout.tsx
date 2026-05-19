@@ -11,6 +11,9 @@ export default function ManagerLayout() {
       <Stack.Screen name="create-event"  options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="edit-event"    options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="promotions"    options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="billing-history"  options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="payment-methods"  options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="inbox"            options={{ animation: 'slide_from_right' }} />
     </Stack>
   )
 }

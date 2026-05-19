@@ -126,6 +126,18 @@ export type Promotion = {
   clubs?: Club
 }
 
+export type ClaimedPromotion = {
+  id: string
+  user_id: string
+  promotion_id: string
+  redemption_code: string
+  status: 'active' | 'redeemed' | 'expired' | 'cancelled'
+  claimed_at: string
+  redeemed_at: string | null
+  notes: string | null
+  promotions?: Promotion
+}
+
 export type Profile = {
   id: string
   name: string | null

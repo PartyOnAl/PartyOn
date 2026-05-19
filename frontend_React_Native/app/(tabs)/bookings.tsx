@@ -5,11 +5,11 @@ import {
   Share, Pressable, Platform, Alert, TextInput,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useFocusEffect, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
-import type { Reservation, Attendee } from '@/lib/types'
+import type { Reservation, Attendee, ClaimedPromotion } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -539,18 +539,233 @@ function TicketCard({
   )
 }
 
+// ── Claimed Offer Sheet ───────────────────────────────────────────────────────
+function ClaimSheet({ claim, onClose, onCancel }: {
+  claim: ClaimedPromotion | null
+  onClose: () => void
+  onCancel: (claim: ClaimedPromotion) => void
+}) {
+  if (!claim) return null
+  const promo = claim.promotions
+  const validUntil = promo?.valid_until ? new Date(promo.valid_until) : null
+  const expired = !!validUntil && validUntil < new Date()
+  const effectiveStatus = expired && claim.status === 'active' ? 'expired' : claim.status
+  const code = (claim.redemption_code ?? '').toUpperCase()
+  const qrUrl = qrUrlFor(claim.redemption_code)
+
+  async function handleShare() {
+    try {
+      await Share.share({
+        message: `I claimed "${promo?.title ?? 'an offer'}" on PartyOn — Redemption code: ${code}`,
+      })
+    } catch {}
+  }
+
+  const statusColorClaim =
+    effectiveStatus === 'active' ? COLORS.green
+    : effectiveStatus === 'redeemed' ? COLORS.purple
+    : effectiveStatus === 'expired' ? COLORS.mutedDark
+    : COLORS.red
+
+  return (
+    <Modal visible={!!claim} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetOverlay} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <TouchableOpacity style={styles.sheetClose} onPress={onClose}>
+            <Ionicons name="close" size={20} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: SPACING.lg }}>
+            <Text style={styles.sheetEventName}>{promo?.title ?? 'Offer'}</Text>
+
+            <View style={styles.sheetMeta}>
+              {promo?.clubs?.club_name && (
+                <View style={styles.sheetMetaRow}>
+                  <Ionicons name="location-outline" size={14} color={COLORS.muted} />
+                  <Text style={styles.sheetMetaText}>
+                    {promo.clubs.club_name}
+                    {promo.clubs.club_address ? ` · ${promo.clubs.club_address}` : ''}
+                  </Text>
+                </View>
+              )}
+              {validUntil && (
+                <View style={styles.sheetMetaRow}>
+                  <Ionicons name="time-outline" size={14} color={COLORS.muted} />
+                  <Text style={styles.sheetMetaText}>
+                    Valid until {formatShort(validUntil.toISOString())}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.sheetMetaRow}>
+                <Ionicons name="pricetag-outline" size={14} color={COLORS.muted} />
+                <Text style={styles.sheetMetaText}>
+                  Claimed on {formatShort(claim.claimed_at)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.sheetBadgeRow}>
+              <View style={[
+                styles.sheetBadge,
+                { backgroundColor: 'rgba(217,70,168,0.15)', borderColor: COLORS.logoPink },
+              ]}>
+                <Ionicons name="gift-outline" size={13} color={COLORS.logoPink} />
+                <Text style={[styles.sheetBadgeText, { color: COLORS.logoPink }]}>
+                  {promo?.discount_value ? `${promo.discount_value}% OFF` : 'Promotion'}
+                </Text>
+              </View>
+              <View style={[styles.sheetStatusBadge, { borderColor: statusColorClaim }]}>
+                <Text style={[styles.sheetStatusText, { color: statusColorClaim }]}>
+                  {effectiveStatus}
+                </Text>
+              </View>
+            </View>
+
+            {effectiveStatus === 'expired' ? (
+              <View style={styles.qrPast}>
+                <Ionicons name="time-outline" size={52} color={COLORS.mutedDark} />
+                <Text style={styles.qrPastTitle}>This offer has expired</Text>
+                <Text style={styles.qrPastSub}>Code: {code}</Text>
+              </View>
+            ) : effectiveStatus === 'redeemed' ? (
+              <View style={styles.qrPast}>
+                <Ionicons name="checkmark-done-circle-outline" size={52} color={COLORS.purple} />
+                <Text style={styles.qrPastTitle}>Already redeemed</Text>
+                <Text style={styles.qrPastSub}>
+                  {claim.redeemed_at ? `Redeemed on ${formatShort(claim.redeemed_at)}` : 'This offer has been used'}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.qrWrap}>
+                <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
+                <Text style={styles.qrCaption}>Show this code at the door to redeem</Text>
+                <View style={styles.codePill}>
+                  <Text style={styles.codePillText} selectable>{code}</Text>
+                </View>
+              </View>
+            )}
+
+            {promo?.description && (
+              <View style={styles.offerAboutBox}>
+                <Text style={styles.offerAboutTitle}>About this offer</Text>
+                <Text style={styles.offerAboutText}>{promo.description}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.sheetShareBtn} onPress={handleShare} activeOpacity={0.8}>
+              <Ionicons name="share-social-outline" size={17} color={COLORS.muted} />
+              <Text style={styles.sheetShareText}>Share with Friends</Text>
+            </TouchableOpacity>
+
+            {effectiveStatus === 'active' && (
+              <TouchableOpacity
+                style={[styles.sheetShareBtn, { marginTop: SPACING.sm, borderColor: 'rgba(239,68,68,0.35)' }]}
+                onPress={() => onCancel(claim)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close-circle-outline" size={17} color={COLORS.red} />
+                <Text style={[styles.sheetShareText, { color: COLORS.red }]}>Cancel Claim</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+// ── Claimed Offer Card ────────────────────────────────────────────────────────
+function ClaimedOfferCard({ claim, onPress }: { claim: ClaimedPromotion; onPress: () => void }) {
+  const promo = claim.promotions
+  const validUntil = promo?.valid_until ? new Date(promo.valid_until) : null
+  const expired = !!validUntil && validUntil < new Date()
+  const effectiveStatus = expired && claim.status === 'active' ? 'expired' : claim.status
+
+  const statusColorClaim =
+    effectiveStatus === 'active' ? COLORS.green
+    : effectiveStatus === 'redeemed' ? COLORS.purple
+    : effectiveStatus === 'expired' ? COLORS.mutedDark
+    : COLORS.red
+
+  const isInactive = effectiveStatus !== 'active'
+
+  return (
+    <View style={[styles.ticketCard, isInactive && styles.ticketCardPast]}>
+      <View style={styles.ticketRow}>
+        {promo?.image_url ? (
+          <Image source={{ uri: promo.image_url }} style={[styles.thumb, isInactive && styles.thumbPast]} resizeMode="cover" />
+        ) : (
+          <View style={[styles.thumb, styles.thumbFallback, isInactive && styles.thumbPast]}>
+            <Ionicons name="pricetag-outline" size={18} color={COLORS.border} />
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.ticketInfo} onPress={onPress} activeOpacity={0.75}>
+          <Text style={[styles.ticketName, isInactive && styles.ticketNamePast]} numberOfLines={1}>
+            {promo?.title ?? 'Offer'}
+          </Text>
+          {promo?.clubs?.club_name && (
+            <Text style={styles.ticketVenue} numberOfLines={1}>
+              {promo.clubs.club_name}
+              {promo.clubs.club_address ? ` · ${promo.clubs.club_address}` : ''}
+            </Text>
+          )}
+          <View style={styles.ticketDateRow}>
+            <Ionicons name="pricetag-outline" size={11} color={COLORS.mutedDark} />
+            <Text style={styles.ticketDate}>
+              {promo?.discount_value ? `${promo.discount_value}% OFF` : 'Promotion'}
+            </Text>
+            {validUntil && (
+              <>
+                <Text style={styles.ticketSep}>·</Text>
+                <Ionicons name="time-outline" size={11} color={COLORS.mutedDark} />
+                <Text style={styles.ticketDate}>Until {formatShort(validUntil.toISOString())}</Text>
+              </>
+            )}
+          </View>
+          <View style={[styles.statusPill, { borderColor: statusColorClaim }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusColorClaim }]} />
+            <Text style={[styles.statusText, { color: statusColorClaim }]}>
+              {effectiveStatus}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.ticketActions}>
+          <TouchableOpacity style={styles.viewBtn} onPress={onPress}>
+            <Text style={styles.viewBtnText}>{effectiveStatus === 'active' ? 'Show' : 'Details'}</Text>
+            <Ionicons name="chevron-forward" size={13} color={COLORS.white} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+}
+
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const { user } = useAuth()
+  const params = useLocalSearchParams<{ section?: string }>()
   const [reservations, setReservations] = useState<Reservation[]>([])
+  const [claims, setClaims] = useState<ClaimedPromotion[]>([])
   const [ratings, setRatings] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [section, setSection] = useState<'reservations' | 'offers'>(
+    params.section === 'offers' ? 'offers' : 'reservations',
+  )
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
   const [selected, setSelected] = useState<Reservation | null>(null)
+  const [selectedClaim, setSelectedClaim] = useState<ClaimedPromotion | null>(null)
   const [rateTarget, setRateTarget] = useState<Reservation | null>(null)
   const [disputeTarget, setDisputeTarget] = useState<Reservation | null>(null)
+
+  useEffect(() => {
+    if (params.section === 'offers') setSection('offers')
+    else if (params.section === 'reservations') setSection('reservations')
+  }, [params.section])
 
   useFocusEffect(
     useCallback(() => {
@@ -566,15 +781,42 @@ export default function BookingsScreen() {
           .from('event_ratings')
           .select('reservation_id, rating')
           .eq('user_id', user.id),
-      ]).then(([resRes, ratRes]) => {
+        supabase
+          .from('claimed_promotions')
+          .select('*, promotions(promotion_id, title, description, category, discount_value, valid_from, valid_until, image_url, clubs(club_name, club_address, club_id))')
+          .eq('user_id', user.id)
+          .order('claimed_at', { ascending: false }),
+      ]).then(([resRes, ratRes, claimsRes]) => {
         setReservations((resRes.data as Reservation[]) ?? [])
         const map: Record<string, number> = {}
         for (const r of (ratRes.data ?? [])) map[r.reservation_id] = r.rating
         setRatings(map)
+        setClaims((claimsRes.data as ClaimedPromotion[]) ?? [])
         setLoading(false)
       })
     }, [user]),
   )
+
+  async function handleCancelClaim(claim: ClaimedPromotion) {
+    Alert.alert(
+      'Cancel claim',
+      'You can claim this offer again later if it is still active. Continue?',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Cancel claim', style: 'destructive', onPress: async () => {
+            const { error } = await supabase
+              .from('claimed_promotions')
+              .delete()
+              .eq('id', claim.id)
+            if (error) { Alert.alert('Error', error.message); return }
+            setClaims((prev) => prev.filter((c) => c.id !== claim.id))
+            setSelectedClaim(null)
+          },
+        },
+      ],
+    )
+  }
 
   async function handleCancel(reservationId: string) {
     Alert.alert('Cancel booking', 'Are you sure you want to cancel this booking?', [
@@ -638,6 +880,15 @@ export default function BookingsScreen() {
 
   const activeList = activeTab === 'upcoming' ? upcomingList : pastList
 
+  // ── Offers (claimed promotions) split by status ──
+  const activeClaims = claims.filter((c) => {
+    if (c.status !== 'active') return false
+    const validUntil = c.promotions?.valid_until
+    if (!validUntil) return true
+    return new Date(validUntil) >= new Date()
+  })
+  const pastClaims = claims.filter((c) => !activeClaims.includes(c))
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -645,63 +896,151 @@ export default function BookingsScreen() {
         <Text style={styles.headerTitle}>Your Nights</Text>
       </View>
 
-      {/* Filter tabs */}
-      <View style={styles.tabRow}>
+      {/* Top section toggle: Reservations / Offers */}
+      <View style={styles.segmentWrap}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
-          onPress={() => setActiveTab('upcoming')}
+          style={[styles.segment, section === 'reservations' && styles.segmentActive]}
+          onPress={() => setSection('reservations')}
+          activeOpacity={0.85}
         >
-          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
-            Upcoming{upcomingList.length > 0 ? ` (${upcomingList.length})` : ''}
+          <Ionicons
+            name="ticket-outline"
+            size={15}
+            color={section === 'reservations' ? COLORS.white : COLORS.muted}
+          />
+          <Text style={[styles.segmentText, section === 'reservations' && styles.segmentTextActive]}>
+            Reservations{reservations.length > 0 ? ` (${reservations.length})` : ''}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'past' && styles.tabActive]}
-          onPress={() => setActiveTab('past')}
+          style={[styles.segment, section === 'offers' && styles.segmentActive]}
+          onPress={() => setSection('offers')}
+          activeOpacity={0.85}
         >
-          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
-            Past{pastList.length > 0 ? ` (${pastList.length})` : ''}
+          <Ionicons
+            name="pricetag-outline"
+            size={15}
+            color={section === 'offers' ? COLORS.white : COLORS.muted}
+          />
+          <Text style={[styles.segmentText, section === 'offers' && styles.segmentTextActive]}>
+            Offers{claims.length > 0 ? ` (${claims.length})` : ''}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {loading ? (
-        <ActivityIndicator color={COLORS.purple} style={{ marginTop: SPACING.xl }} />
-      ) : activeList.length === 0 ? (
-        <View style={styles.center}>
-          <Ionicons name={activeTab === 'upcoming' ? 'calendar-outline' : 'time-outline'} size={52} color={COLORS.mutedDark} />
-          <Text style={styles.emptyTitle}>{activeTab === 'upcoming' ? 'No upcoming bookings' : 'No past bookings'}</Text>
-          <Text style={styles.emptySub}>
-            {activeTab === 'upcoming' ? 'Buy a ticket or reserve a table to get started' : 'Events you attend will appear here'}
-          </Text>
-          {activeTab === 'upcoming' && (
-            <TouchableOpacity style={styles.ctaBtn} onPress={() => router.push('/(tabs)/search')}>
-              <Text style={styles.ctaBtnText}>Browse Events</Text>
+      {section === 'reservations' ? (
+        <>
+          {/* Filter tabs */}
+          <View style={styles.tabRow}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
+              onPress={() => setActiveTab('upcoming')}
+            >
+              <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
+                Upcoming{upcomingList.length > 0 ? ` (${upcomingList.length})` : ''}
+              </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'past' && styles.tabActive]}
+              onPress={() => setActiveTab('past')}
+            >
+              <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
+                Past{pastList.length > 0 ? ` (${pastList.length})` : ''}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator color={COLORS.purple} style={{ marginTop: SPACING.xl }} />
+          ) : activeList.length === 0 ? (
+            <View style={styles.center}>
+              <Ionicons name={activeTab === 'upcoming' ? 'calendar-outline' : 'time-outline'} size={52} color={COLORS.mutedDark} />
+              <Text style={styles.emptyTitle}>{activeTab === 'upcoming' ? 'No upcoming bookings' : 'No past bookings'}</Text>
+              <Text style={styles.emptySub}>
+                {activeTab === 'upcoming' ? 'Buy a ticket or reserve a table to get started' : 'Events you attend will appear here'}
+              </Text>
+              {activeTab === 'upcoming' && (
+                <TouchableOpacity style={styles.ctaBtn} onPress={() => router.push('/(tabs)/search')}>
+                  <Text style={styles.ctaBtnText}>Browse Events</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingBottom: SPACING.xxl, gap: SPACING.sm }}
+              showsVerticalScrollIndicator={false}
+            >
+              {activeList.map((r) => (
+                <TicketCard
+                  key={r.reservation_id}
+                  reservation={r}
+                  existingRating={ratings[r.reservation_id] ?? 0}
+                  isPastTab={activeTab === 'past'}
+                  onPress={() => setSelected(r)}
+                  onCancel={() => handleCancel(r.reservation_id)}
+                  onRefund={() => handleRefund(r)}
+                  onRate={() => setRateTarget(r)}
+                  onDispute={() => setDisputeTarget(r)}
+                />
+              ))}
+            </ScrollView>
           )}
-        </View>
+        </>
       ) : (
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingBottom: SPACING.xxl, gap: SPACING.sm }}
-          showsVerticalScrollIndicator={false}
-        >
-          {activeList.map((r) => (
-            <TicketCard
-              key={r.reservation_id}
-              reservation={r}
-              existingRating={ratings[r.reservation_id] ?? 0}
-              isPastTab={activeTab === 'past'}
-              onPress={() => setSelected(r)}
-              onCancel={() => handleCancel(r.reservation_id)}
-              onRefund={() => handleRefund(r)}
-              onRate={() => setRateTarget(r)}
-              onDispute={() => setDisputeTarget(r)}
-            />
-          ))}
-        </ScrollView>
+        // ── Offers section ──
+        loading ? (
+          <ActivityIndicator color={COLORS.purple} style={{ marginTop: SPACING.xl }} />
+        ) : claims.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="pricetag-outline" size={52} color={COLORS.mutedDark} />
+            <Text style={styles.emptyTitle}>No claimed offers</Text>
+            <Text style={styles.emptySub}>Offers you claim will appear here with a code to show at the door.</Text>
+            <TouchableOpacity style={styles.ctaBtn} onPress={() => router.push('/promotions')}>
+              <Text style={styles.ctaBtnText}>Browse Promotions</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingBottom: SPACING.xxl, gap: SPACING.sm }}
+            showsVerticalScrollIndicator={false}
+          >
+            {activeClaims.length > 0 && (
+              <>
+                <Text style={styles.offersSectionTitle}>Active ({activeClaims.length})</Text>
+                {activeClaims.map((c) => (
+                  <ClaimedOfferCard
+                    key={c.id}
+                    claim={c}
+                    onPress={() => setSelectedClaim(c)}
+                  />
+                ))}
+              </>
+            )}
+            {pastClaims.length > 0 && (
+              <>
+                <Text style={[styles.offersSectionTitle, { marginTop: SPACING.md }]}>
+                  Past ({pastClaims.length})
+                </Text>
+                {pastClaims.map((c) => (
+                  <ClaimedOfferCard
+                    key={c.id}
+                    claim={c}
+                    onPress={() => setSelectedClaim(c)}
+                  />
+                ))}
+              </>
+            )}
+          </ScrollView>
+        )
       )}
 
       <QRSheet reservation={selected} onClose={() => setSelected(null)} />
+
+      <ClaimSheet
+        claim={selectedClaim}
+        onClose={() => setSelectedClaim(null)}
+        onCancel={handleCancelClaim}
+      />
 
       <RateModal
         reservation={rateTarget}
@@ -731,6 +1070,26 @@ const styles = StyleSheet.create({
   },
   headerSub: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '500' },
   headerTitle: { color: COLORS.white, fontSize: FONT.xl + 2, fontWeight: '900', letterSpacing: -0.5, marginTop: 2 },
+
+  segmentWrap: {
+    flexDirection: 'row', marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border, padding: 3,
+  },
+  segment: {
+    flex: 1, paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.sm - 2, alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', gap: 6,
+  },
+  segmentActive: { backgroundColor: COLORS.purpleDark },
+  segmentText: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '700' },
+  segmentTextActive: { color: COLORS.white },
+
+  offersSectionTitle: {
+    color: COLORS.mutedDark, fontSize: 11, fontWeight: '800',
+    textTransform: 'uppercase', letterSpacing: 1.2,
+    marginTop: SPACING.xs, marginBottom: SPACING.xs,
+  },
 
   tabRow: {
     flexDirection: 'row', marginHorizontal: SPACING.md, marginBottom: SPACING.md,
@@ -858,6 +1217,23 @@ const styles = StyleSheet.create({
   },
   qrImage: { width: 220, height: 220 },
   qrCaption: { color: '#555', fontSize: FONT.sm, marginTop: SPACING.sm, textAlign: 'center' },
+  codePill: {
+    marginTop: SPACING.sm,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 2,
+    backgroundColor: '#0d0d14',
+    borderRadius: RADIUS.pill,
+  },
+  codePillText: {
+    color: '#fff', fontSize: FONT.md, fontWeight: '900',
+    letterSpacing: 3, fontVariant: ['tabular-nums'],
+  },
+  offerAboutBox: {
+    backgroundColor: COLORS.bgInput,
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.md, marginBottom: SPACING.md, gap: 4,
+  },
+  offerAboutTitle: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
+  offerAboutText: { color: COLORS.muted, fontSize: FONT.sm, lineHeight: FONT.sm * 1.5 },
   attendeesHeader: { color: '#222', fontSize: FONT.sm, fontWeight: '700', marginBottom: SPACING.sm, textAlign: 'center' },
   attendeeBlock: { alignItems: 'center', alignSelf: 'stretch', paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
   attendeeBlockDivider: { borderTopWidth: 1, borderTopColor: '#e5e5e5', marginTop: SPACING.md, paddingTop: SPACING.md },

@@ -131,12 +131,12 @@ export default function SettingsScreen() {
 
         {/* Billing */}
         <SectionCard icon="card-outline" title="Billing" subtitle="Manage subscription and payments">
-          <TouchableOpacity style={s.linkRow} activeOpacity={0.7}>
+          <TouchableOpacity style={s.linkRow} onPress={() => router.push('/(manager)/billing-history')} activeOpacity={0.7}>
             <Text style={s.linkRowText}>View Billing History</Text>
             <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
           </TouchableOpacity>
           <View style={s.rowDivider} />
-          <TouchableOpacity style={s.linkRow} activeOpacity={0.7}>
+          <TouchableOpacity style={s.linkRow} onPress={() => router.push('/(manager)/payment-methods')} activeOpacity={0.7}>
             <Text style={s.linkRowText}>Update Payment Method</Text>
             <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
           </TouchableOpacity>

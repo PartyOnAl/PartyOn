@@ -5,6 +5,9 @@ import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import { PlatformSettingsProvider, usePlatformSettings } from '@/lib/platformSettings'
+import { configureNotificationHandler, registerForPushTokenAsync } from '@/lib/push'
+
+configureNotificationHandler()
 
 function AuthGuard() {
   const { user, loading } = useAuth()
@@ -19,6 +22,15 @@ function AuthGuard() {
     }
   }, [user, loading])
 
+  return null
+}
+
+function PushRegistrar() {
+  const { profile } = useAuth()
+  useEffect(() => {
+    if (!profile?.id) return
+    registerForPushTokenAsync(profile.id).catch(() => { /* silent - inbox still works */ })
+  }, [profile?.id])
   return null
 }
 
@@ -56,6 +68,7 @@ export default function RootLayout() {
     <AuthProvider>
       <PlatformSettingsProvider>
         <AuthGuard />
+        <PushRegistrar />
         <StatusBar style="light" />
         <MaintenanceGate>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0a0a0f' } }}>
@@ -74,6 +87,9 @@ export default function RootLayout() {
             <Stack.Screen name="promotion/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="club/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="clubs-map" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="privacy" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="notifications" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="support" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           </Stack>
         </MaintenanceGate>
       </PlatformSettingsProvider>

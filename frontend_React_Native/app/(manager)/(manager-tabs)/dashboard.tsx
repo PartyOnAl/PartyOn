@@ -6,7 +6,9 @@ import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 
-const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+type WeeklyMetric = 'reservations' | 'sales'
 
 type DashEvent = { event_id: string; event_name: string; event_starting_date: string | null; final_ticket_price: number | null; event_status: string }
 type DashPromotion = {
@@ -39,10 +41,17 @@ export default function DashboardScreen() {
   const [openDisputes, setOpenDisputes]             = useState(0)
   const [subscriptionDueDate, setSubscriptionDueDate] = useState<string | null>(null)
   const [subscriptionType, setSubscriptionType]       = useState<string>('trial')
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
-  // Keep chart static (would need analytics endpoint for real data)
-  const weeklyData = [18, 30, 22, 40, 35, 55, 75]
-  const maxVal = Math.max(...weeklyData)
+  // Weekly chart - real data, last 7 days rolling
+  const [weeklyReservations, setWeeklyReservations] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [weeklySales, setWeeklySales]               = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [weeklyLabels, setWeeklyLabels]             = useState<string[]>(['', '', '', '', '', '', ''])
+  const [weeklyMetric, setWeeklyMetric]             = useState<WeeklyMetric>('reservations')
+
+  const activeWeekly = weeklyMetric === 'sales' ? weeklySales : weeklyReservations
+  const maxVal       = Math.max(...activeWeekly, 1)
+  const weeklyTotal  = activeWeekly.reduce((a, b) => a + b, 0)
 
   const fetchData = useCallback(async () => {
     if (!profile?.club_id) { setLoading(false); return }
@@ -126,12 +135,85 @@ export default function DashboardScreen() {
       if (count !== null) setTotalReservations(count)
     }
 
+    // Weekly activity: last 7 days rolling, reservations + sales
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const since = new Date(today)
+    since.setDate(since.getDate() - 6)
+
+    const labels: string[] = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(since)
+      d.setDate(since.getDate() + i)
+      labels.push(DAY_SHORT[d.getDay()])
+    }
+    setWeeklyLabels(labels)
+
+    const resvBuckets  = new Array(7).fill(0) as number[]
+    const salesBuckets = new Array(7).fill(0) as number[]
+
+    if (eventIds.length > 0) {
+      const { data: weekResv } = await supabase
+        .from('reservations')
+        .select('created_at, payments(amount, status)')
+        .in('event_id', eventIds)
+        .gte('created_at', since.toISOString())
+
+      ;(weekResv ?? []).forEach((r: any) => {
+        if (!r.created_at) return
+        const day = new Date(r.created_at); day.setHours(0, 0, 0, 0)
+        const idx = Math.floor((day.getTime() - since.getTime()) / 86400000)
+        if (idx < 0 || idx > 6) return
+        resvBuckets[idx] += 1
+        const pays: any[] = Array.isArray(r.payments) ? r.payments : (r.payments ? [r.payments] : [])
+        pays.forEach(p => {
+          if (p?.status === 'completed' && typeof p.amount === 'number') {
+            salesBuckets[idx] += p.amount
+          }
+        })
+      })
+    }
+
+    setWeeklyReservations(resvBuckets)
+    setWeeklySales(salesBuckets.map(v => Math.round(v * 100) / 100))
+
     setLoading(false)
     setRefreshing(false)
   }, [profile?.club_id])
 
   useEffect(() => { fetchData() }, [fetchData])
   const onRefresh = () => { setRefreshing(true); fetchData() }
+
+  // Unread notification count + realtime updates
+  useEffect(() => {
+    if (!profile?.id) return
+
+    const refreshUnread = async () => {
+      const { count } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_profile_id', profile.id)
+        .is('read_at', null)
+      if (count !== null) setUnreadNotifications(count)
+    }
+    refreshUnread()
+
+    const channel = supabase
+      .channel('notifications:badge:' + profile.id)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_profile_id=eq.${profile.id}`,
+        },
+        () => { refreshUnread() },
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [profile?.id])
 
   function getStatusColor(status: string) {
     return { confirmed: COLORS.green, pending: COLORS.cta, cancelled: COLORS.red, completed: COLORS.muted }[status] ?? COLORS.muted
@@ -200,8 +282,19 @@ export default function DashboardScreen() {
             </Text>
             <Text style={s.managerLabel}>Manager • {profile?.name ?? 'Manager'}</Text>
           </View>
-          <TouchableOpacity style={s.bellBtn}>
+          <TouchableOpacity
+            style={s.bellBtn}
+            onPress={() => router.push('/(manager)/inbox' as any)}
+            activeOpacity={0.85}
+          >
             <Ionicons name="notifications-outline" size={22} color={COLORS.muted} />
+            {unreadNotifications > 0 && (
+              <View style={s.bellBadge}>
+                <Text style={s.bellBadgeText}>
+                  {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -252,49 +345,94 @@ export default function DashboardScreen() {
 
         {/* Stats row */}
         <View style={s.statsRow}>
-          <View style={s.statCard}>
+          <TouchableOpacity
+            style={s.statCard}
+            activeOpacity={0.85}
+            onPress={() => router.push('/(manager)/(manager-tabs)/events')}
+          >
             <View style={s.statHeader}>
               <Ionicons name="calendar-outline" size={16} color={COLORS.purple} />
+              <Ionicons name="chevron-forward" size={14} color={COLORS.mutedDark} style={{ marginLeft: 'auto' }} />
             </View>
             <Text style={s.statNum}>{upcomingEvents.length}</Text>
             <Text style={s.statLabel}>Upcoming</Text>
-          </View>
-          <View style={s.statCard}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.statCard}
+            activeOpacity={0.85}
+            onPress={() => router.push('/(manager)/(manager-tabs)/tables')}
+          >
             <View style={s.statHeader}>
               <Ionicons name="restaurant-outline" size={16} color={COLORS.cta} />
+              <Ionicons name="chevron-forward" size={14} color={COLORS.mutedDark} style={{ marginLeft: 'auto' }} />
             </View>
             <Text style={s.statNum}>{tableCount}</Text>
             <Text style={s.statLabel}>Tables</Text>
-          </View>
-          <View style={s.statCard}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.statCard}
+            activeOpacity={0.85}
+            onPress={() => router.push('/(manager)/(manager-tabs)/reservations' as any)}
+          >
             <View style={s.statHeader}>
               <Ionicons name="receipt-outline" size={16} color={COLORS.green} />
+              <Ionicons name="chevron-forward" size={14} color={COLORS.mutedDark} style={{ marginLeft: 'auto' }} />
             </View>
             <Text style={s.statNum}>{totalReservations}</Text>
             <Text style={s.statLabel}>Reservations</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Bar chart (static illustration) */}
+        {/* Bar chart - real last-7-days data */}
         <View style={s.section}>
           <View style={s.sectionHeader}>
             <Text style={s.sectionTitle}>Weekly Activity</Text>
-            <Text style={s.chartNote}>Illustrative</Text>
+            <View style={s.metricToggle}>
+              <TouchableOpacity
+                style={[s.metricPill, weeklyMetric === 'reservations' && s.metricPillActive]}
+                onPress={() => setWeeklyMetric('reservations')}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.metricPillText, weeklyMetric === 'reservations' && s.metricPillTextActive]}>Reservations</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.metricPill, weeklyMetric === 'sales' && s.metricPillActive]}
+                onPress={() => setWeeklyMetric('sales')}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.metricPillText, weeklyMetric === 'sales' && s.metricPillTextActive]}>Sales (€)</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={s.chartSub}>Ticket sales by day</Text>
-          <View style={s.chart}>
-            {weeklyData.map((val, i) => (
-              <View key={i} style={s.barCol}>
-                <View style={s.barTrack}>
-                  <View style={[s.bar, {
-                    height: `${(val / maxVal) * 100}%`,
-                    backgroundColor: i === weeklyData.length - 1 ? COLORS.purpleDark : 'rgba(255,255,255,0.12)',
-                  }]} />
-                </View>
-                <Text style={s.barLabel}>{weekDays[i]}</Text>
+          <Text style={s.chartSub}>
+            {weeklyMetric === 'sales' ? 'Completed payments by day' : 'New reservations by day'}
+          </Text>
+
+          {weeklyTotal === 0 ? (
+            <View style={s.chartEmpty}>
+              <Ionicons name="bar-chart-outline" size={28} color={COLORS.mutedDark} />
+              <Text style={s.chartEmptyText}>No activity yet this week</Text>
+            </View>
+          ) : (
+            <>
+              <View style={s.chart}>
+                {activeWeekly.map((val, i) => (
+                  <View key={i} style={s.barCol}>
+                    <View style={s.barTrack}>
+                      <View style={[s.bar, {
+                        height: `${(val / maxVal) * 100}%`,
+                        backgroundColor: i === activeWeekly.length - 1 ? COLORS.purpleDark : 'rgba(255,255,255,0.12)',
+                      }]} />
+                    </View>
+                    <Text style={s.barLabel}>{weeklyLabels[i] || ''}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+              <Text style={s.chartTotal}>
+                Total: {weeklyMetric === 'sales' ? `€${weeklyTotal.toFixed(2)}` : `${weeklyTotal} reservation${weeklyTotal !== 1 ? 's' : ''}`}
+              </Text>
+            </>
+          )}
         </View>
 
         {/* Quick Actions */}
@@ -306,6 +444,14 @@ export default function DashboardScreen() {
                 <Ionicons name="add-circle-outline" size={20} color={COLORS.purple} />
               </View>
               <Text style={s.actionLabel}>Create Event</Text>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} style={{ marginLeft: 'auto' }} />
+            </TouchableOpacity>
+            <View style={s.divider} />
+            <TouchableOpacity style={s.actionRow} onPress={() => router.push('/(manager)/promotions' as any)}>
+              <View style={[s.actionIcon, { backgroundColor: COLORS.cta + '22' }]}>
+                <Ionicons name="pricetag-outline" size={20} color={COLORS.cta} />
+              </View>
+              <Text style={s.actionLabel}>Add Promotion</Text>
               <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} style={{ marginLeft: 'auto' }} />
             </TouchableOpacity>
             <View style={s.divider} />
@@ -360,7 +506,12 @@ export default function DashboardScreen() {
             </View>
           ) : (
             upcomingEvents.map((ev, i) => (
-              <View key={ev.event_id} style={s.eventRow}>
+              <TouchableOpacity
+                key={ev.event_id}
+                style={s.eventRow}
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/(manager)/edit-event', params: { id: ev.event_id } })}
+              >
                 <View style={[s.eventThumb, { backgroundColor: ACCENT_COLORS[i % ACCENT_COLORS.length] + '33' }]}>
                   <Ionicons name="musical-notes" size={18} color={ACCENT_COLORS[i % ACCENT_COLORS.length]} />
                 </View>
@@ -371,7 +522,8 @@ export default function DashboardScreen() {
                     {ev.final_ticket_price ? ` • €${ev.final_ticket_price.toFixed(2)}` : ''}
                   </Text>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+              </TouchableOpacity>
             ))
           )}
         </View>
@@ -476,12 +628,19 @@ const s = StyleSheet.create({
   appName:      { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
   managerLabel: { color: COLORS.mutedDark, fontSize: 12, marginTop: 2 },
   bellBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
+  bellBadge:    {
+    position: 'absolute', top: 4, right: 4,
+    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4,
+    backgroundColor: COLORS.red, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: COLORS.bg,
+  },
+  bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
   pageTitle:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },
   pageSubtitle: { color: COLORS.mutedDark, fontSize: FONT.sm, marginBottom: SPACING.lg },
 
   statsRow:   { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.lg },
   statCard:   { flex: 1, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.lg, padding: SPACING.md, borderWidth: 1, borderColor: COLORS.border },
-  statHeader: { marginBottom: SPACING.sm },
+  statHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   statNum:    { color: COLORS.white, fontSize: 28, fontWeight: '700', marginBottom: 4 },
   statLabel:  { color: COLORS.mutedDark, fontSize: 11 },
 
@@ -489,8 +648,17 @@ const s = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md },
   sectionTitle:  { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
   viewAll:       { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '500' },
-  chartNote:     { color: COLORS.mutedDark, fontSize: 11, fontStyle: 'italic' },
   chartSub:      { color: COLORS.mutedDark, fontSize: 12, marginBottom: SPACING.sm },
+  chartTotal:    { color: COLORS.muted, fontSize: 11, marginTop: SPACING.sm, textAlign: 'right' },
+
+  metricToggle:      { flexDirection: 'row', backgroundColor: COLORS.bgCard, borderRadius: RADIUS.pill, padding: 3, borderWidth: 1, borderColor: COLORS.border },
+  metricPill:        { paddingHorizontal: SPACING.sm + 2, paddingVertical: 4, borderRadius: RADIUS.pill },
+  metricPillActive:  { backgroundColor: COLORS.purpleDark },
+  metricPillText:    { color: COLORS.mutedDark, fontSize: 11, fontWeight: '600' },
+  metricPillTextActive: { color: COLORS.white },
+
+  chartEmpty:     { alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.lg, gap: SPACING.xs },
+  chartEmptyText: { color: COLORS.mutedDark, fontSize: FONT.sm },
 
   chart:    { flexDirection: 'row', alignItems: 'flex-end', height: 100, gap: 6 },
   barCol:   { flex: 1, alignItems: 'center', gap: 4 },

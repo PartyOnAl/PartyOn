@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Share,
+  Linking, Platform,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -188,6 +189,55 @@ export default function AccountScreen() {
   const displayName = [profile?.name, profile?.surname].filter(Boolean).join(' ') || user.email || 'User'
   const location = profile?.club_id ? 'Set location' : 'Tirana, Albania'
 
+  async function tryOpenUrl(url: string, fallback: string) {
+    try {
+      const can = await Linking.canOpenURL(url)
+      if (!can) throw new Error('unsupported')
+      await Linking.openURL(url)
+    } catch {
+      Alert.alert('Unable to open', fallback)
+    }
+  }
+
+  function handleRateApp() {
+    // Replace with your real store IDs when published.
+    const androidPackage = 'com.partyon.app'
+    const iosAppId = '0000000000'
+
+    if (Platform.OS === 'android') {
+      tryOpenUrl(
+        `market://details?id=${androidPackage}`,
+        'Visit the Play Store and search for PartyOn to leave a review.',
+      ).catch(() =>
+        tryOpenUrl(
+          `https://play.google.com/store/apps/details?id=${androidPackage}`,
+          'Visit the Play Store and search for PartyOn to leave a review.',
+        ),
+      )
+      return
+    }
+    if (Platform.OS === 'ios') {
+      tryOpenUrl(
+        `itms-apps://itunes.apple.com/app/id${iosAppId}?action=write-review`,
+        'Visit the App Store and search for PartyOn to leave a review.',
+      )
+      return
+    }
+    Alert.alert('Thanks!', 'Ratings are available on the mobile app.')
+  }
+
+  function handleFeedback() {
+    const subject = encodeURIComponent('PartyOn – App feedback')
+    const body = encodeURIComponent(
+      `Hi PartyOn team,\n\nI'd like to share some feedback:\n\n— Type your feedback here —\n\n` +
+      `— App info —\nPlatform: ${Platform.OS}\nUser: ${user?.email ?? 'unknown'}\n`,
+    )
+    tryOpenUrl(
+      `mailto:feedback@partyon.app?subject=${subject}&body=${body}`,
+      'Send feedback to feedback@partyon.app from your mail app.',
+    )
+  }
+
   const sections: Section[] = [
     {
       title: 'ACCOUNT',
@@ -206,12 +256,12 @@ export default function AccountScreen() {
         {
           icon: 'lock-closed-outline',
           label: 'Privacy',
-          onPress: () => {},
+          onPress: () => router.push('/privacy'),
         },
         {
           icon: 'notifications-outline',
           label: 'Notifications',
-          onPress: () => {},
+          onPress: () => router.push('/notifications'),
         },
         {
           icon: 'card-outline',
@@ -258,12 +308,12 @@ export default function AccountScreen() {
         {
           icon: 'star-outline',
           label: 'Rate the app',
-          onPress: () => {},
+          onPress: handleRateApp,
         },
         {
           icon: 'chatbubble-outline',
           label: 'Give feedback',
-          onPress: () => {},
+          onPress: handleFeedback,
         },
       ],
     },
@@ -278,7 +328,7 @@ export default function AccountScreen() {
         {
           icon: 'help-circle-outline',
           label: 'Support',
-          onPress: () => {},
+          onPress: () => router.push('/support'),
         },
       ],
     },

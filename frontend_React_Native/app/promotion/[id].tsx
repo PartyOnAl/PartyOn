@@ -94,6 +94,8 @@ export default function PromotionDetailScreen() {
   const [isSaved, setIsSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [claimedCode, setClaimedCode] = useState<string | null>(null)
+  const [claiming, setClaiming] = useState(false)
 
   useEffect(() => {
     if (!id) { setLoading(false); return }
@@ -113,10 +115,16 @@ export default function PromotionDetailScreen() {
         .in('status', ['active', 'approved'])
         .neq('promotion_id', id)
         .limit(6),
-    ]).then(([promoRes, savedRes, relatedRes]) => {
+      user
+        ? supabase.from('claimed_promotions').select('redemption_code, status')
+            .eq('user_id', user.id).eq('promotion_id', id)
+            .neq('status', 'cancelled').maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]).then(([promoRes, savedRes, relatedRes, claimedRes]) => {
       setPromo(promoRes.data as Promotion)
       setIsSaved(!!savedRes.data)
       setRelated((relatedRes.data as Promotion[]) ?? [])
+      setClaimedCode((claimedRes.data as any)?.redemption_code ?? null)
       setLoading(false)
     })
   }, [id, user])
@@ -147,7 +155,7 @@ export default function PromotionDetailScreen() {
     try { await Share.share({ message: `${promo.title} — Check this offer on PartyOn!` }) } catch {}
   }
 
-  function handleClaim() {
+  async function handleClaim() {
     if (!user) {
       Alert.alert('Login required', 'Please log in to claim this offer.', [
         { text: 'Log in', onPress: () => router.push('/(auth)/login') },
@@ -155,9 +163,41 @@ export default function PromotionDetailScreen() {
       ])
       return
     }
-    Alert.alert('Offer Claimed! 🎉', 'Show this screen at the door to redeem your offer.', [
-      { text: 'Got it' },
-    ])
+    if (!promo) return
+
+    if (claimedCode) {
+      router.push({ pathname: '/(tabs)/bookings', params: { section: 'offers' } })
+      return
+    }
+
+    setClaiming(true)
+    const { data, error } = await supabase
+      .from('claimed_promotions')
+      .insert({ user_id: user.id, promotion_id: promo.promotion_id })
+      .select('redemption_code')
+      .single()
+    setClaiming(false)
+
+    if (error || !data) {
+      Alert.alert(
+        'Could not claim',
+        error?.message ?? 'Something went wrong. Please try again.',
+      )
+      return
+    }
+
+    setClaimedCode(data.redemption_code as string)
+    Alert.alert(
+      'Offer Claimed!',
+      'Your claim has been saved. Find it under Offers in Your Nights and show the code at the door to redeem.',
+      [
+        { text: 'Close', style: 'cancel' },
+        {
+          text: 'View My Offers',
+          onPress: () => router.push({ pathname: '/(tabs)/bookings', params: { section: 'offers' } }),
+        },
+      ],
+    )
   }
 
   function handleOpenMaps() {
@@ -275,14 +315,37 @@ export default function PromotionDetailScreen() {
                 <Text style={s.savingsText}>You save {promo.discount_value}% with this offer</Text>
               </View>
             )}
-            <TouchableOpacity style={s.claimBtn} onPress={handleClaim} activeOpacity={0.85}>
-              <LinearGradient
-                colors={['#e040b8', '#a83cd8', '#7c3aed', '#6d28d9']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <Text style={s.claimBtnText}>Claim Offer</Text>
+            {claimedCode && (
+              <View style={s.claimedBanner}>
+                <Ionicons name="checkmark-circle" size={16} color={COLORS.green} />
+                <Text style={s.claimedBannerText}>
+                  Claimed · Code <Text style={s.claimedBannerCode}>{claimedCode.toUpperCase()}</Text>
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={s.claimBtn}
+              onPress={handleClaim}
+              activeOpacity={0.85}
+              disabled={claiming}
+            >
+              {claimedCode ? (
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(16,185,129,0.15)' }]} />
+              ) : (
+                <LinearGradient
+                  colors={['#e040b8', '#a83cd8', '#7c3aed', '#6d28d9']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              )}
+              {claiming ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={[s.claimBtnText, claimedCode ? { color: COLORS.green } : null]}>
+                  {claimedCode ? 'View in Your Nights' : 'Claim Offer'}
+                </Text>
+              )}
             </TouchableOpacity>
             <View style={s.saveShareRow}>
               <TouchableOpacity style={s.outlineBtn} onPress={toggleSave} disabled={saving}>
@@ -521,6 +584,15 @@ const s = StyleSheet.create({
     alignSelf: 'center',
   },
   savingsText: { color: '#4ade80', fontSize: FONT.sm, fontWeight: '700', textAlign: 'center' },
+  claimedBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: 'rgba(16,185,129,0.10)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.35)',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 2,
+  },
+  claimedBannerText: { color: COLORS.green, fontSize: FONT.sm, fontWeight: '700' },
+  claimedBannerCode: { color: COLORS.white, fontWeight: '800', letterSpacing: 1 },
   claimBtn: {
     borderRadius: RADIUS.pill,
     paddingVertical: 15,
