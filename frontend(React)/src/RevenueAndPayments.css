@@ -256,13 +256,30 @@ body {
   }
 }
 
-.rp__topbar-avatar {
+.rp__icon-btn {
   width: 2.5rem;
   height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, #4b5563, #1f2937);
   border: 1px solid var(--rp-border);
+  background: transparent;
+  color: var(--rp-muted);
+  cursor: pointer;
   flex-shrink: 0;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.rp__icon-btn:hover {
+  color: var(--rp-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rp__icon-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 .rp__content {

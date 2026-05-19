@@ -28,9 +28,9 @@ const NAV: NavItem[] = [
   { id: 'clubs', label: 'Club Approvals', href: 'club-approving.html' },
   { id: 'users', label: 'User Management', href: 'user-management.html' },
   { id: 'revenue', label: 'Revenue & Payments', href: 'revenue-and-payments.html', active: true },
-  { id: 'featured', label: 'Featured Events', href: '#' },
-  { id: 'analysis', label: 'Platform Analytics', href: '#' },
-  { id: 'settings', label: 'Settings', href: '#' },
+  { id: 'featured', label: 'Featured Events', href: 'featured-events.html' },
+  { id: 'analysis', label: 'Platform Analytics', href: 'platform-analytics.html' },
+  { id: 'settings', label: 'Settings', href: 'platform-settings.html' },
 ]
 
 const KPI_MAIN = {
@@ -158,11 +158,19 @@ function IconChart() {
   )
 }
 
-function IconSettings() {
+function IconGear() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
       <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
+function IconShield() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -241,7 +249,7 @@ const NAV_ICONS: Record<NavId, ReactNode> = {
   revenue: <IconWallet />,
   featured: <IconStar />,
   analysis: <IconChart />,
-  settings: <IconSettings />,
+  settings: <IconGear />,
 }
 
 const KPI_SMALL_ICONS: Record<(typeof KPI_SMALL)[number]['icon'], ReactNode> = {
@@ -345,7 +353,9 @@ export default function RevenueAndPayments() {
             <span className="rp__menu-btn-text">Menu</span>
           </button>
           <span className="rp__topbar-title">PartyOn Platform</span>
-          <div className="rp__topbar-avatar" aria-hidden />
+          <button type="button" className="rp__icon-btn" aria-label="Account">
+            <IconShield />
+          </button>
         </header>
 
         <main className="rp__content">
