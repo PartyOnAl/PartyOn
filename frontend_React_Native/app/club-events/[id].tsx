@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Event, Club } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -35,17 +36,18 @@ export default function ClubEventsScreen() {
 
   async function load() {
     if (!id) return
-    const now = new Date().toISOString()
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     const [clubRes, evRes] = await Promise.all([
       supabase.from('clubs').select('club_id,club_name,club_image').eq('club_id', id).single(),
       supabase.from('events').select('*')
         .eq('club_id', id)
         .eq('event_status', 'published')
-        .gte('event_starting_date', now)
+        .gte('event_starting_date', today.toISOString())
         .order('event_starting_date', { ascending: true }),
     ])
     setClub(clubRes.data as Club)
-    setEvents((evRes.data as Event[]) ?? [])
+    setEvents(((evRes.data as Event[]) ?? []).filter(ev => isEventUpcomingOrLive(ev)))
     setLoading(false)
   }
 

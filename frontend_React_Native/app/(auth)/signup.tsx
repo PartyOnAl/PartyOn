@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/lib/AuthContext'
 import { usePlatformSettings } from '@/lib/platformSettings'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
 
 // ── Shared input component ────────────────────────────────────────────────────
 function InputField({
@@ -101,7 +102,7 @@ export default function SignupScreen() {
     const err = await signUp(email.trim(), password, name, surname)
     setLoading(false)
     if (err) setError(err)
-    else router.replace('/(tabs)')
+    else navigateAfterAuth('/(tabs)')
   }
 
   async function handleGoogle() {
@@ -110,7 +111,7 @@ export default function SignupScreen() {
     const err = await signInWithGoogle()
     setGoogleLoading(false)
     if (err) setError(err)
-    else router.replace('/(tabs)')
+    else navigateAfterAuth('/(tabs)')
   }
 
   return (

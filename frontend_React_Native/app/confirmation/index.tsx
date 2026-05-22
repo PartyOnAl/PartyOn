@@ -73,7 +73,7 @@ export default function ConfirmationScreen() {
         <CheckCircle size={40} color={ACCENT} />
       </View>
 
-      <Text style={s.title}>You're in</Text>
+      <Text style={s.title}>{`You're in`}</Text>
       <Text style={s.subtitle}>Your tickets are confirmed</Text>
 
       {/* Event info */}

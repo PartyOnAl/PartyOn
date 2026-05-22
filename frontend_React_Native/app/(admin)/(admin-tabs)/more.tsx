@@ -1,6 +1,7 @@
+import { useCallback, useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
@@ -23,6 +24,21 @@ type MenuItem = {
 export default function AdminMoreScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const [pendingFeaturedCount, setPendingFeaturedCount] = useState(0)
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true
+      supabase
+        .from('events')
+        .select('event_id', { count: 'exact', head: true })
+        .eq('featured_request_status', 'pending_review')
+        .then(({ count }) => {
+          if (active) setPendingFeaturedCount(count ?? 0)
+        })
+      return () => { active = false }
+    }, []),
+  )
 
   async function handleSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -42,12 +58,23 @@ export default function AdminMoreScreen() {
       title: 'Management',
       items: [
         {
+          icon: 'gift-outline',
+          iconBg: 'rgba(16,185,129,0.15)',
+          iconColor: COLORS.green,
+          label: 'Subscription Offers',
+          sub: 'Create custom offers for club managers',
+          onPress: () => router.push('/(admin)/subscription-offers'),
+        },
+        {
           icon: 'star-outline',
           iconBg: 'rgba(245,166,35,0.15)',
           iconColor: COLORS.cta,
           label: 'Featured Events',
-          sub: 'Manage featured events and promotions',
+          sub: pendingFeaturedCount > 0
+            ? `${pendingFeaturedCount} request${pendingFeaturedCount !== 1 ? 's' : ''} waiting for approval`
+            : 'Manage featured events and promotions',
           onPress: () => router.push('/(admin)/featured-events'),
+          badge: pendingFeaturedCount > 0 ? String(pendingFeaturedCount) : undefined,
         },
         {
           icon: 'bar-chart-outline',

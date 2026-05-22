@@ -43,6 +43,8 @@ create index if not exists notifications_club_idx
 
 alter table public.notifications enable row level security;
 
+grant select, update, delete on public.notifications to authenticated;
+
 drop policy if exists "Recipients can read their notifications" on public.notifications;
 create policy "Recipients can read their notifications"
   on public.notifications for select
@@ -62,8 +64,21 @@ create policy "Recipients can delete their notifications"
 -- Inserts are performed by triggers (security definer) and by service role.
 -- No insert policy needed for end users.
 
--- Enable realtime so the bell badge updates live
-alter publication supabase_realtime add table public.notifications;
+-- Enable realtime so the bell badge updates live. The DO block keeps this
+-- migration safe to run more than once.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
+end
+$$;
 
 -- ─── push_tokens ────────────────────────────────────────────────────────────
 create table if not exists public.push_tokens (
@@ -80,6 +95,8 @@ create index if not exists push_tokens_profile_idx
   on public.push_tokens (profile_id);
 
 alter table public.push_tokens enable row level security;
+
+grant select, insert, update, delete on public.push_tokens to authenticated;
 
 drop policy if exists "Users manage their own push tokens (select)" on public.push_tokens;
 create policy "Users manage their own push tokens (select)"
@@ -414,3 +431,7 @@ begin
   end if;
 end
 $cron$;
+
+-- Force PostgREST to refresh the schema cache so `/rest/v1/notifications`
+-- starts working immediately after this script is run.
+notify pgrst, 'reload schema';

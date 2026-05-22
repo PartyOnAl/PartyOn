@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, ActivityIndicator, Alert, RefreshControl, Modal,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
@@ -21,6 +22,7 @@ type Reservation = {
   events: { event_name: string; final_ticket_price: number | null } | null
   profiles: { name: string | null; surname: string | null } | null
   tables: { minimum_spend: number | null; table_number: string } | null
+  ticket_types: { name: string | null; price: number | null } | null
 }
 
 type WeekRange = {
@@ -106,6 +108,7 @@ export default function ReservationsScreen() {
   const [loading, setLoading]           = useState(true)
   const [refreshing, setRefreshing]     = useState(false)
   const [typeFilter, setTypeFilter]     = useState<TypeFilter>('All')
+  const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null)
 
   // Selected week (default: This Week)
   const [selectedWeek, setSelectedWeek] = useState<WeekRange>(PRESETS[1])
@@ -132,7 +135,7 @@ export default function ReservationsScreen() {
       ? await supabase
           .from('reservations')
           .select(`reservation_id,type,status,nr_of_people,reservation_date,created_at,
-            events(event_name,final_ticket_price),profiles(name,surname),tables(minimum_spend,table_number)`)
+            events(event_name,final_ticket_price),profiles(name,surname),tables(minimum_spend,table_number),ticket_types(name,price)`)
           .in('event_id', eventIds)
           .gte('reservation_date', rangeStart)
           .lte('reservation_date', rangeEnd)
@@ -147,7 +150,7 @@ export default function ReservationsScreen() {
       ? await supabase
           .from('reservations')
           .select(`reservation_id,type,status,nr_of_people,reservation_date,created_at,
-            events(event_name,final_ticket_price),profiles(name,surname),tables(minimum_spend,table_number)`)
+            events(event_name,final_ticket_price),profiles(name,surname),tables(minimum_spend,table_number),ticket_types(name,price)`)
           .in('table_id', tableIds)
           .is('event_id', null)
           .gte('reservation_date', rangeStart)
@@ -161,7 +164,7 @@ export default function ReservationsScreen() {
       .filter(r => { if (seen.has(r.reservation_id)) return false; seen.add(r.reservation_id); return true })
       .sort((a, b) => ((a.reservation_date ?? '') > (b.reservation_date ?? '') ? 1 : -1))
 
-    setReservations(deduped as Reservation[])
+    setReservations(deduped as unknown as Reservation[])
     setLoading(false)
     setRefreshing(false)
   }, [profile?.club_id])
@@ -257,7 +260,7 @@ export default function ReservationsScreen() {
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
         <View style={s.center}><ActivityIndicator color={COLORS.purple} size="large" /></View>
       </SafeAreaView>
     )
@@ -265,7 +268,7 @@ export default function ReservationsScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView
         style={s.scroll}
         showsVerticalScrollIndicator={false}
@@ -274,7 +277,9 @@ export default function ReservationsScreen() {
         {/* Header */}
         <View style={s.header}>
           <View>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager Portal</Text>
           </View>
         </View>
@@ -373,7 +378,12 @@ export default function ReservationsScreen() {
                 const eventName = r.events?.event_name ?? (r.tables ? `Table ${r.tables.table_number}` : '–')
 
                 return (
-                  <View key={r.reservation_id} style={s.reservCard}>
+                  <TouchableOpacity
+                    key={r.reservation_id}
+                    style={s.reservCard}
+                    onPress={() => setSelectedReservation(r)}
+                    activeOpacity={0.84}
+                  >
                     <View style={s.reservTop}>
                       <View style={s.reservLeft}>
                         <View style={s.avatarCircle}>
@@ -402,23 +412,23 @@ export default function ReservationsScreen() {
 
                     {r.status === 'pending' && (
                       <View style={s.actionRow}>
-                        <TouchableOpacity style={s.confirmBtn} onPress={() => handleStatusChange(r.reservation_id, 'confirmed')}>
+                        <TouchableOpacity style={s.confirmBtn} onPress={(e) => { e.stopPropagation(); handleStatusChange(r.reservation_id, 'confirmed') }}>
                           <Ionicons name="checkmark-outline" size={14} color="#fff" />
                           <Text style={s.confirmBtnText}>Confirm</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.rejectBtn} onPress={() => handleStatusChange(r.reservation_id, 'cancelled')}>
+                        <TouchableOpacity style={s.rejectBtn} onPress={(e) => { e.stopPropagation(); handleStatusChange(r.reservation_id, 'cancelled') }}>
                           <Ionicons name="close-outline" size={14} color={COLORS.red} />
                           <Text style={s.rejectBtnText}>Decline</Text>
                         </TouchableOpacity>
                       </View>
                     )}
                     {r.status === 'confirmed' && (
-                      <TouchableOpacity style={s.completeBtn} onPress={() => handleStatusChange(r.reservation_id, 'completed')}>
+                      <TouchableOpacity style={s.completeBtn} onPress={(e) => { e.stopPropagation(); handleStatusChange(r.reservation_id, 'completed') }}>
                         <Ionicons name="checkmark-done-outline" size={14} color={COLORS.green} />
                         <Text style={s.completeBtnText}>Mark Completed</Text>
                       </TouchableOpacity>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 )
               })}
             </View>
@@ -526,7 +536,87 @@ export default function ReservationsScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={!!selectedReservation}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSelectedReservation(null)}
+      >
+        <View style={d.overlay}>
+          <TouchableOpacity style={d.backdrop} activeOpacity={1} onPress={() => setSelectedReservation(null)} />
+          {selectedReservation && (
+            <View style={d.sheet}>
+              <View style={d.dragHandle} />
+              <View style={d.header}>
+                <Text style={d.title}>{selectedReservation.type === 'ticket' ? 'Ticket Details' : 'Reservation Details'}</Text>
+                <TouchableOpacity style={d.closeBtn} onPress={() => setSelectedReservation(null)}>
+                  <Ionicons name="close" size={20} color={COLORS.muted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={d.guestBlock}>
+                <View style={d.avatar}>
+                  <Text style={d.avatarText}>{getDisplayName(selectedReservation)[0]?.toUpperCase() ?? '?'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={d.guestName}>{getDisplayName(selectedReservation)}</Text>
+                  <Text style={d.guestSub}>
+                    {selectedReservation.nr_of_people ?? 1} guest{(selectedReservation.nr_of_people ?? 1) !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={d.infoCard}>
+                <DetailRow icon="calendar-outline" label="Event" value={selectedReservation.events?.event_name ?? 'No event linked'} />
+                <View style={d.divider} />
+                <DetailRow icon="time-outline" label="Date" value={formatDate(selectedReservation.reservation_date) || 'Date not set'} />
+                <View style={d.divider} />
+                <DetailRow icon="checkmark-circle-outline" label="Status" value={selectedReservation.status.charAt(0).toUpperCase() + selectedReservation.status.slice(1)} />
+                <View style={d.divider} />
+                {selectedReservation.type === 'table' ? (
+                  <>
+                    <DetailRow icon="restaurant-outline" label="Table" value={selectedReservation.tables?.table_number ? `Table ${selectedReservation.tables.table_number}` : 'Table not set'} />
+                    <View style={d.divider} />
+                    <DetailRow icon="cash-outline" label="Minimum spend" value={selectedReservation.tables?.minimum_spend ? `€${selectedReservation.tables.minimum_spend.toFixed(2)}` : 'Not set'} />
+                  </>
+                ) : (
+                  <>
+                    <DetailRow icon="ticket-outline" label="Ticket type" value={selectedReservation.ticket_types?.name ?? 'Standard ticket'} />
+                    <View style={d.divider} />
+                    <DetailRow icon="cash-outline" label="Ticket price" value={
+                      selectedReservation.ticket_types?.price != null
+                        ? `€${selectedReservation.ticket_types.price.toFixed(2)}`
+                        : selectedReservation.events?.final_ticket_price != null
+                          ? `€${selectedReservation.events.final_ticket_price.toFixed(2)}`
+                          : 'Not set'
+                    } />
+                  </>
+                )}
+              </View>
+
+              <TouchableOpacity style={d.doneBtn} onPress={() => setSelectedReservation(null)}>
+                <Text style={d.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
+  )
+}
+
+function DetailRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+  return (
+    <View style={d.row}>
+      <View style={d.rowIcon}>
+        <Ionicons name={icon} size={16} color={COLORS.purple} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={d.rowLabel}>{label}</Text>
+        <Text style={d.rowValue}>{value}</Text>
+      </View>
+    </View>
   )
 }
 
@@ -616,6 +706,40 @@ const s = StyleSheet.create({
 })
 
 // ── Week Picker Modal styles ───────────────────────────────────────────────────
+const d = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
+  sheet: {
+    backgroundColor: COLORS.bgCard,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: COLORS.border,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xl,
+    gap: SPACING.md,
+  },
+  dragHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  title: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.bgCard2, alignItems: 'center', justifyContent: 'center' },
+  guestBlock: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.purpleDark + '44', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: COLORS.purple, fontSize: 18, fontWeight: '800' },
+  guestName: { color: COLORS.white, fontSize: FONT.lg, fontWeight: '800' },
+  guestSub: { color: COLORS.mutedDark, fontSize: FONT.sm, marginTop: 2 },
+  infoCard: { backgroundColor: COLORS.bg, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: SPACING.md },
+  rowIcon: { width: 34, height: 34, borderRadius: RADIUS.sm, backgroundColor: COLORS.bgCard2, alignItems: 'center', justifyContent: 'center' },
+  rowLabel: { color: COLORS.mutedDark, fontSize: 11, marginBottom: 3 },
+  rowValue: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
+  divider: { height: 1, backgroundColor: COLORS.border, marginLeft: SPACING.md + 34 + SPACING.sm },
+  doneBtn: { backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.md, paddingVertical: SPACING.md, alignItems: 'center' },
+  doneBtnText: { color: '#fff', fontSize: FONT.base, fontWeight: '800' },
+})
+
 const p = StyleSheet.create({
   overlay:  { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },

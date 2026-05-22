@@ -10,29 +10,50 @@ import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import type { Event } from '@/lib/types'
 
-function formatDate(iso: string) {
+type FeaturedStatus = 'pending_review' | 'approved' | 'rejected' | 'none' | 'cancelled'
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return 'Unset'
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })
 }
 
-function EventCard({ event, onToggleFeatured }: { event: Event; onToggleFeatured: (id: string, current: boolean) => void }) {
-  const isFeatured = event.is_featured ?? false
+function money(value: number | null | undefined) {
+  return `€${Number(value ?? 0).toFixed(0)}`
+}
+
+function statusMeta(status: FeaturedStatus | null | undefined, isFeatured: boolean | null | undefined) {
+  if (status === 'approved' || isFeatured) return { label: 'Approved', color: COLORS.green }
+  if (status === 'pending_review') return { label: 'Pending review', color: COLORS.cta }
+  if (status === 'rejected') return { label: 'Rejected', color: COLORS.red }
+  return { label: 'Not requested', color: COLORS.mutedDark }
+}
+
+function EventCard({
+  event,
+  onApprove,
+  onReject,
+  onRemove,
+}: {
+  event: Event
+  onApprove: (event: Event) => void
+  onReject: (event: Event) => void
+  onRemove: (event: Event) => void
+}) {
+  const status = (event.featured_request_status ?? 'none') as FeaturedStatus
+  const meta = statusMeta(status, event.is_featured)
 
   return (
     <View style={fe.eventCard}>
       <View style={fe.cardTop}>
-        {/* Featured badge */}
-        {isFeatured && (
-          <View style={fe.featuredBadge}>
-            <Ionicons name="star" size={11} color={COLORS.cta} />
-            <Text style={fe.featuredBadgeText}>Featured</Text>
-          </View>
-        )}
-        {/* Status badge */}
-        <View style={[fe.statusBadge, { backgroundColor: event.event_status === 'published' ? 'rgba(16,185,129,0.15)' : 'rgba(156,163,175,0.15)' }]}>
-          <Text style={[fe.statusText, { color: event.event_status === 'published' ? COLORS.green : COLORS.muted }]}>
-            {event.event_status}
-          </Text>
+        <View style={[fe.statusBadge, { backgroundColor: meta.color + '22' }]}>
+          <Text style={[fe.statusText, { color: meta.color }]}>{meta.label}</Text>
         </View>
+        {event.featured_fee_paid ? (
+          <View style={fe.paidBadge}>
+            <Ionicons name="card-outline" size={11} color={COLORS.green} />
+            <Text style={fe.paidText}>Paid {money(event.featured_fee_amount)}</Text>
+          </View>
+        ) : null}
       </View>
 
       <Text style={fe.eventName} numberOfLines={2}>{event.event_name}</Text>
@@ -42,46 +63,52 @@ function EventCard({ event, onToggleFeatured }: { event: Event; onToggleFeatured
           <Ionicons name="calendar-outline" size={12} color={COLORS.mutedDark} />
           <Text style={fe.metaText}>{formatDate(event.event_starting_date)}</Text>
         </View>
-        {event.clubs?.club_name && (
+        {event.clubs?.club_name ? (
           <View style={fe.metaItem}>
             <Ionicons name="business-outline" size={12} color={COLORS.mutedDark} />
             <Text style={fe.metaText} numberOfLines={1}>{event.clubs.club_name}</Text>
           </View>
-        )}
+        ) : null}
+        {event.featured_requested_at ? (
+          <View style={fe.metaItem}>
+            <Ionicons name="time-outline" size={12} color={COLORS.mutedDark} />
+            <Text style={fe.metaText}>Requested {formatDate(event.featured_requested_at)}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* Stats row */}
       <View style={fe.statsRow}>
         <View style={fe.statItem}>
-          <Text style={fe.statVal}>{event.event_capacity?.toLocaleString() ?? '—'}</Text>
+          <Text style={fe.statVal}>{event.event_capacity?.toLocaleString() ?? '-'}</Text>
           <Text style={fe.statLbl}>Capacity</Text>
         </View>
-        <View style={[fe.statItem, { borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border }]}>
-          <Text style={fe.statVal}>€{event.final_ticket_price ?? event.ticket_price ?? '—'}</Text>
-          <Text style={fe.statLbl}>Ticket Price</Text>
+        <View style={[fe.statItem, fe.statBorder]}>
+          <Text style={fe.statVal}>{money(event.final_ticket_price ?? event.ticket_price)}</Text>
+          <Text style={fe.statLbl}>Ticket</Text>
         </View>
         <View style={fe.statItem}>
-          <Text style={[fe.statVal, { color: isFeatured ? COLORS.cta : COLORS.mutedDark }]}>
-            {isFeatured ? 'Active' : 'Off'}
-          </Text>
-          <Text style={fe.statLbl}>Featured</Text>
+          <Text style={fe.statVal}>{money(event.featured_fee_amount)}</Text>
+          <Text style={fe.statLbl}>Feature fee</Text>
         </View>
       </View>
 
-      {/* Toggle action */}
-      <TouchableOpacity
-        style={[fe.toggleBtn, { backgroundColor: isFeatured ? 'rgba(239,68,68,0.15)' : 'rgba(245,166,35,0.15)' }]}
-        onPress={() => onToggleFeatured(event.event_id, isFeatured)}
-      >
-        <Ionicons
-          name={isFeatured ? 'star' : 'star-outline'}
-          size={15}
-          color={isFeatured ? COLORS.red : COLORS.cta}
-        />
-        <Text style={[fe.toggleBtnText, { color: isFeatured ? COLORS.red : COLORS.cta }]}>
-          {isFeatured ? 'Remove Featured Status' : 'Mark as Featured'}
-        </Text>
-      </TouchableOpacity>
+      {status === 'pending_review' ? (
+        <View style={fe.actionRow}>
+          <TouchableOpacity style={fe.rejectBtn} onPress={() => onReject(event)} activeOpacity={0.82}>
+            <Ionicons name="close-circle-outline" size={15} color={COLORS.red} />
+            <Text style={fe.rejectText}>Reject</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={fe.approveBtn} onPress={() => onApprove(event)} activeOpacity={0.82}>
+            <Ionicons name="star" size={15} color="#fff" />
+            <Text style={fe.approveText}>Approve Featured</Text>
+          </TouchableOpacity>
+        </View>
+      ) : event.is_featured ? (
+        <TouchableOpacity style={fe.removeBtn} onPress={() => onRemove(event)} activeOpacity={0.82}>
+          <Ionicons name="star-outline" size={15} color={COLORS.red} />
+          <Text style={fe.removeText}>Remove from featured</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   )
 }
@@ -91,14 +118,7 @@ export default function FeaturedEventsScreen() {
   const router = useRouter()
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeFilter, setActiveFilter] = useState<'all' | 'featured'>('all')
-
-  const stats = {
-    totalImpressions: 69120,
-    totalClicks: 5100,
-    totalBookings: 674,
-    avgCTR: 7.38,
-  }
+  const [activeFilter, setActiveFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending')
 
   useFocusEffect(
     useCallback(() => {
@@ -111,70 +131,119 @@ export default function FeaturedEventsScreen() {
     const { data } = await supabase
       .from('events')
       .select('*, clubs(club_name, club_id)')
-      .in('event_status', ['published', 'draft'])
-      .order('is_featured', { ascending: false })
+      .in('featured_request_status', ['pending_review', 'approved', 'rejected'])
+      .order('featured_requested_at', { ascending: false, nullsFirst: false })
       .order('event_starting_date', { ascending: true })
 
     setEvents((data as Event[]) ?? [])
     setLoading(false)
   }
 
-  async function toggleFeatured(eventId: string, current: boolean) {
-    const action = current ? 'remove from featured' : 'mark as featured'
-    Alert.alert(
-      'Featured Status',
-      `Are you sure you want to ${action} this event?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: current ? 'Remove' : 'Feature',
-          onPress: async () => {
-            await supabase.from('events').update({ is_featured: !current }).eq('event_id', eventId)
-            loadEvents()
-          },
-        },
-      ],
-    )
+  async function updateFeatured(event: Event, status: FeaturedStatus) {
+    const nowIso = new Date().toISOString()
+    const payload = status === 'approved'
+      ? {
+        featured_request_status: 'approved',
+        is_featured: true,
+        featured_reviewed_at: nowIso,
+        featured_rejection_reason: null,
+      }
+      : status === 'rejected'
+        ? {
+          featured_request_status: 'rejected',
+          is_featured: false,
+          featured_reviewed_at: nowIso,
+          featured_rejection_reason: 'Not approved for homepage placement.',
+        }
+        : {
+          featured_request_status: 'cancelled',
+          is_featured: false,
+          featured_reviewed_at: nowIso,
+        }
+
+    const { error } = await supabase.from('events').update(payload).eq('event_id', event.event_id)
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+    loadEvents()
   }
 
-  const displayed = activeFilter === 'featured' ? events.filter(e => e.is_featured) : events
+  function approve(event: Event) {
+    Alert.alert('Approve Featured Event', `Approve "${event.event_name}" for the user homepage?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Approve', onPress: () => updateFeatured(event, 'approved') },
+    ])
+  }
+
+  function reject(event: Event) {
+    Alert.alert('Reject Featured Request', `Reject "${event.event_name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reject', style: 'destructive', onPress: () => updateFeatured(event, 'rejected') },
+    ])
+  }
+
+  function remove(event: Event) {
+    Alert.alert('Remove Featured Event', `Remove "${event.event_name}" from the user homepage?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => updateFeatured(event, 'cancelled') },
+    ])
+  }
+
+  const pending = events.filter(e => e.featured_request_status === 'pending_review')
+  const approved = events.filter(e => e.featured_request_status === 'approved' || e.is_featured)
+  const rejected = events.filter(e => e.featured_request_status === 'rejected')
+  const displayed = activeFilter === 'pending'
+    ? pending
+    : activeFilter === 'approved'
+      ? approved
+      : activeFilter === 'rejected'
+        ? rejected
+        : events
+  const paidTotal = events
+    .filter(e => e.featured_fee_paid)
+    .reduce((sum, event) => sum + Number(event.featured_fee_amount ?? 0), 0)
 
   return (
     <View style={[fe.container, { paddingTop: insets.top }]}>
-      {/* Header */}
       <View style={fe.topBar}>
         <TouchableOpacity style={fe.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={fe.topBarTitle}>Featured Events</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity style={fe.backBtn} onPress={loadEvents}>
+          <Ionicons name="refresh-outline" size={20} color={COLORS.muted} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
         <View style={{ paddingHorizontal: SPACING.md, marginBottom: SPACING.md }}>
-          <Text style={fe.pageTitle}>Featured Events</Text>
-          <Text style={fe.pageSub}>Manage homepage featured events and promotions</Text>
+          <Text style={fe.pageTitle}>Featured Requests</Text>
+          <Text style={fe.pageSub}>Approve paid manager requests before they reach the user homepage.</Text>
         </View>
 
-        {/* Analytics stats */}
         <View style={fe.statsGrid}>
           {[
-            { icon: 'eye-outline' as const, label: 'Total Impressions', val: stats.totalImpressions.toLocaleString() },
-            { icon: 'hand-left-outline' as const, label: 'Total Clicks', val: stats.totalClicks.toLocaleString() },
-            { icon: 'ticket-outline' as const, label: 'Total Bookings', val: stats.totalBookings.toString() },
-            { icon: 'trending-up-outline' as const, label: 'Avg. CTR', val: `${stats.avgCTR}%` },
+            { icon: 'hourglass-outline' as const, label: 'Pending', val: String(pending.length), filter: 'pending' as const },
+            { icon: 'star-outline' as const, label: 'Approved', val: String(approved.length), filter: 'approved' as const },
+            { icon: 'cash-outline' as const, label: 'Paid fees', val: money(paidTotal), filter: 'all' as const },
+            { icon: 'close-circle-outline' as const, label: 'Rejected', val: String(rejected.length), filter: 'rejected' as const },
           ].map(item => (
-            <View key={item.label} style={fe.statCard}>
+            <TouchableOpacity key={item.label} style={fe.statCard} activeOpacity={0.82} onPress={() => setActiveFilter(item.filter)}>
               <Ionicons name={item.icon} size={16} color={COLORS.purple} />
               <Text style={fe.statCardVal}>{item.val}</Text>
               <Text style={fe.statCardLabel}>{item.label}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
-        {/* Filter tabs */}
         <View style={fe.filterRow}>
-          {([['all', 'All Events'], ['featured', 'Featured Only']] as const).map(([key, label]) => (
+          {([
+            ['pending', 'Pending'],
+            ['approved', 'Approved'],
+            ['rejected', 'Rejected'],
+            ['all', 'All'],
+          ] as const).map(([key, label]) => (
             <TouchableOpacity
               key={key}
               style={[fe.filterTab, activeFilter === key && fe.filterTabActive]}
@@ -190,15 +259,13 @@ export default function FeaturedEventsScreen() {
         ) : (
           <View style={{ paddingHorizontal: SPACING.md, gap: SPACING.md }}>
             {displayed.length === 0 ? (
-              <View style={{ alignItems: 'center', paddingTop: 60, gap: SPACING.md }}>
+              <View style={fe.empty}>
                 <Ionicons name="star-outline" size={48} color={COLORS.mutedDark} />
-                <Text style={{ color: COLORS.mutedDark, fontSize: FONT.base }}>
-                  {activeFilter === 'featured' ? 'No featured events yet' : 'No events found'}
-                </Text>
+                <Text style={fe.emptyText}>No featured requests here</Text>
               </View>
             ) : (
               displayed.map(ev => (
-                <EventCard key={ev.event_id} event={ev} onToggleFeatured={toggleFeatured} />
+                <EventCard key={ev.event_id} event={ev} onApprove={approve} onReject={reject} onRemove={remove} />
               ))
             )}
           </View>
@@ -222,7 +289,6 @@ const fe = StyleSheet.create({
   topBarTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
   pageTitle: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '800' },
   pageSub: { color: COLORS.mutedDark, fontSize: FONT.sm, marginTop: 2 },
-
   statsGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
     paddingHorizontal: SPACING.md, gap: SPACING.sm,
@@ -236,7 +302,6 @@ const fe = StyleSheet.create({
   },
   statCardVal: { color: COLORS.white, fontSize: FONT.lg, fontWeight: '800', marginTop: 4 },
   statCardLabel: { color: COLORS.mutedDark, fontSize: 12 },
-
   filterRow: {
     flexDirection: 'row',
     paddingHorizontal: SPACING.md, gap: SPACING.sm,
@@ -250,7 +315,6 @@ const fe = StyleSheet.create({
   filterTabActive: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },
   filterTabText: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600' },
   filterTabTextActive: { color: COLORS.white },
-
   eventCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.xl,
@@ -259,26 +323,27 @@ const fe = StyleSheet.create({
     padding: SPACING.md,
     gap: SPACING.sm,
   },
-  cardTop: { flexDirection: 'row', gap: 8 },
-  featuredBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(245,166,35,0.15)',
-    borderRadius: RADIUS.pill, paddingHorizontal: 8, paddingVertical: 3,
-  },
-  featuredBadgeText: { color: COLORS.cta, fontSize: 11, fontWeight: '700' },
+  cardTop: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   statusBadge: { borderRadius: RADIUS.pill, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 11, fontWeight: '700', textTransform: 'capitalize' },
+  paidBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: RADIUS.pill, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: COLORS.green + '18' },
+  paidText: { color: COLORS.green, fontSize: 11, fontWeight: '700' },
   eventName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
   meta: { gap: 4 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { color: COLORS.mutedDark, fontSize: 12, flex: 1 },
   statsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: COLORS.border },
   statItem: { flex: 1, padding: SPACING.sm, alignItems: 'center' },
+  statBorder: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border },
   statVal: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
   statLbl: { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
-  toggleBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2,
-  },
-  toggleBtnText: { fontSize: FONT.sm, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', gap: SPACING.sm },
+  approveBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, backgroundColor: COLORS.purple },
+  approveText: { color: '#fff', fontSize: FONT.sm, fontWeight: '800' },
+  rejectBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, backgroundColor: COLORS.red + '18', borderWidth: 1, borderColor: COLORS.red + '44' },
+  rejectText: { color: COLORS.red, fontSize: FONT.sm, fontWeight: '800' },
+  removeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, backgroundColor: COLORS.red + '18', borderWidth: 1, borderColor: COLORS.red + '44' },
+  removeText: { color: COLORS.red, fontSize: FONT.sm, fontWeight: '800' },
+  empty: { alignItems: 'center', paddingTop: 60, gap: SPACING.md },
+  emptyText: { color: COLORS.mutedDark, fontSize: FONT.base },
 })

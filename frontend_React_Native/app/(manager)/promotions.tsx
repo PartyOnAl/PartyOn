@@ -1,9 +1,10 @@
 import { useCallback, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Modal, TextInput, ActivityIndicator, Alert, RefreshControl,
   KeyboardAvoidingView, Platform,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter, useFocusEffect } from 'expo-router'
@@ -11,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { MANAGER_DASHBOARD, replaceManagerRoute } from '@/lib/managerNavigation'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type PromoStatus = 'pending' | 'approved' | 'active' | 'expired'
@@ -392,7 +394,7 @@ export default function ManagerPromotionsScreen() {
       >
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_DASHBOARD)} style={s.backBtn}>
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
@@ -406,7 +408,7 @@ export default function ManagerPromotionsScreen() {
         </View>
 
         <Text style={s.pageTitle}>Promotions</Text>
-        <Text style={s.pageSubtitle}>Create and manage your club's promotions</Text>
+        <Text style={s.pageSubtitle}>Create and manage your club&apos;s promotions</Text>
 
         {/* Stats */}
         <View style={s.statsRow}>
@@ -458,7 +460,12 @@ export default function ManagerPromotionsScreen() {
               new Date(p.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
 
             return (
-              <View key={p.promotion_id} style={s.card}>
+              <TouchableOpacity
+                key={p.promotion_id}
+                style={s.card}
+                onPress={() => openEdit(p)}
+                activeOpacity={0.84}
+              >
                 {p.image_url ? (
                   <Image source={{ uri: p.image_url }} style={s.cardImage} contentFit="cover" />
                 ) : (
@@ -525,7 +532,10 @@ export default function ManagerPromotionsScreen() {
                     {(p.status === 'active' || p.status === 'pending') && (
                       <TouchableOpacity
                         style={[s.toggleBtn, p.status === 'active' ? s.toggleBtnOn : s.toggleBtnOff]}
-                        onPress={() => toggleStatus(p)}
+                        onPress={(e) => {
+                          e.stopPropagation()
+                          toggleStatus(p)
+                        }}
                       >
                         <Ionicons
                           name={p.status === 'active' ? 'eye-outline' : 'eye-off-outline'}
@@ -538,16 +548,16 @@ export default function ManagerPromotionsScreen() {
                       </TouchableOpacity>
                     )}
                     <View style={{ flexDirection: 'row', gap: SPACING.xs, marginLeft: 'auto' }}>
-                      <TouchableOpacity style={s.iconBtn} onPress={() => openEdit(p)}>
+                      <TouchableOpacity style={s.iconBtn} onPress={(e) => { e.stopPropagation(); openEdit(p) }}>
                         <Ionicons name="pencil-outline" size={16} color={COLORS.muted} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={[s.iconBtn, s.iconBtnRed]} onPress={() => handleDelete(p)}>
+                      <TouchableOpacity style={[s.iconBtn, s.iconBtnRed]} onPress={(e) => { e.stopPropagation(); handleDelete(p) }}>
                         <Ionicons name="trash-outline" size={16} color={COLORS.red} />
                       </TouchableOpacity>
                     </View>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             )
           })
         )}
@@ -615,7 +625,7 @@ export default function ManagerPromotionsScreen() {
               />
 
               {/* Why worth it */}
-              <Text style={m.label}>Why It's Worth It</Text>
+              <Text style={m.label}>Why It&apos;s Worth It</Text>
               <TextInput
                 style={[m.input, m.textarea]} value={whyWorthIt} onChangeText={setWhyWorthIt}
                 placeholder="What makes this offer special…" placeholderTextColor={COLORS.mutedDark}
@@ -666,7 +676,7 @@ export default function ManagerPromotionsScreen() {
               />
 
               {/* Included items */}
-              <Text style={m.label}>What's Included</Text>
+              <Text style={m.label}>What&apos;s Included</Text>
               <TextInput
                 style={m.input} value={includedItems} onChangeText={setIncludedItems}
                 placeholder="e.g. 1 bottle, mixers, entry" placeholderTextColor={COLORS.mutedDark}

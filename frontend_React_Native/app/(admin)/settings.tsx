@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { usePlatformSettings } from '@/lib/platformSettings'
 
 type Settings = {
   // Platform
@@ -21,7 +22,7 @@ type Settings = {
   commission_table: string
   // Subscriptions
   monthly_club_fee: string
-  annual_club_fee: string
+  three_month_club_fee: string
   featured_slot_fee: string
   trial_period_days: string
   // Tax
@@ -46,8 +47,8 @@ const DEFAULTS: Settings = {
   featured_event_billing: true,
   commission_ticket: '15',
   commission_table: '15',
-  monthly_club_fee: '299',
-  annual_club_fee: '2499',
+  monthly_club_fee: '70',
+  three_month_club_fee: '799',
   featured_slot_fee: '500',
   trial_period_days: '30',
   vat_enabled: true,
@@ -153,6 +154,7 @@ function RateRow({
 export default function AdminSettingsScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const { reload: reloadPlatformSettings } = usePlatformSettings()
   const [settings, setSettings] = useState<Settings>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -169,8 +171,9 @@ export default function AdminSettingsScreen() {
       const map: Partial<Settings> = {}
       for (const row of data) {
         const k = row.key as keyof Settings
-        if (k in DEFAULTS) {
-          (map as any)[k] = typeof DEFAULTS[k] === 'boolean' ? row.value === 'true' : row.value
+        const key = row.key === 'annual_club_fee' ? 'three_month_club_fee' : k
+        if (key in DEFAULTS) {
+          (map as any)[key] = typeof DEFAULTS[key as keyof Settings] === 'boolean' ? row.value === 'true' : row.value
         }
       }
       setSettings({ ...DEFAULTS, ...map })
@@ -182,10 +185,11 @@ export default function AdminSettingsScreen() {
     setSaving(key)
     const { error } = await supabase
       .from('platform_settings')
-      .upsert({ key, value: String(value) }, { onConflict: 'key' })
+      .upsert({ key, value: String(value), updated_at: new Date().toISOString() }, { onConflict: 'key' })
     setSaving(null)
     if (error) { Alert.alert('Error', error.message); return }
     setSettings(prev => ({ ...prev, [key]: value }))
+    reloadPlatformSettings()
   }
 
   function toggleWithConfirm(key: keyof Settings, label: string, newVal: boolean, warning?: string) {
@@ -225,7 +229,7 @@ export default function AdminSettingsScreen() {
       '',
       '--- Subscriptions ---',
       `Monthly Club Fee: €${settings.monthly_club_fee}`,
-      `Annual Club Fee: €${settings.annual_club_fee}`,
+      `3-Month Club Fee: €${settings.three_month_club_fee}`,
       `Featured Slot: €${settings.featured_slot_fee}`,
       `Trial Period: ${settings.trial_period_days} days`,
       '',
@@ -375,10 +379,10 @@ export default function AdminSettingsScreen() {
             <View style={st.divider} />
             <RateRow
               icon="refresh-outline" iconBg="rgba(16,185,129,0.12)" iconColor={COLORS.green}
-              label="Annual Club Fee" sub="Discounted yearly subscription"
-              display={`€${settings.annual_club_fee}`}
-              isSaving={saving === 'annual_club_fee'}
-              onPress={() => openEdit('annual_club_fee', 'Annual Club Fee', '€', 'Full year subscription fee per club.')}
+              label="3-Month Club Fee" sub="Recurring three-month subscription"
+              display={`€${settings.three_month_club_fee}`}
+              isSaving={saving === 'three_month_club_fee'}
+              onPress={() => openEdit('three_month_club_fee', '3-Month Club Fee', '€', 'Charged to each club every three months.')}
             />
             <View style={st.divider} />
             <RateRow

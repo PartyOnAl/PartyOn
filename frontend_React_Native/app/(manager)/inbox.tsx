@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl, FlatList, Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
+import { COLORS, SPACING, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 
@@ -98,8 +99,9 @@ export default function ManagerNotificationsScreen() {
 
   useEffect(() => {
     if (!profile?.id) return
+    const channelName = `notifications:inbox:${profile.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`
     const channel = supabase
-      .channel('notifications:inbox:' + profile.id)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -228,7 +230,7 @@ export default function ManagerNotificationsScreen() {
         ListEmptyComponent={
           <View style={s.empty}>
             <Ionicons name="checkmark-done-circle-outline" size={56} color={COLORS.mutedDark} />
-            <Text style={s.emptyTitle}>You're all caught up</Text>
+            <Text style={s.emptyTitle}>{"You're all caught up"}</Text>
             <Text style={s.emptySubtitle}>New reservations, disputes and reminders will appear here.</Text>
           </View>
         }

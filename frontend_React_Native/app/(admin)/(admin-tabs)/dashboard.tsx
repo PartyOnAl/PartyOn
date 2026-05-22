@@ -20,7 +20,6 @@ type Stats = {
   totalEvents: number
   eventGrowth: number
   totalBookings: number
-  pendingClubs: number
 }
 
 type TopClub = { club_id: string; club_name: string; rating: number; ratingCount: number }
@@ -47,19 +46,21 @@ function MiniBarChart({ values }: { values: number[] }) {
 }
 
 function StatCard({
-  label, value, sub, subColor, icon,
+  label, value, sub, subColor, icon, onPress,
 }: {
   label: string; value: string; sub?: string; subColor?: string; icon: keyof typeof Ionicons.glyphMap
+  onPress?: () => void
 }) {
+  const Wrap = onPress ? TouchableOpacity : View
   return (
-    <View style={s.statCard}>
+    <Wrap style={s.statCard} onPress={onPress} activeOpacity={0.82}>
       <View style={s.statIcon}>
         <Ionicons name={icon} size={16} color={COLORS.purple} />
       </View>
       <Text style={s.statValue}>{value}</Text>
       <Text style={s.statLabel}>{label}</Text>
       {sub ? <Text style={[s.statSub, { color: subColor ?? COLORS.green }]}>{sub}</Text> : null}
-    </View>
+    </Wrap>
   )
 }
 
@@ -69,7 +70,8 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [topClubs, setTopClubs] = useState<TopClub[]>([])
   const [topEvents, setTopEvents] = useState<TopEvent[]>([])
-  const [chartValues] = useState([18000, 22000, 19000, 31000, 28000, 35000, 41000])
+  const [chartValues, setChartValues] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [pendingFeaturedCount, setPendingFeaturedCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useFocusEffect(
@@ -81,13 +83,14 @@ export default function AdminDashboard() {
   async function loadDashboard() {
     setLoading(true)
     try {
-      const [usersRes, clubsRes, eventsRes, bookingsRes, pendingRes] = await Promise.all([
-        supabase.from('profiles').select('id, created_at', { count: 'exact' }),
+      const [clubStatsRes, clubsRes, eventsRes, bookingsRes, featuredPendingRes] = await Promise.all([
+        supabase.from('clubs').select('club_id, created_at', { count: 'exact' }).not('manager_id', 'is', null),
         supabase.from('clubs').select('club_id', { count: 'exact' }).eq('club_status', 'approved'),
-        supabase.from('events').select('event_id', { count: 'exact' }).eq('event_status', 'published'),
+        supabase.from('events').select('event_id, created_at', { count: 'exact' }).eq('event_status', 'published'),
         supabase.from('reservations').select('reservation_id', { count: 'exact' }),
-        supabase.from('clubs').select('club_id', { count: 'exact' }).eq('club_status', 'pending'),
+        supabase.from('events').select('event_id', { count: 'exact', head: true }).eq('featured_request_status', 'pending_review'),
       ])
+      setPendingFeaturedCount(featuredPendingRes.count ?? 0)
 
       // Top clubs by rating: aggregate ratings → events → clubs
       const [ratingsRes, allEventsRes, allClubsRes, ticketRes] = await Promise.all([
@@ -153,26 +156,58 @@ export default function AdminDashboard() {
         .slice(0, 5)
       setTopEvents(events)
 
-      // Compute monthly revenue from completed payments in last 30 days
+      // Platform revenue is only the commission collected, not the full ticket/table price.
       const since = new Date()
       since.setDate(since.getDate() - 30)
+      const prevSince = new Date()
+      prevSince.setDate(prevSince.getDate() - 60)
       const { data: monthPayments } = await supabase
         .from('payments')
-        .select('amount')
+        .select('payment_date, commission_amount, amount')
         .eq('status', 'completed')
-        .gte('payment_date', since.toISOString())
-      const monthlyRevenue = (monthPayments ?? []).reduce((s, p: any) => s + Number(p.amount ?? 0), 0)
+        .gte('payment_date', prevSince.toISOString())
+
+      const currentRows = (monthPayments ?? []).filter((p: any) => new Date(p.payment_date ?? 0) >= since)
+      const previousRows = (monthPayments ?? []).filter((p: any) => {
+        const d = new Date(p.payment_date ?? 0)
+        return d >= prevSince && d < since
+      })
+      const sumCommission = (rows: any[]) => rows.reduce((sum, p) => sum + Number(p.commission_amount ?? 0), 0)
+      const monthlyRevenue = sumCommission(currentRows)
+      const previousRevenue = sumCommission(previousRows)
+      const revenueGrowth = previousRevenue > 0
+        ? Math.round(((monthlyRevenue - previousRevenue) / previousRevenue) * 100)
+        : monthlyRevenue > 0 ? 100 : 0
+
+      const chartStart = new Date()
+      chartStart.setHours(0, 0, 0, 0)
+      chartStart.setDate(chartStart.getDate() - 6)
+      const chartBuckets = new Array(7).fill(0) as number[]
+      for (const p of currentRows as any[]) {
+        const d = new Date(p.payment_date ?? 0)
+        d.setHours(0, 0, 0, 0)
+        const idx = Math.floor((d.getTime() - chartStart.getTime()) / 86400000)
+        if (idx >= 0 && idx <= 6) chartBuckets[idx] += Number(p.commission_amount ?? 0)
+      }
+      setChartValues(chartBuckets)
+      const growthFromRows = (rows: any[], dateKey = 'created_at') => {
+        const current = rows.filter(row => new Date(row[dateKey] ?? 0) >= since).length
+        const previous = rows.filter(row => {
+          const d = new Date(row[dateKey] ?? 0)
+          return d >= prevSince && d < since
+        }).length
+        return previous > 0 ? Math.round(((current - previous) / previous) * 100) : current > 0 ? 100 : 0
+      }
 
       setStats({
         monthlyRevenue,
-        revenueGrowth: 9,
-        totalUsers: usersRes.count ?? 0,
-        userGrowth: 14,
+        revenueGrowth,
+        totalUsers: clubStatsRes.count ?? 0,
+        userGrowth: growthFromRows(clubStatsRes.data ?? []),
         activeClubs: clubsRes.count ?? 0,
         totalEvents: eventsRes.count ?? 0,
-        eventGrowth: 30,
+        eventGrowth: growthFromRows(eventsRes.data ?? []),
         totalBookings: bookingsRes.count ?? 0,
-        pendingClubs: pendingRes.count ?? 0,
       })
     } finally {
       setLoading(false)
@@ -227,6 +262,7 @@ export default function AdminDashboard() {
             label="Total Users"
             value={(stats?.totalUsers ?? 0).toLocaleString()}
             sub={`+${stats?.userGrowth}%`}
+            onPress={() => router.push('/(admin)/(admin-tabs)/users')}
           />
           <StatCard
             icon="business-outline"
@@ -234,17 +270,20 @@ export default function AdminDashboard() {
             value={String(stats?.activeClubs ?? 0)}
             sub="Live"
             subColor={COLORS.purple}
+            onPress={() => router.push('/(admin)/(admin-tabs)/clubs')}
           />
           <StatCard
             icon="calendar-outline"
             label="Total Events"
             value={String(stats?.totalEvents ?? 0)}
             sub={`+${stats?.eventGrowth}%`}
+            onPress={() => router.push('/(admin)/events')}
           />
           <StatCard
             icon="ticket-outline"
             label="Total Bookings"
             value={(stats?.totalBookings ?? 0).toLocaleString()}
+            onPress={() => router.push('/(admin)/(admin-tabs)/revenue')}
           />
         </View>
 
@@ -254,6 +293,22 @@ export default function AdminDashboard() {
           <View style={s.card}>
             <TouchableOpacity
               style={s.actionRow}
+              onPress={() => router.push('/(admin)/add-club')}
+            >
+              <View style={s.actionLeft}>
+                <View style={[s.actionIcon, { backgroundColor: 'rgba(139,92,246,0.15)' }]}>
+                  <Ionicons name="add-circle-outline" size={18} color={COLORS.purple} />
+                </View>
+                <View>
+                  <Text style={s.actionTitle}>Add New Club</Text>
+                  <Text style={s.actionSub}>Create club and assign manager</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+            </TouchableOpacity>
+            <View style={s.divider} />
+            <TouchableOpacity
+              style={s.actionRow}
               onPress={() => router.push('/(admin)/(admin-tabs)/clubs')}
             >
               <View style={s.actionLeft}>
@@ -261,13 +316,33 @@ export default function AdminDashboard() {
                   <Ionicons name="business-outline" size={18} color={COLORS.purple} />
                 </View>
                 <View>
-                  <Text style={s.actionTitle}>Club Approvals</Text>
-                  <Text style={s.actionSub}>{stats?.pendingClubs} pending</Text>
+                  <Text style={s.actionTitle}>Club Management</Text>
+                  <Text style={s.actionSub}>{stats?.activeClubs} active clubs</Text>
                 </View>
               </View>
-              {(stats?.pendingClubs ?? 0) > 0 && (
+              <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+            </TouchableOpacity>
+            <View style={s.divider} />
+            <TouchableOpacity
+              style={s.actionRow}
+              onPress={() => router.push('/(admin)/featured-events')}
+            >
+              <View style={s.actionLeft}>
+                <View style={[s.actionIcon, { backgroundColor: 'rgba(245,166,35,0.15)' }]}>
+                  <Ionicons name="star-outline" size={18} color={COLORS.cta} />
+                </View>
+                <View>
+                  <Text style={s.actionTitle}>Featured Approvals</Text>
+                  <Text style={s.actionSub}>
+                    {pendingFeaturedCount > 0
+                      ? `${pendingFeaturedCount} request${pendingFeaturedCount !== 1 ? 's' : ''} waiting`
+                      : 'No pending featured requests'}
+                  </Text>
+                </View>
+              </View>
+              {pendingFeaturedCount > 0 && (
                 <View style={s.badge}>
-                  <Text style={s.badgeText}>{stats?.pendingClubs}</Text>
+                  <Text style={s.badgeText}>{pendingFeaturedCount}</Text>
                 </View>
               )}
               <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
@@ -307,7 +382,7 @@ export default function AdminDashboard() {
             ) : topClubs.map((club, i) => (
               <View key={club.club_id}>
                 {i > 0 && <View style={s.divider} />}
-                <View style={s.listRow}>
+                <TouchableOpacity style={s.listRow} onPress={() => router.push(`/(admin)/club-detail/${club.club_id}`)} activeOpacity={0.82}>
                   <View style={s.rankCircle}>
                     <Text style={s.rankText}>{i + 1}</Text>
                   </View>
@@ -324,7 +399,7 @@ export default function AdminDashboard() {
                     </View>
                     <Text style={s.listRating}>out of 5</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               </View>
             ))}
           </View>
@@ -334,7 +409,7 @@ export default function AdminDashboard() {
         <View style={s.section}>
           <View style={s.sectionHeader}>
             <Text style={s.sectionTitle}>Top Events</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/(admin)/events')}>
               <Text style={s.seeAll}>View All</Text>
             </TouchableOpacity>
           </View>
@@ -346,7 +421,7 @@ export default function AdminDashboard() {
             ) : topEvents.map((ev, i) => (
               <View key={ev.event_id}>
                 {i > 0 && <View style={s.divider} />}
-                <View style={s.listRow}>
+                <TouchableOpacity style={s.listRow} onPress={() => router.push('/(admin)/events')} activeOpacity={0.82}>
                   <View style={[s.rankCircle, { backgroundColor: 'rgba(167,139,250,0.12)' }]}>
                     <Text style={[s.rankText, { color: COLORS.purple }]}>{i + 1}</Text>
                   </View>
@@ -355,7 +430,7 @@ export default function AdminDashboard() {
                     <Text style={s.listSub}>{ev.tickets.toLocaleString()} ticket{ev.tickets !== 1 ? 's' : ''} sold</Text>
                   </View>
                   <Text style={s.listValue}>€{ev.total.toLocaleString()}</Text>
-                </View>
+                </TouchableOpacity>
               </View>
             ))}
           </View>

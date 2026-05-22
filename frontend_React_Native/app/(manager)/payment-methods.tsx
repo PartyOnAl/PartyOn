@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, TextInput, ActivityIndicator, Alert, Switch,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -181,7 +182,9 @@ export default function PaymentMethodsScreen() {
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager • {profile?.name ?? ''}</Text>
           </View>
         </View>

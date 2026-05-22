@@ -178,7 +178,7 @@ export default function ProfileScreen() {
         phone_number: (p as any).phone_number ?? '',
       })
     }
-    setSavedEvents((bm ?? []) as SavedEvent[])
+    setSavedEvents((bm ?? []) as unknown as SavedEvent[])
     setDisputes(((dp ?? []) as any[]).map(d => {
       const ev = Array.isArray(d.events) ? d.events[0] : d.events
       return { ...d, event_name: ev?.event_name ?? null, updated_at: d.created_at } as Dispute

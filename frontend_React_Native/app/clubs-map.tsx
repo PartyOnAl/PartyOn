@@ -40,11 +40,13 @@ function formatDist(km: number): string {
 }
 
 function openDirections(club: Club) {
-  if (club.latitude && club.longitude) {
+  if (hasCoords(club)) {
+    const latitude = Number(club.latitude)
+    const longitude = Number(club.longitude)
     const url = Platform.select({
-      ios: `maps:0,0?q=${club.club_name}@${club.latitude},${club.longitude}`,
-      android: `geo:${club.latitude},${club.longitude}?q=${club.latitude},${club.longitude}(${encodeURIComponent(club.club_name)})`,
-      default: `https://www.google.com/maps/search/?api=1&query=${club.latitude},${club.longitude}`,
+      ios: `maps:0,0?q=${club.club_name}@${latitude},${longitude}`,
+      android: `geo:${latitude},${longitude}?q=${latitude},${longitude}(${encodeURIComponent(club.club_name)})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`,
     })
     Linking.openURL(url!)
   } else if (club.club_address) {
@@ -60,6 +62,20 @@ function openDirections(club: Club) {
 
 type UserCoords = { latitude: number; longitude: number } | null
 
+function hasCoords(club: Club) {
+  return Number.isFinite(Number(club.latitude)) && Number.isFinite(Number(club.longitude))
+}
+
+function distanceFromUser(club: Club, userCoords: NonNullable<UserCoords>) {
+  if (!hasCoords(club)) return Infinity
+  return haversine(
+    userCoords.latitude,
+    userCoords.longitude,
+    Number(club.latitude),
+    Number(club.longitude),
+  )
+}
+
 function ClubRow({
   club, userCoords, selected, onPress,
 }: {
@@ -69,8 +85,8 @@ function ClubRow({
   onPress: () => void
 }) {
   const dist =
-    userCoords && club.latitude && club.longitude
-      ? haversine(userCoords.latitude, userCoords.longitude, club.latitude, club.longitude)
+    userCoords && hasCoords(club)
+      ? distanceFromUser(club, userCoords)
       : null
 
   return (
@@ -147,51 +163,39 @@ export default function ClubsNearYouScreen() {
       .then(({ data }) => {
         const list = (data ?? []) as Club[]
         setClubs(list)
-        setFiltered(list)
         setLoading(false)
       })
   }, [])
 
-  // Filter by search
+  // Filter by search, then keep the visible list ordered from closest to farthest.
   useEffect(() => {
-    if (!query.trim()) {
-      setFiltered(clubs)
-    } else {
-      const q = query.toLowerCase()
-      setFiltered(clubs.filter(
+    const q = query.trim().toLowerCase()
+    const list = q
+      ? clubs.filter(
         (c) =>
           c.club_name.toLowerCase().includes(q) ||
           (c.club_address ?? '').toLowerCase().includes(q),
-      ))
-    }
-  }, [query, clubs])
+      )
+      : clubs
 
-  // When user location arrives, sort by distance
-  useEffect(() => {
-    if (!userCoords) return
-    setClubs((prev) => {
-      const sorted = [...prev].sort((a, b) => {
-        const da =
-          a.latitude && a.longitude
-            ? haversine(userCoords.latitude, userCoords.longitude, a.latitude, a.longitude)
-            : Infinity
-        const db =
-          b.latitude && b.longitude
-            ? haversine(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude)
-            : Infinity
-        return da - db
-      })
-      return sorted
-    })
-  }, [userCoords])
+    if (userCoords) {
+      setFiltered([...list].sort((a, b) => {
+        const diff = distanceFromUser(a, userCoords) - distanceFromUser(b, userCoords)
+        return diff === 0 ? a.club_name.localeCompare(b.club_name) : diff
+      }))
+      return
+    }
+
+    setFiltered([...list].sort((a, b) => a.club_name.localeCompare(b.club_name)))
+  }, [query, clubs, userCoords])
 
   // Pan map to selected club
   function selectClub(club: Club) {
     setSelectedId(club.club_id)
-    if (club.latitude && club.longitude && mapRef.current) {
+    if (hasCoords(club) && mapRef.current) {
       mapRef.current.animateToRegion({
-        latitude: club.latitude,
-        longitude: club.longitude,
+        latitude: Number(club.latitude),
+        longitude: Number(club.longitude),
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       }, 400)
@@ -199,11 +203,11 @@ export default function ClubsNearYouScreen() {
   }
 
   // Initial map region: user location or first club with coords
-  const mappableClubs = filtered.filter((c) => c.latitude && c.longitude)
+  const mappableClubs = filtered.filter(hasCoords)
   const initialRegion = userCoords
     ? { latitude: userCoords.latitude, longitude: userCoords.longitude, latitudeDelta: 0.08, longitudeDelta: 0.08 }
     : mappableClubs[0]
-    ? { latitude: mappableClubs[0].latitude!, longitude: mappableClubs[0].longitude!, latitudeDelta: 0.08, longitudeDelta: 0.08 }
+    ? { latitude: Number(mappableClubs[0].latitude), longitude: Number(mappableClubs[0].longitude), latitudeDelta: 0.08, longitudeDelta: 0.08 }
     : { latitude: 41.3275, longitude: 19.8187, latitudeDelta: 0.15, longitudeDelta: 0.15 } // Tirana default
 
   return (
@@ -236,9 +240,9 @@ export default function ClubsNearYouScreen() {
             {mappableClubs.map((club) => (
               <Marker
                 key={club.club_id}
-                coordinate={{ latitude: club.latitude!, longitude: club.longitude! }}
+                coordinate={{ latitude: Number(club.latitude), longitude: Number(club.longitude) }}
                 title={club.club_name}
-                description={club.club_address}
+                description={club.club_address ?? undefined}
                 pinColor={selectedId === club.club_id ? COLORS.logoPink : COLORS.purple}
                 onPress={() => selectClub(club)}
               />

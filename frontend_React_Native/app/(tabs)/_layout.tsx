@@ -1,7 +1,6 @@
 import { Tabs } from 'expo-router'
 import { Platform, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { COLORS } from '@/lib/theme'
 
 function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focused: boolean }) {
   return (
@@ -12,7 +11,7 @@ function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focu
       <Ionicons
         name={name}
         size={24}
-        color={focused ? COLORS.purple : COLORS.mutedDark}
+        color={focused ? '#7c3aed' : '#555555'}
       />
     </View>
   )
@@ -23,17 +22,21 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarShowLabel: false,
+        tabBarShowLabel: true,
         tabBarStyle: {
-          backgroundColor: '#000',
-          borderTopColor: 'rgba(255,255,255,0.07)',
+          backgroundColor: '#0d0d0d',
+          borderTopColor: '#2a2a2a',
           borderTopWidth: 1,
           paddingBottom: Platform.OS === 'ios' ? 28 : 6,
           paddingTop: 6,
           height: Platform.OS === 'ios' ? 84 : 58,
         },
-        tabBarActiveTintColor: COLORS.purple,
-        tabBarInactiveTintColor: COLORS.mutedDark,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '700',
+        },
+        tabBarActiveTintColor: '#7c3aed',
+        tabBarInactiveTintColor: '#555555',
       }}
     >
       <Tabs.Screen
@@ -60,7 +63,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="account"
         options={{
-          title: 'Account',
+          title: 'Profile',
           tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'person-circle' : 'person-circle-outline'} focused={focused} />,
         }}
       />

@@ -9,11 +9,11 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import type { Club } from '@/lib/types'
+import { subscriptionPlanLabel } from '@/lib/subscriptions'
 
-type Tab = 'pending' | 'approved' | 'rejected' | 'all'
+type Tab = 'approved' | 'rejected' | 'all'
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'pending', label: 'Pending' },
   { key: 'approved', label: 'Approved' },
   { key: 'rejected', label: 'Rejected' },
   { key: 'all', label: 'All' },
@@ -30,15 +30,14 @@ function statusColor(status: string) {
   return STATUS_COLORS[status] ?? COLORS.mutedDark
 }
 
-function ClubCard({ club, onApprove, onReject, onView, onReinstate }: {
+function ClubCard({ club, onReject, onView, onReinstate }: {
   club: Club
-  onApprove: () => void
   onReject: () => void
   onView: () => void
   onReinstate?: () => void
 }) {
   return (
-    <View style={cs.clubCard}>
+    <TouchableOpacity style={cs.clubCard} onPress={onView} activeOpacity={0.84}>
       {/* Club header */}
       <View style={cs.clubHeader}>
         <View style={cs.avatarWrap}>
@@ -83,7 +82,7 @@ function ClubCard({ club, onApprove, onReject, onView, onReinstate }: {
               <Text style={[cs.subPillText, { color: subColor }]}>{label}</Text>
             </View>
             {club.subscription_price !== null && (
-              <Text style={cs.subPrice}>€{Number(club.subscription_price).toFixed(0)}/{club.subscription_type === 'annual' ? 'yr' : 'mo'}</Text>
+              <Text style={cs.subPrice}>€{Number(club.subscription_price).toFixed(0)} · {subscriptionPlanLabel(club.subscription_type)}</Text>
             )}
             {days !== null && (
               <Text style={[cs.subDays, { color: days <= 0 ? COLORS.red : days <= 7 ? COLORS.cta : COLORS.mutedDark }]}>
@@ -119,19 +118,6 @@ function ClubCard({ club, onApprove, onReject, onView, onReinstate }: {
         <Text style={cs.viewBtnText}>View Full Details</Text>
       </TouchableOpacity>
 
-      {/* Actions */}
-      {club.club_status === 'pending' && (
-        <View style={cs.actions}>
-          <TouchableOpacity style={cs.approveBtn} onPress={onApprove}>
-            <Ionicons name="checkmark" size={16} color="#fff" />
-            <Text style={cs.approveBtnText}>Approve</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={cs.rejectBtn} onPress={onReject}>
-            <Ionicons name="close" size={16} color="#fff" />
-            <Text style={cs.rejectBtnText}>Reject</Text>
-          </TouchableOpacity>
-        </View>
-      )}
       {club.club_status === 'suspended' && onReinstate && (
         <View style={cs.actions}>
           <TouchableOpacity style={cs.approveBtn} onPress={onReinstate}>
@@ -140,7 +126,7 @@ function ClubCard({ club, onApprove, onReject, onView, onReinstate }: {
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   )
 }
 
@@ -149,7 +135,7 @@ export default function ClubApprovalsScreen() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [clubs, setClubs] = useState<Club[]>([])
-  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0, all: 0, paid: 0, overdue: 0 })
+  const [counts, setCounts] = useState({ approved: 0, rejected: 0, all: 0, paid: 0, overdue: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -167,7 +153,6 @@ export default function ClubApprovalsScreen() {
     const paid = all.filter(c => c.club_status === 'approved' && c.subscription_due_date && new Date(c.subscription_due_date).getTime() >= now).length
     const overdue = all.filter(c => c.club_status === 'approved' && c.subscription_due_date && new Date(c.subscription_due_date).getTime() < now).length
     setCounts({
-      pending: all.filter(c => c.club_status === 'pending').length,
       approved: all.filter(c => c.club_status === 'approved').length,
       rejected: all.filter(c => c.club_status === 'rejected').length,
       all: all.length,
@@ -225,8 +210,14 @@ export default function ClubApprovalsScreen() {
       </View>
 
       <View style={cs.titleBar}>
-        <Text style={cs.title}>Clubs</Text>
-        <Text style={cs.titleSub}>Approvals, subscriptions & management</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={cs.title}>Clubs</Text>
+          <Text style={cs.titleSub}>Subscriptions, status & management</Text>
+        </View>
+        <TouchableOpacity style={cs.addBtn} onPress={() => router.push('/(admin)/add-club')} activeOpacity={0.82}>
+          <Ionicons name="add" size={18} color={COLORS.white} />
+          <Text style={cs.addBtnText}>Add</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Search */}
@@ -252,7 +243,7 @@ export default function ClubApprovalsScreen() {
       {/* Summary stats */}
       <View style={cs.statRow}>
         {[
-          { label: 'Pending', val: counts.pending, color: '#f59e0b' },
+          { label: 'Approved', val: counts.approved, color: COLORS.green },
           { label: 'Paid', val: counts.paid, color: COLORS.green },
           { label: 'Overdue', val: counts.overdue, color: COLORS.red },
           { label: 'Total', val: counts.all, color: COLORS.purple },
@@ -294,7 +285,6 @@ export default function ClubApprovalsScreen() {
               <ClubCard
                 key={club.club_id}
                 club={club}
-                onApprove={() => updateStatus(club.club_id, 'approved', club.club_name)}
                 onReject={() => updateStatus(club.club_id, club.club_status === 'approved' ? 'suspended' : 'rejected', club.club_name)}
                 onView={() => router.push(`/(admin)/club-detail/${club.club_id}`)}
                 onReinstate={() => updateStatus(club.club_id, 'approved', club.club_name)}
@@ -321,9 +311,19 @@ const cs = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: COLORS.border,
   },
-  titleBar: { paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm },
+  titleBar: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm },
   title: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '800' },
   titleSub: { color: COLORS.mutedDark, fontSize: FONT.sm, marginTop: 2 },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.purple,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  addBtnText: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,

@@ -10,6 +10,10 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import type { Club, Event, Promotion } from '@/lib/types'
+import {
+  subscriptionPlanLabel,
+  subscriptionPriceSuffix,
+} from '@/lib/subscriptions'
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 const CLUB_STATUS: Record<string, { bg: string; text: string; border: string }> = {
@@ -193,7 +197,8 @@ export default function ClubDetailScreen() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [manager, setManager] = useState<{ name: string; email: string | null } | null>(null)
   const [subscriptionPrice, setSubscriptionPrice] = useState<number | null>(null)
-  const [defaultMonthly, setDefaultMonthly] = useState(50)
+  const [defaultMonthly, setDefaultMonthly] = useState(70)
+  const [defaultThreeMonth, setDefaultThreeMonth] = useState(200)
   const [showPriceModal, setShowPriceModal] = useState(false)
   const [priceInput, setPriceInput] = useState('')
   const [savingPrice, setSavingPrice] = useState(false)
@@ -201,6 +206,8 @@ export default function ClubDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       if (id) loadClub()
+      // loadClub is intentionally re-created with the latest local state helpers.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]),
   )
 
@@ -210,14 +217,19 @@ export default function ClubDetailScreen() {
       supabase.from('clubs').select('*').eq('club_id', id).single(),
       supabase.from('events').select('*').eq('club_id', id).gte('event_starting_date', new Date().toISOString()).order('event_starting_date', { ascending: true }),
       supabase.from('promotions').select('*').eq('club_id', id).order('created_at', { ascending: false }),
-      supabase.from('platform_settings').select('value').eq('key', 'monthly_club_fee').single(),
+      supabase.from('platform_settings').select('key, value').in('key', ['monthly_club_fee', 'three_month_club_fee', 'annual_club_fee']),
     ])
     const c = clubRes.data as any
     setClub(c as Club)
     setEvents((eventsRes.data as Event[]) ?? [])
     setPromotions((promoRes.data as Promotion[]) ?? [])
     setSubscriptionPrice(c?.subscription_price !== null && c?.subscription_price !== undefined ? Number(c.subscription_price) : null)
-    if (settingsRes.data?.value) setDefaultMonthly(Number(settingsRes.data.value))
+    const settingsMap: Record<string, string> = {}
+    ;(settingsRes.data ?? []).forEach((row: any) => { settingsMap[row.key] = row.value })
+    if (settingsMap.monthly_club_fee) setDefaultMonthly(Number(settingsMap.monthly_club_fee))
+    if (settingsMap.three_month_club_fee || settingsMap.annual_club_fee) {
+      setDefaultThreeMonth(Number(settingsMap.three_month_club_fee ?? settingsMap.annual_club_fee))
+    }
 
     if (c?.manager_id) {
       const { data: m } = await supabase
@@ -239,9 +251,9 @@ export default function ClubDetailScreen() {
     setLoading(false)
   }
 
-  function openPriceModal() {
-    setPriceInput(String(subscriptionPrice ?? defaultMonthly))
-    setShowPriceModal(true)
+  function openSubscriptionFees() {
+    if (!club?.club_id) return
+    router.push(`/(admin)/subscription-detail/${club.club_id}` as any)
   }
 
   async function savePrice() {
@@ -262,46 +274,6 @@ export default function ClubDetailScreen() {
     if (error) { Alert.alert('Error', error.message); return }
     setSubscriptionPrice(null)
     setShowPriceModal(false)
-  }
-
-  function markPaid() {
-    if (!club) return
-    Alert.alert(
-      'Update Subscription Status',
-      `Choose an action for ${club.club_name}:`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mark as Unpaid',
-          style: 'destructive',
-          onPress: async () => {
-            const today = new Date()
-            const { error } = await supabase
-              .from('clubs')
-              .update({ subscription_due_date: today.toISOString() })
-              .eq('club_id', id)
-            if (error) { Alert.alert('Error', error.message); return }
-            setClub(prev => prev ? { ...prev, subscription_due_date: today.toISOString() } as Club : prev)
-          },
-        },
-        {
-          text: 'Mark as Paid',
-          style: 'default',
-          onPress: async () => {
-            const days = club.subscription_type === 'annual' ? 365 : 30
-            const current = club.subscription_due_date ? new Date(club.subscription_due_date) : new Date()
-            const base = current.getTime() < Date.now() ? new Date() : current
-            base.setDate(base.getDate() + days)
-            const { error } = await supabase
-              .from('clubs')
-              .update({ subscription_due_date: base.toISOString() })
-              .eq('club_id', id)
-            if (error) { Alert.alert('Error', error.message); return }
-            setClub(prev => prev ? { ...prev, subscription_due_date: base.toISOString() } as Club : prev)
-          },
-        },
-      ],
-    )
   }
 
   async function openMail(to: string, subject?: string, body?: string) {
@@ -334,12 +306,12 @@ export default function ClubDetailScreen() {
       : days !== null
         ? `due in ${days} days`
         : 'pending'
-    const price = subscriptionPrice ?? defaultMonthly
+    const price = subscriptionPrice ?? (subscriptionPlanLabel(club.subscription_type) === '3-Month' ? defaultThreeMonth : defaultMonthly)
     const subject = `Subscription payment reminder — ${club.club_name}`
     const body =
 `Hi ${manager.name?.split(' ')[0] ?? 'there'},
 
-This is a reminder that the ${club.subscription_type === 'annual' ? 'annual' : 'monthly'} subscription for ${club.club_name} (€${price.toFixed(0)}) is currently ${overdueText}.
+This is a reminder that the ${subscriptionPlanLabel(club.subscription_type).toLowerCase()} subscription for ${club.club_name} (€${price.toFixed(0)}) is currently ${overdueText}.
 
 Please settle the payment to keep your venue active on PartyOn.
 
@@ -423,20 +395,28 @@ PartyOn Admin`
 
         {/* Quick stats */}
         <View style={cd.quickStats}>
-          <View style={cd.quickStat}>
+          <TouchableOpacity style={cd.quickStat} activeOpacity={0.82} onPress={() => events[0] && setSelectedEvent(events[0])}>
             <Text style={cd.quickStatVal}>{events.length}</Text>
             <Text style={cd.quickStatLabel}>Upcoming</Text>
-          </View>
-          <View style={[cd.quickStat, cd.quickStatBorder]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[cd.quickStat, cd.quickStatBorder]}
+            activeOpacity={0.82}
+            onPress={() => promotions[0] && Alert.alert(promotions[0].title, promotions[0].description ?? 'Promotion details')}
+          >
             <Text style={cd.quickStatVal}>{promotions.length}</Text>
             <Text style={cd.quickStatLabel}>Promotions</Text>
-          </View>
-          <View style={[cd.quickStat, cd.quickStatBorder]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[cd.quickStat, cd.quickStatBorder]}
+            activeOpacity={0.82}
+            onPress={() => events.find(e => e.event_status === 'published') && setSelectedEvent(events.find(e => e.event_status === 'published')!)}
+          >
             <Text style={cd.quickStatVal}>
               {events.filter(e => e.event_status === 'published').length}
             </Text>
             <Text style={cd.quickStatLabel}>Published</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Club Info */}
@@ -485,7 +465,7 @@ PartyOn Admin`
           const days = club.subscription_due_date
             ? Math.ceil((new Date(club.subscription_due_date).getTime() - Date.now()) / 86400000)
             : null
-          const price = subscriptionPrice ?? defaultMonthly
+          const price = subscriptionPrice ?? (subscriptionPlanLabel(club.subscription_type) === '3-Month' ? defaultThreeMonth : defaultMonthly)
           const isOverride = subscriptionPrice !== null
 
           return (
@@ -545,9 +525,7 @@ PartyOn Admin`
                   <View style={cd.subDetailItem}>
                     <Text style={cd.subDetailLabel}>Plan</Text>
                     <Text style={cd.subDetailValue}>
-                      {club.subscription_type
-                        ? club.subscription_type.charAt(0).toUpperCase() + club.subscription_type.slice(1)
-                        : 'Monthly'}
+                      {subscriptionPlanLabel(club.subscription_type)}
                     </Text>
                   </View>
                   <View style={[cd.subDetailItem, cd.subDetailBorder]}>
@@ -569,13 +547,9 @@ PartyOn Admin`
 
                 {/* Subscription actions */}
                 <View style={cd.subActions}>
-                  <TouchableOpacity style={cd.subEditBtn} onPress={openPriceModal}>
-                    <Ionicons name="pricetag-outline" size={14} color={COLORS.purple} />
-                    <Text style={cd.subEditBtnText}>Edit Price</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={cd.subPayBtn} onPress={markPaid}>
-                    <Ionicons name="checkmark-circle-outline" size={14} color="#fff" />
-                    <Text style={cd.subPayBtnText}>Mark Paid</Text>
+                  <TouchableOpacity style={[cd.subPayBtn, { flex: 1 }]} onPress={openSubscriptionFees}>
+                    <Ionicons name="settings-outline" size={14} color="#fff" />
+                    <Text style={cd.subPayBtnText}>Manage Subscription & Fees</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -685,7 +659,12 @@ PartyOn Admin`
               {promotions.map(p => {
                 const pc = PROMO_STATUS_COLOR[p.status] ?? COLORS.muted
                 return (
-                  <View key={p.promotion_id} style={cd.promoCard}>
+                  <TouchableOpacity
+                    key={p.promotion_id}
+                    style={cd.promoCard}
+                    activeOpacity={0.84}
+                    onPress={() => Alert.alert(p.title, p.description ?? 'Promotion details')}
+                  >
                     <View style={cd.promoTop}>
                       {p.image_url ? (
                         <Image source={{ uri: p.image_url }} style={cd.promoImg} resizeMode="cover" />
@@ -724,7 +703,7 @@ PartyOn Admin`
                         </Text>
                       </View>
                     ) : null}
-                  </View>
+                  </TouchableOpacity>
                 )
               })}
             </View>
@@ -780,7 +759,7 @@ PartyOn Admin`
             </View>
             <Text style={cd.priceClub}>{club.club_name}</Text>
             <Text style={cd.priceSubText}>
-              {club.subscription_type === 'annual' ? 'Annual' : 'Monthly'} subscription
+              {subscriptionPlanLabel(club.subscription_type)} subscription
             </Text>
 
             <Text style={cd.priceLabel}>Price (EUR)</Text>
@@ -790,14 +769,14 @@ PartyOn Admin`
                 style={cd.priceInput}
                 value={priceInput}
                 onChangeText={setPriceInput}
-                placeholder={String(defaultMonthly)}
+                placeholder={String(subscriptionPlanLabel(club.subscription_type) === '3-Month' ? defaultThreeMonth : defaultMonthly)}
                 placeholderTextColor={COLORS.mutedDark}
                 keyboardType="decimal-pad"
                 autoFocus
               />
             </View>
             <Text style={cd.priceHint}>
-              Platform default is €{defaultMonthly}/month. Reset to use the default.
+              Platform default is €{subscriptionPlanLabel(club.subscription_type) === '3-Month' ? defaultThreeMonth : defaultMonthly}/{subscriptionPriceSuffix(club.subscription_type)}. Reset to use the default.
             </Text>
 
             <TouchableOpacity style={cd.priceSaveBtn} onPress={savePrice} disabled={savingPrice}>

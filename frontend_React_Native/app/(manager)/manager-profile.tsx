@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { MANAGER_MORE, replaceManagerRoute } from '@/lib/managerNavigation'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -197,7 +198,7 @@ export default function ManagerProfileScreen() {
     <View style={[s.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} hitSlop={8}>
+        <TouchableOpacity style={s.backBtn} onPress={() => replaceManagerRoute(router, MANAGER_MORE)} hitSlop={8}>
           <Ionicons name="chevron-back" size={22} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>My Profile</Text>

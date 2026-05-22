@@ -11,9 +11,8 @@ export default function ManagerTabsLayout() {
           backgroundColor: '#0a0a0f',
           borderTopColor: 'rgba(255,255,255,0.08)',
           borderTopWidth: 1,
-          height: 80,
-          paddingBottom: 18,
-          paddingTop: 12,
+          /** Do not set height/paddingBottom here — RN Tabs applies bottom safe-area inset; overriding it caused excess black space above the icons. */
+          paddingTop: 8,
         },
         tabBarActiveTintColor: COLORS.purple,
         tabBarInactiveTintColor: COLORS.mutedDark,

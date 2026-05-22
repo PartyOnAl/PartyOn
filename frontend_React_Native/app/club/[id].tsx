@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Image, Share, Linking, Platform,
@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Club, Event } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
 function fallbackColor(id: string) {
@@ -29,27 +30,50 @@ export default function ClubDetailScreen() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [descExpanded, setDescExpanded] = useState(false)
+  const [heroIndex, setHeroIndex] = useState(0)
 
   useFocusEffect(
     useCallback(() => {
       if (!id) { setLoading(false); return }
       setLoading(true)
-      const now = new Date().toISOString()
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
       Promise.all([
         supabase.from('clubs').select('*').eq('club_id', id).single(),
         supabase.from('events').select('*')
           .eq('club_id', id)
           .eq('event_status', 'published')
-          .gte('event_starting_date', now)
+          .gte('event_starting_date', today.toISOString())
           .order('event_starting_date', { ascending: true })
-          .limit(5),
+          .limit(12),
       ]).then(([clubRes, evRes]) => {
         setClub(clubRes.data as Club)
-        setEvents((evRes.data as Event[]) ?? [])
+        setEvents(((evRes.data as Event[]) ?? []).filter(ev => isEventUpcomingOrLive(ev)).slice(0, 5))
         setLoading(false)
       })
     }, [id]),
   )
+
+  const heroPhotos = useMemo(() => {
+    const photos: string[] = []
+    if (club?.club_image) photos.push(club.club_image)
+    for (const ev of events) {
+      if (ev.event_image && !photos.includes(ev.event_image)) photos.push(ev.event_image)
+    }
+    return photos
+  }, [club?.club_image, events])
+
+  useEffect(() => {
+    setHeroIndex(0)
+  }, [club?.club_id, heroPhotos.length])
+
+  useEffect(() => {
+    if (heroPhotos.length <= 1) return
+    const timer = setInterval(() => {
+      setHeroIndex((idx) => (idx + 1) % heroPhotos.length)
+    }, 3500)
+    return () => clearInterval(timer)
+  }, [heroPhotos.length])
 
   async function handleShare() {
     try {
@@ -123,8 +147,22 @@ export default function ClubDetailScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Hero image */}
-        {club.club_image ? (
-          <Image source={{ uri: club.club_image }} style={styles.hero} resizeMode="cover" />
+        {heroPhotos.length > 0 ? (
+          <View style={styles.heroWrap}>
+            <Image source={{ uri: heroPhotos[heroIndex % heroPhotos.length] }} style={styles.hero} resizeMode="cover" />
+            {heroPhotos.length > 1 && (
+              <>
+                <View style={styles.heroCounter}>
+                  <Text style={styles.heroCounterText}>{heroIndex + 1}/{heroPhotos.length}</Text>
+                </View>
+                <View style={styles.heroDots}>
+                  {heroPhotos.map((_, i) => (
+                    <View key={i} style={[styles.heroDot, i === heroIndex && styles.heroDotActive]} />
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
         ) : (
           <View style={[styles.hero, { backgroundColor: accent }]}>
             <Ionicons name="musical-notes" size={56} color="rgba(255,255,255,0.3)" />
@@ -260,7 +298,7 @@ export default function ClubDetailScreen() {
                       <View style={styles.eventRowMeta}>
                         <Ionicons name="calendar-outline" size={11} color={COLORS.muted} />
                         <Text style={styles.eventRowDate}>{formatDate(ev.event_starting_date)}</Text>
-                        {ev.final_ticket_price != null && !club.reservation_only && (
+                        {ev.final_ticket_price != null && (
                           <>
                             <View style={styles.dot} />
                             <Text style={styles.eventRowPrice}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
@@ -320,6 +358,12 @@ const styles = StyleSheet.create({
   },
 
   // Hero
+  heroWrap: {
+    width: '100%',
+    height: 280,
+    position: 'relative',
+    backgroundColor: COLORS.bgCard,
+  },
   hero: {
     width: '100%',
     height: 280,
@@ -327,6 +371,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  heroDots: {
+    position: 'absolute',
+    bottom: SPACING.sm,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+  },
+  heroDotActive: {
+    width: 16,
+    backgroundColor: COLORS.white,
+  },
+  heroCounter: {
+    position: 'absolute',
+    top: SPACING.sm,
+    right: SPACING.md,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  heroCounterText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   heroScrim: {
     position: 'absolute',
     top: 160, left: 0, right: 0, height: 120,

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Modal, TextInput, ActivityIndicator, Alert, RefreshControl,
   KeyboardAvoidingView, Platform,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { MANAGER_MORE, replaceManagerRoute } from '@/lib/managerNavigation'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type StaffRole   = 'host' | 'staff'   // host = Hostess, staff = Bodyguard
@@ -28,6 +30,16 @@ type StaffMember = {
 const ROLE_LABEL: Record<StaffRole, string> = { host: 'Hostess', staff: 'Bodyguard' }
 const ROLE_COLOR: Record<StaffRole, string> = { host: COLORS.purple, staff: COLORS.cta }
 const ROLE_ICON:  Record<StaffRole, string> = { host: 'person-outline', staff: 'shield-outline' }
+
+const NON_STAFF_PROFILE_ROLES = new Set(['manager', 'admin', 'user'])
+
+/** Map DB role strings to canonical host/staff buckets used in this UI. */
+function canonicalStaffRole(dbRole: string | null): StaffRole {
+  const r = (dbRole ?? '').toLowerCase().trim().replace(/\s+/g, '_')
+  const bodyguardish = ['staff', 'bodyguard', 'door_staff', 'doorstaff', 'security', 'bouncer']
+  if (bodyguardish.includes(r)) return 'staff'
+  return 'host'
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function StaffScreen() {
@@ -61,15 +73,52 @@ export default function StaffScreen() {
   const [savingEdit, setSavingEdit]       = useState(false)
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
+  /** Prefer RPC — bypasses restrictive profiles RLS while still authorising managers. See sql/manager_list_entrance_staff.sql */
   const fetchStaff = useCallback(async () => {
-    if (!profile?.club_id) { setLoading(false); return }
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, name, surname, email, phone_number, role, club_id')
-      .eq('club_id', profile.club_id)
-      .in('role', ['host', 'staff'])
-      .order('name', { ascending: true })
-    if (!error && data) setStaff(data as StaffMember[])
+    if (!profile?.club_id) {
+      setLoading(false)
+      return
+    }
+
+    type RawRow = {
+      id: string
+      name: string | null
+      surname: string | null
+      email: string | null
+      phone_number: string | null
+      role: string | null
+      club_id: string | null
+    }
+
+    let rows: RawRow[] = []
+    const rpc = await supabase.rpc('manager_list_entrance_staff', { target_club_id: profile.club_id })
+
+    if (!rpc.error && Array.isArray(rpc.data)) {
+      rows = rpc.data as RawRow[]
+    } else {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, surname, email, phone_number, role, club_id')
+        .eq('club_id', profile.club_id)
+        .order('name', { ascending: true })
+      if (!error && data) rows = data as RawRow[]
+      else rows = []
+    }
+
+    const list: StaffMember[] = rows
+      .filter(row => !NON_STAFF_PROFILE_ROLES.has(String(row.role ?? '').toLowerCase().trim()))
+      .map(row => ({
+        ...row,
+        role: canonicalStaffRole(row.role),
+      }))
+
+    const seen = new Set<string>()
+    setStaff(list.filter(row => {
+      if (seen.has(row.id)) return false
+      seen.add(row.id)
+      return true
+    }))
+
     setLoading(false)
     setRefreshing(false)
   }, [profile?.club_id])
@@ -88,7 +137,13 @@ export default function StaffScreen() {
     setCreating(true)
 
     const { data, error } = await supabase.functions.invoke('create-staff-member', {
-      body: { email, name: name || null, surname: surname || null, staff_role: addRole },
+      body: {
+        club_id: profile?.club_id,
+        email,
+        name: name || null,
+        surname: surname || null,
+        staff_role: addRole,
+      },
     })
 
     setCreating(false)
@@ -102,21 +157,7 @@ export default function StaffScreen() {
     setAlreadyExisted(data.already_existed ?? false)
     setShowSuccess(true)
 
-    // Add to local list immediately
-    const newMember: StaffMember = {
-      id:           data.user_id,
-      name:         name || null,
-      surname:      surname || null,
-      email,
-      phone_number: null,
-      role:         addRole,
-      club_id:      profile?.club_id ?? null,
-    }
-    setStaff(prev => {
-      const exists = prev.find(m => m.id === data.user_id)
-      if (exists) return prev.map(m => m.id === data.user_id ? { ...m, role: addRole } : m)
-      return [...prev, newMember].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
-    })
+    await fetchStaff()
   }
 
   async function handleCopyPassword() {
@@ -202,11 +243,13 @@ export default function StaffScreen() {
       >
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_MORE)} style={s.backBtn}>
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager Portal</Text>
           </View>
           <TouchableOpacity style={s.addBtn} onPress={() => setShowAddModal(true)}>
@@ -257,10 +300,12 @@ export default function StaffScreen() {
           <View style={s.empty}>
             <Ionicons name="people-outline" size={52} color={COLORS.mutedDark} />
             <Text style={s.emptyTitle}>
-              No {roleFilter !== 'All' ? roleFilter.toLowerCase() + 's' : 'staff'} yet
+              {staff.length > 0 && roleFilter !== 'All'
+                ? `No ${roleFilter.toLowerCase()} matches this filter`
+                : `No ${roleFilter !== 'All' ? roleFilter.toLowerCase() + 's' : 'staff'} yet`}
             </Text>
             <Text style={s.emptySubtitle}>
-              Add entrance staff — they will receive login credentials to access the app.
+              Add entrance staff — they receive login credentials to access the venue app as host or door team.
             </Text>
             <TouchableOpacity style={s.emptyBtn} onPress={() => setShowAddModal(true)}>
               <Ionicons name="person-add-outline" size={17} color="#fff" />
@@ -271,7 +316,12 @@ export default function StaffScreen() {
           filtered.map(member => {
             const rc = ROLE_COLOR[member.role]
             return (
-              <View key={member.id} style={s.card}>
+              <TouchableOpacity
+                key={member.id}
+                style={s.card}
+                onPress={() => openEditModal(member)}
+                activeOpacity={0.84}
+              >
                 <View style={s.cardTop}>
                   <View style={[s.avatar, { backgroundColor: rc + '33' }]}>
                     <Text style={[s.avatarText, { color: rc }]}>{initials(member)}</Text>
@@ -284,10 +334,10 @@ export default function StaffScreen() {
                     </View>
                   </View>
                   <View style={s.cardActions}>
-                    <TouchableOpacity style={s.iconBtn} onPress={() => openEditModal(member)}>
+                    <TouchableOpacity style={s.iconBtn} onPress={(e) => { e.stopPropagation(); openEditModal(member) }}>
                       <Ionicons name="pencil-outline" size={16} color={COLORS.muted} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={[s.iconBtn, s.iconBtnRed]} onPress={() => handleRemove(member)}>
+                    <TouchableOpacity style={[s.iconBtn, s.iconBtnRed]} onPress={(e) => { e.stopPropagation(); handleRemove(member) }}>
                       <Ionicons name="person-remove-outline" size={16} color={COLORS.red} />
                     </TouchableOpacity>
                   </View>
@@ -308,7 +358,7 @@ export default function StaffScreen() {
                   )}
                 </View>
 
-              </View>
+              </TouchableOpacity>
             )
           })
         )}

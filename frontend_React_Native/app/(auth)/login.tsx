@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
 
 // ── Shared input component ────────────────────────────────────────────────────
 function InputField({
@@ -98,23 +99,23 @@ export default function LoginScreen() {
     if (authData.user) {
       const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
       if (prof?.role === 'admin') {
-        router.replace('/(admin)/(admin-tabs)/dashboard')
+        navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
         setLoading(false)
         return
       }
       if (prof?.role === 'manager') {
-        router.replace('/(manager)/(manager-tabs)/dashboard')
+        navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
         setLoading(false)
         return
       }
       if (prof?.role === 'host' || prof?.role === 'staff') {
-        router.replace('/(staff)')
+        navigateAfterAuth('/(staff)')
         setLoading(false)
         return
       }
     }
     setLoading(false)
-    router.replace('/(tabs)')
+    navigateAfterAuth('/(tabs)')
   }
 
   async function handleGoogle() {
@@ -127,19 +128,19 @@ export default function LoginScreen() {
     if (authData.user) {
       const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
       if (prof?.role === 'admin') {
-        router.replace('/(admin)/(admin-tabs)/dashboard')
+        navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
         return
       }
       if (prof?.role === 'manager') {
-        router.replace('/(manager)/(manager-tabs)/dashboard')
+        navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
         return
       }
       if (prof?.role === 'host' || prof?.role === 'staff') {
-        router.replace('/(staff)')
+        navigateAfterAuth('/(staff)')
         return
       }
     }
-    router.replace('/(tabs)')
+    navigateAfterAuth('/(tabs)')
   }
 
   return (
@@ -221,7 +222,7 @@ export default function LoginScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Don't have an account? </Text>
+          <Text style={styles.footerText}>{`Don't have an account? `}</Text>
           <TouchableOpacity onPress={() => router.replace('/(auth)/signup')}>
             <Text style={styles.footerLink}>Create one</Text>
           </TouchableOpacity>

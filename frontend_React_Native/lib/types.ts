@@ -6,10 +6,12 @@ export type Club = {
   club_phone_number: string | null
   club_image: string | null
   club_description: string | null
+  latitude: number | string | null
+  longitude: number | string | null
   club_status: 'pending' | 'approved' | 'rejected' | 'suspended'
   manager_id: string | null
   reservation_only: boolean
-  subscription_type: 'monthly' | 'annual'
+  subscription_type: 'monthly' | 'three_monthly' | 'annual'
   subscription_due_date: string | null
   subscription_price: number | null
   commission_ticket_rate: number | null
@@ -56,9 +58,17 @@ export type Event = {
   event_image: string | null
   event_status: 'draft' | 'published' | 'cancelled' | 'completed'
   is_featured: boolean | null
+  featured_request_status?: 'none' | 'pending_review' | 'approved' | 'rejected' | 'cancelled' | null
+  featured_requested_at?: string | null
+  featured_paid_at?: string | null
+  featured_reviewed_at?: string | null
+  featured_rejection_reason?: string | null
+  featured_fee_amount?: number | null
+  featured_fee_paid?: boolean | null
   final_ticket_price: number | null
   ticket_price: number | null
   ticket_discount: number | null
+  reservation_only: boolean | null
   special_guests: string | null
   created_by: string | null
   created_at: string | null

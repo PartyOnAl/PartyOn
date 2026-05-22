@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Image, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Image, ActivityIndicator, Alert,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { supabase } from '@/lib/supabase'
 import type { Attendee } from '@/lib/types'
+import { downloadTicketPdf } from '@/lib/ticketPdf'
 
 function qrFor(code: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(code)}&bgcolor=ffffff&color=000000`
@@ -41,6 +42,28 @@ export default function PurchasedTicketScreen() {
         message: `I just got ${isReservation ? 'a table reservation' : 'my ticket'} for ${params.eventName} via PartyOn! 🎉`,
       })
     } catch {}
+  }
+
+  async function handleDownloadPdf() {
+    if (!isReservation && attendees === null) {
+      Alert.alert('Preparing ticket', 'Please wait for the ticket QR codes to finish loading.')
+      return
+    }
+    try {
+      await downloadTicketPdf({
+        reservationId: params.reservationId,
+        eventName: params.eventName,
+        ticketTypeName: params.ticketTypeName,
+        quantity: params.quantity,
+        total: params.total,
+        isReservation,
+        qrCode: params.qrCode,
+        attendees: attendees ?? [],
+        status: 'Confirmed',
+      })
+    } catch (e: any) {
+      Alert.alert('PDF unavailable', e?.message ?? 'Could not create the ticket PDF.')
+    }
   }
 
   return (
@@ -152,6 +175,10 @@ export default function PurchasedTicketScreen() {
           <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
             <Ionicons name="share-outline" size={20} color={COLORS.purple} />
             <Text style={styles.actionBtnText}>Share</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtn} onPress={handleDownloadPdf} activeOpacity={0.8}>
+            <Ionicons name="download-outline" size={20} color={COLORS.purple} />
+            <Text style={styles.actionBtnText}>PDF</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/bookings')} activeOpacity={0.8}>
             <Ionicons name="ticket-outline" size={20} color={COLORS.purple} />

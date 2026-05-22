@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, ActivityIndicator, Alert, Linking, TextInput, Modal, Pressable, Platform,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
@@ -65,6 +66,7 @@ function NotesModal({
   const [loading, setLoading] = useState(false)
 
   if (!dispute) return null
+  const d = dispute
 
   const STATUSES: DisputeStatus[] = ['open', 'in_progress', 'resolved', 'rejected']
 
@@ -73,10 +75,10 @@ function NotesModal({
     const { error } = await supabase
       .from('disputes')
       .update({ manager_notes: notes.trim() || null, status, updated_at: new Date().toISOString() })
-      .eq('id', dispute.id)
+      .eq('id', d.id)
     setLoading(false)
     if (error) { Alert.alert('Error', error.message); return }
-    onSaved(dispute.id, notes.trim(), status)
+    onSaved(d.id, notes.trim(), status)
     onClose()
   }
 
@@ -243,7 +245,7 @@ export default function DisputesTabScreen() {
   ]
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={s.header}>
@@ -312,7 +314,12 @@ export default function DisputesTabScreen() {
             const pc = PRIORITY_COLORS[d.priority]
             const sc = STATUS_COLORS[d.status]
             return (
-              <View key={d.id} style={s.disputeCard}>
+              <TouchableOpacity
+                key={d.id}
+                style={s.disputeCard}
+                onPress={() => setSelected(d)}
+                activeOpacity={0.84}
+              >
                 <View style={s.disputeTop}>
                   <View style={[s.priorityBadge, { backgroundColor: pc + '22' }]}>
                     <View style={[s.priorityDot, { backgroundColor: pc }]} />
@@ -339,7 +346,10 @@ export default function DisputesTabScreen() {
                     {d.user_email ? (
                       <TouchableOpacity
                         style={s.contactPill}
-                        onPress={() => Linking.openURL(`mailto:${d.user_email}?subject=Re: ${encodeURIComponent(d.subject)}`)}
+                        onPress={(e) => {
+                          e.stopPropagation()
+                          Linking.openURL(`mailto:${d.user_email}?subject=Re: ${encodeURIComponent(d.subject)}`)
+                        }}
                       >
                         <Ionicons name="mail-outline" size={14} color={COLORS.purple} />
                         <Text style={s.contactPillText} numberOfLines={1}>{d.user_email}</Text>
@@ -348,7 +358,10 @@ export default function DisputesTabScreen() {
                     {d.user_phone ? (
                       <TouchableOpacity
                         style={[s.contactPill, s.contactPillGreen]}
-                        onPress={() => Linking.openURL(`tel:${d.user_phone}`)}
+                        onPress={(e) => {
+                          e.stopPropagation()
+                          Linking.openURL(`tel:${d.user_phone}`)
+                        }}
                       >
                         <Ionicons name="call-outline" size={14} color={COLORS.green} />
                         <Text style={[s.contactPillText, { color: COLORS.green }]}>{d.user_phone}</Text>
@@ -381,23 +394,23 @@ export default function DisputesTabScreen() {
 
                 <View style={s.disputeActions}>
                   {d.status !== 'resolved' && d.status !== 'rejected' ? (
-                    <TouchableOpacity style={s.resolveBtn} onPress={() => quickResolve(d)}>
+                    <TouchableOpacity style={s.resolveBtn} onPress={(e) => { e.stopPropagation(); quickResolve(d) }}>
                       <Ionicons name="checkmark-circle-outline" size={15} color="#fff" />
                       <Text style={s.resolveBtnText}>Resolve</Text>
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity style={s.notesBtn} onPress={() => setSelected(d)}>
+                  <TouchableOpacity style={s.notesBtn} onPress={(e) => { e.stopPropagation(); setSelected(d) }}>
                     <Ionicons name="create-outline" size={15} color={COLORS.purple} />
                     <Text style={s.notesBtnText}>Update</Text>
                   </TouchableOpacity>
                   {(d.status === 'resolved' || d.status === 'rejected') && (
-                    <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(d)}>
+                    <TouchableOpacity style={s.deleteBtn} onPress={(e) => { e.stopPropagation(); handleDelete(d) }}>
                       <Ionicons name="trash-outline" size={15} color={COLORS.red} />
                       <Text style={s.deleteBtnText}>Delete</Text>
                     </TouchableOpacity>
                   )}
                 </View>
-              </View>
+              </TouchableOpacity>
             )
           })
         )}

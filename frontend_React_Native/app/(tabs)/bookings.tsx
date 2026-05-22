@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import type { Reservation, Attendee, ClaimedPromotion } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { downloadTicketPdf } from '@/lib/ticketPdf'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateLong(iso: string) {
@@ -260,20 +261,23 @@ function qrUrlFor(code: string) {
 
 function QRSheet({ reservation, onClose }: { reservation: Reservation | null; onClose: () => void }) {
   const [attendees, setAttendees] = useState<Attendee[] | null>(null)
+  const reservationId = reservation?.reservation_id
+  const reservationType = reservation?.type
 
   useEffect(() => {
-    if (!reservation || reservation.type === 'table') { setAttendees([]); return }
+    if (!reservationId || reservationType === 'table') { setAttendees([]); return }
     let cancelled = false
     setAttendees(null)
     supabase.from('attendees')
       .select('*')
-      .eq('reservation_id', reservation.reservation_id)
+      .eq('reservation_id', reservationId)
       .order('created_at', { ascending: true })
       .then(({ data }) => { if (!cancelled) setAttendees((data as Attendee[]) ?? []) })
     return () => { cancelled = true }
-  }, [reservation?.reservation_id, reservation?.type])
+  }, [reservationId, reservationType])
 
   if (!reservation) return null
+  const currentReservation = reservation
   const ev = reservation.events as any
   const isTable = reservation.type === 'table'
   const past = ev?.event_starting_date ? isPast(ev.event_starting_date) : false
@@ -285,6 +289,35 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
     try {
       await Share.share({ message: `My ticket to ${ev?.event_name ?? 'the event'} — Booking ID: ${reservation!.reservation_id}` })
     } catch {}
+  }
+
+  async function handleDownloadPdf() {
+    if (!isTable && attendees === null) {
+      Alert.alert('Preparing ticket', 'Please wait for the ticket QR codes to finish loading.')
+      return
+    }
+    try {
+      const ticketType = (currentReservation as any).ticket_types
+      const payments = (currentReservation as any).payments
+      const payment = Array.isArray(payments) ? payments[0] : payments
+      await downloadTicketPdf({
+        reservationId: currentReservation.reservation_id,
+        eventName: ev?.event_name ?? 'Event',
+        ticketTypeName: isTable ? 'Table Reservation' : (ticketType?.name ?? 'General Entry'),
+        quantity: String(currentReservation.nr_of_people ?? 1),
+        total: payment?.amount ?? null,
+        isReservation: isTable,
+        qrCode: currentReservation.qr_code,
+        attendees: attendees ?? [],
+        status: effectiveStatus,
+        venue: ev?.clubs?.club_address ?? null,
+        dateText: ev?.event_starting_date
+          ? `${formatDateLong(ev.event_starting_date)} · ${formatTime(ev.event_starting_date)}`
+          : null,
+      })
+    } catch (e: any) {
+      Alert.alert('PDF unavailable', e?.message ?? 'Could not create the ticket PDF.')
+    }
   }
 
   return (
@@ -404,12 +437,10 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
             )}
 
             <View style={styles.sheetActions}>
-              {!past && (
-                <TouchableOpacity style={styles.sheetActionBtn}>
-                  <Ionicons name="download-outline" size={18} color={COLORS.white} />
-                  <Text style={styles.sheetActionText}>Download</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity style={styles.sheetActionBtn} onPress={handleDownloadPdf}>
+                <Ionicons name="download-outline" size={18} color={COLORS.white} />
+                <Text style={styles.sheetActionText}>PDF</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.sheetActionBtn}>
                 <Ionicons name="wallet-outline" size={18} color={COLORS.white} />
                 <Text style={styles.sheetActionText}>{past ? 'View Receipt' : 'Add to Wallet'}</Text>
@@ -452,7 +483,11 @@ function TicketCard({
   const effectiveStatus = isPastTab && reservation.status === 'confirmed' ? 'completed' : reservation.status
 
   return (
-    <View style={[styles.ticketCard, isPastTab && styles.ticketCardPast]}>
+    <TouchableOpacity
+      style={[styles.ticketCard, isPastTab && styles.ticketCardPast]}
+      onPress={onPress}
+      activeOpacity={0.82}
+    >
       {/* Main row */}
       <View style={styles.ticketRow}>
         {ev?.event_image ? (
@@ -463,7 +498,7 @@ function TicketCard({
           </View>
         )}
 
-        <TouchableOpacity style={styles.ticketInfo} onPress={onPress} activeOpacity={0.75}>
+        <View style={styles.ticketInfo}>
           <Text style={[styles.ticketName, isPastTab && styles.ticketNamePast]} numberOfLines={1}>
             {ev?.event_name ?? '—'}
           </Text>
@@ -485,10 +520,10 @@ function TicketCard({
               {effectiveStatus}
             </Text>
           </View>
-        </TouchableOpacity>
+        </View>
 
         <View style={styles.ticketActions}>
-          <TouchableOpacity style={styles.viewBtn} onPress={onPress}>
+          <TouchableOpacity style={styles.viewBtn} onPress={(e) => { e.stopPropagation(); onPress() }}>
             <Text style={styles.viewBtnText}>{isPastTab ? 'Details' : 'View'}</Text>
             <Ionicons name="chevron-forward" size={13} color={COLORS.white} />
           </TouchableOpacity>
@@ -498,14 +533,14 @@ function TicketCard({
       {/* Upcoming actions: cancel / refund */}
       {!isPastTab && reservation.status !== 'cancelled' && (
         <View style={styles.pastActions}>
-          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={(e) => { e.stopPropagation(); onCancel() }}>
             <Ionicons name="close-circle-outline" size={14} color={COLORS.red} />
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
           {!isTable && (
             <>
               <View style={styles.pastActionsDivider} />
-              <TouchableOpacity style={styles.refundBtn} onPress={onRefund}>
+              <TouchableOpacity style={styles.refundBtn} onPress={(e) => { e.stopPropagation(); onRefund() }}>
                 <Ionicons name="card-outline" size={14} color={COLORS.purple} />
                 <Text style={styles.refundBtnText}>Refund Ticket</Text>
               </TouchableOpacity>
@@ -523,19 +558,19 @@ function TicketCard({
               <Text style={styles.ratedLabel}>You rated this</Text>
             </View>
           ) : (
-            <TouchableOpacity style={styles.rateBtn} onPress={onRate}>
+            <TouchableOpacity style={styles.rateBtn} onPress={(e) => { e.stopPropagation(); onRate() }}>
               <Ionicons name="star-outline" size={14} color="#f59e0b" />
               <Text style={styles.rateBtnText}>Rate this event</Text>
             </TouchableOpacity>
           )}
           <View style={styles.pastActionsDivider} />
-          <TouchableOpacity style={styles.disputeBtn} onPress={onDispute}>
+          <TouchableOpacity style={styles.disputeBtn} onPress={(e) => { e.stopPropagation(); onDispute() }}>
             <Ionicons name="alert-circle-outline" size={14} color={COLORS.red} />
             <Text style={styles.disputeBtnText}>File Dispute</Text>
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   )
 }
 
@@ -774,7 +809,7 @@ export default function BookingsScreen() {
       Promise.all([
         supabase
           .from('reservations')
-          .select('*, events(event_id, event_name, event_starting_date, event_image, club_id, clubs(club_address))')
+          .select('*, events(event_id, event_name, event_starting_date, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
         supabase

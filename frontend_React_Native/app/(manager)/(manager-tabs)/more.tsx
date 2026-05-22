@@ -1,23 +1,32 @@
 import { useCallback, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity, Alert, ActivityIndicator, Image } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Image, Linking } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { usePlatformSettings } from '@/lib/platformSettings'
 import { supabase } from '@/lib/supabase'
+import { SubscriptionOffersModal } from '@/components/SubscriptionOffersModal'
+import {
+  effectiveSubscriptionPrice,
+  subscriptionPeriodDays,
+  subscriptionPlanLabel,
+  subscriptionPriceSuffix,
+} from '@/lib/subscriptions'
 
 const menuItems = [
-  { label: 'Promotions',    icon: 'pricetag-outline',   route: '/(manager)/promotions' },
-  { label: 'Analytics',     icon: 'bar-chart-outline',  route: '/(manager)/analytics' },
-  { label: 'Add Staff',      icon: 'people-outline',     route: '/(manager)/staff'    },
-  { label: 'Disputes',      icon: 'warning-outline',    route: '/(manager)/disputes' },
-  { label: 'Settings',      icon: 'settings-outline',   route: '/(manager)/settings' },
+  { label: 'Promotions', icon: 'pricetag-outline',  route: '/(manager)/promotions' },
+  { label: 'Analytics', icon: 'bar-chart-outline', route: '/(manager)/analytics' },
+  { label: 'Add Staff', icon: 'person-add-outline', route: '/(manager)/staff' },
+  { label: 'Disputes', icon: 'warning-outline',   route: '/(manager)/disputes' },
+  { label: 'Settings', icon: 'settings-outline', route: '/(manager)/settings' },
 ] satisfies { label: string; icon: string; route: string | null }[]
 
 type SubInfo = {
   subscription_type: string
   subscription_due_date: string | null
+  subscription_price: number | null
   club_name: string | null
   club_address: string | null
   club_email_id: string | null
@@ -38,22 +47,22 @@ function formatDate(d: string | null) {
 export default function MoreScreen() {
   const router = useRouter()
   const { profile } = useAuth()
-  const { settings } = usePlatformSettings()
+  const { settings, reload: reloadPlatformSettings } = usePlatformSettings()
 
   const [sub, setSub] = useState<SubInfo | null>(null)
   const [renewing, setRenewing] = useState(false)
+  const [offersModal, setOffersModal] = useState(false)
 
   const [avatarUrl, setAvatarUrl]     = useState<string | null>(null)
   const [freshName, setFreshName]     = useState<string>('')
   const [freshEmail, setFreshEmail]   = useState<string>('')
-  const [freshPhone, setFreshPhone]   = useState<string>('')
 
   const fetchSub = useCallback(async () => {
     if (!profile?.club_id || !profile?.id) return
     const [clubRes, profileRes] = await Promise.all([
       supabase
         .from('clubs')
-        .select('subscription_type, subscription_due_date, club_name, club_address, club_email_id, club_phone_number')
+        .select('subscription_type, subscription_due_date, subscription_price, club_name, club_address, club_email_id, club_phone_number')
         .eq('club_id', profile.club_id)
         .single(),
       supabase
@@ -67,7 +76,6 @@ export default function MoreScreen() {
       const p = profileRes.data as any
       setFreshName([p.name, p.surname].filter(Boolean).join(' ') || '')
       setFreshEmail(p.email ?? '')
-      setFreshPhone(p.phone_number ?? '')
     }
     // avatar_url fetched separately — column may not exist yet
     const { data: av } = await supabase
@@ -75,17 +83,20 @@ export default function MoreScreen() {
     if (av) setAvatarUrl((av as any).avatar_url ?? null)
   }, [profile?.club_id, profile?.id])
 
-  useFocusEffect(useCallback(() => { fetchSub() }, [fetchSub]))
+  useFocusEffect(useCallback(() => {
+    fetchSub()
+    reloadPlatformSettings()
+  }, [fetchSub, reloadPlatformSettings]))
 
   async function handleRenew() {
     if (!profile?.club_id || !sub) return
-    const feeLabel = sub.subscription_type === 'annual'
-      ? `€${settings.annual_club_fee.toFixed(0)}/year`
-      : `€${settings.monthly_club_fee.toFixed(0)}/month`
+    const periodDays = subscriptionPeriodDays(sub.subscription_type)
+    const fee = effectiveSubscriptionPrice(settings, sub.subscription_type, sub.subscription_price)
+    const feeLabel = `\u20ac${fee.toFixed(0)}/${subscriptionPriceSuffix(sub.subscription_type)}`
 
     Alert.alert(
       'Renew Subscription',
-      `Renew your ${sub.subscription_type} plan for ${feeLabel}? This will extend your subscription by 30 days.`,
+      `Renew your ${subscriptionPlanLabel(sub.subscription_type)} plan for ${feeLabel}? This will extend your subscription by ${periodDays} days.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -94,7 +105,7 @@ export default function MoreScreen() {
             setRenewing(true)
             const current = sub.subscription_due_date ? new Date(sub.subscription_due_date) : new Date()
             const base = current < new Date() ? new Date() : current
-            base.setDate(base.getDate() + 30)
+            base.setDate(base.getDate() + periodDays)
 
             const { error } = await supabase
               .from('clubs')
@@ -106,7 +117,7 @@ export default function MoreScreen() {
               Alert.alert('Error', 'Could not renew subscription. Please try again.')
             } else {
               await fetchSub()
-              Alert.alert('Renewed', 'Your subscription has been extended by 30 days.')
+              Alert.alert('Renewed', `Your subscription has been extended by ${periodDays} days.`)
             }
           },
         },
@@ -117,6 +128,7 @@ export default function MoreScreen() {
   const days = getDaysUntilDue(sub?.subscription_due_date ?? null)
   const isOverdue = days !== null && days <= 0
   const isDueSoon = days !== null && days > 0 && days <= 14
+  const currentFee = effectiveSubscriptionPrice(settings, sub?.subscription_type, sub?.subscription_price)
 
   const subStatusColor = isOverdue ? COLORS.red
     : isDueSoon ? (days <= 7 ? '#f97316' : '#eab308')
@@ -128,11 +140,13 @@ export default function MoreScreen() {
     : 'Active'
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.appName}>PartyOn</Text>
+          <Text style={s.appName}>
+            Party<Text style={{ color: COLORS.purple }}>On</Text>
+          </Text>
           <Text style={s.managerLabel}>Manager Portal</Text>
         </View>
 
@@ -140,7 +154,11 @@ export default function MoreScreen() {
         <Text style={s.pageSubtitle}>Manage your club subscription and options</Text>
 
         {/* Subscription card */}
-        <View style={s.subCard}>
+        <TouchableOpacity
+          style={s.subCard}
+          onPress={() => setOffersModal(true)}
+          activeOpacity={0.84}
+        >
           <View style={s.subCardTop}>
             <View style={s.iconWrap}>
               <Ionicons name="card-outline" size={18} color={COLORS.muted} />
@@ -152,9 +170,9 @@ export default function MoreScreen() {
           </View>
 
           <Text style={s.subPlanName}>
-            {sub ? `${sub.subscription_type.charAt(0).toUpperCase() + sub.subscription_type.slice(1)} Plan` : '–'}
+            {sub ? `${subscriptionPlanLabel(sub.subscription_type)} Plan` : '-'}
           </Text>
-          <Text style={s.subPlanLabel}>Club Subscription</Text>
+          <Text style={s.subPlanLabel}>Club Subscription · Tap to compare plans</Text>
 
           <View style={s.subDivider} />
 
@@ -164,20 +182,20 @@ export default function MoreScreen() {
           </View>
           <View style={s.subRow}>
             <Text style={s.subRowLabel}>
-              {sub?.subscription_type === 'annual' ? 'Annual fee' : 'Monthly fee'}
+              {subscriptionPlanLabel(sub?.subscription_type)} fee
             </Text>
             <Text style={s.subRowValue}>
-              €{(sub?.subscription_type === 'annual'
-                ? settings.annual_club_fee
-                : settings.monthly_club_fee
-              ).toFixed(0)}
+              €{currentFee.toFixed(0)}
             </Text>
           </View>
 
           {(isOverdue || isDueSoon) && (
             <TouchableOpacity
               style={[s.renewBtn, { backgroundColor: subStatusColor }]}
-              onPress={handleRenew}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleRenew()
+              }}
               disabled={renewing}
               activeOpacity={0.85}
             >
@@ -192,7 +210,7 @@ export default function MoreScreen() {
               }
             </TouchableOpacity>
           )}
-        </View>
+        </TouchableOpacity>
 
         {/* Manager account / profile card */}
         <Text style={s.sectionLabel}>ACCOUNT</Text>
@@ -230,7 +248,11 @@ export default function MoreScreen() {
         {sub && (
           <>
             <Text style={s.sectionLabel}>CLUB</Text>
-            <View style={s.infoCard}>
+            <TouchableOpacity
+              style={s.infoCard}
+              onPress={() => router.push('/(manager)/club-profile')}
+              activeOpacity={0.84}
+            >
               <View style={s.infoRow}>
                 <View style={s.infoIconWrap}>
                   <Ionicons name="business-outline" size={15} color={COLORS.mutedDark} />
@@ -282,13 +304,20 @@ export default function MoreScreen() {
                   </View>
                 </>
               ) : null}
-            </View>
+              <View style={s.cardChevron}>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+              </View>
+            </TouchableOpacity>
           </>
         )}
 
         {/* Billing / payment method */}
         <Text style={s.sectionLabel}>BILLING</Text>
-        <View style={s.infoCard}>
+        <TouchableOpacity
+          style={s.infoCard}
+          onPress={() => router.push('/(manager)/payment-methods')}
+          activeOpacity={0.84}
+        >
           <View style={s.infoRow}>
             <View style={s.infoIconWrap}>
               <Ionicons name="card-outline" size={15} color={COLORS.mutedDark} />
@@ -327,19 +356,23 @@ export default function MoreScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.infoLabel}>Billing cycle</Text>
               <Text style={s.infoValue}>
-                {sub?.subscription_type === 'annual' ? 'Annual' : 'Monthly'}
-                {' · '}€{(sub?.subscription_type === 'annual'
-                  ? settings.annual_club_fee
-                  : settings.monthly_club_fee
-                ).toFixed(0)} / {sub?.subscription_type === 'annual' ? 'year' : 'month'}
+                {subscriptionPlanLabel(sub?.subscription_type)}
+                {' · '}€{currentFee.toFixed(0)} / {subscriptionPriceSuffix(sub?.subscription_type)}
               </Text>
             </View>
           </View>
-        </View>
+          <View style={s.cardChevron}>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+          </View>
+        </TouchableOpacity>
 
         {/* Support */}
         <Text style={s.sectionLabel}>SUPPORT</Text>
-        <View style={s.infoCard}>
+        <TouchableOpacity
+          style={s.infoCard}
+          onPress={() => Linking.openURL('mailto:support@partyon.com')}
+          activeOpacity={0.84}
+        >
           <View style={s.infoRow}>
             <View style={s.infoIconWrap}>
               <Ionicons name="headset-outline" size={15} color={COLORS.mutedDark} />
@@ -363,7 +396,10 @@ export default function MoreScreen() {
               <Text style={s.infoSub}>Reference this when contacting support</Text>
             </View>
           </View>
-        </View>
+          <View style={s.cardChevron}>
+            <Ionicons name="mail-outline" size={16} color={COLORS.mutedDark} />
+          </View>
+        </TouchableOpacity>
 
         {/* More Options */}
         <Text style={s.sectionLabel}>MORE OPTIONS</Text>
@@ -376,7 +412,9 @@ export default function MoreScreen() {
                 activeOpacity={0.7}
               >
                 <View style={s.menuLeft}>
-                  <Ionicons name={item.icon as any} size={18} color={COLORS.muted} />
+                  <View style={s.menuIconWrap}>
+                    <Ionicons name={item.icon as any} size={15} color={COLORS.mutedDark} />
+                  </View>
                   <Text style={s.menuLabel}>{item.label}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
@@ -388,6 +426,17 @@ export default function MoreScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <SubscriptionOffersModal
+        visible={offersModal}
+        onClose={() => setOffersModal(false)}
+        settings={settings}
+        currentPlanType={sub?.subscription_type ?? null}
+        onManageBilling={() => {
+          setOffersModal(false)
+          router.push('/(manager)/billing-history' as any)
+        }}
+      />
     </SafeAreaView>
   )
 }
@@ -464,6 +513,17 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
     overflow: 'hidden', marginBottom: SPACING.lg,
   },
+  cardChevron: {
+    position: 'absolute',
+    right: SPACING.sm,
+    top: SPACING.sm,
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.bgCard2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   infoRow: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingHorizontal: SPACING.md, paddingVertical: SPACING.md,
@@ -481,6 +541,11 @@ const s = StyleSheet.create({
   menuCard: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
   menuRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.md, paddingVertical: SPACING.md + 2 },
   menuLeft:  { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  menuIconWrap: {
+    width: 30, height: 30, borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.bgCard2,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
   menuLabel: { color: COLORS.white, fontSize: FONT.base, fontWeight: '500' },
   divider: { height: 1, backgroundColor: COLORS.border },
 })

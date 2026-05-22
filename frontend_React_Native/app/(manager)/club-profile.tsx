@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, TextInput, ActivityIndicator, Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter } from 'expo-router'
@@ -10,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { MANAGER_MORE, replaceManagerRoute } from '@/lib/managerNavigation'
 
 export default function ClubProfileScreen() {
   const router = useRouter()
@@ -149,17 +151,19 @@ export default function ClubProfileScreen() {
       >
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_MORE)} style={s.backBtn}>
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager • {profile?.name ?? ''}</Text>
           </View>
         </View>
 
         <Text style={s.pageTitle}>Club Profile</Text>
-        <Text style={s.pageSubtitle}>Manage your club's information and branding</Text>
+        <Text style={s.pageSubtitle}>Manage your club&apos;s information and branding</Text>
 
         {/* ── Cover Image ── */}
         <View style={s.section}>
@@ -252,7 +256,7 @@ export default function ClubProfileScreen() {
 
         {/* ── Actions ── */}
         <View style={s.actionRow}>
-          <TouchableOpacity style={s.cancelBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={s.cancelBtn} onPress={() => replaceManagerRoute(router, MANAGER_MORE)}>
             <Text style={s.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity

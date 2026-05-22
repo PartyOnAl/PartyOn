@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, FlatList, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, FlatList, StyleSheet,
   TouchableOpacity, Modal, TextInput, ActivityIndicator, Alert,
   RefreshControl, KeyboardAvoidingView, Platform, Pressable, Dimensions,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
@@ -17,6 +18,7 @@ type ClubEvent = {
   event_id: string
   event_name: string
   event_starting_date: string
+  event_ending_date: string | null
 }
 
 type ReservationRow = {
@@ -49,8 +51,12 @@ type FlatReservation = {
   nr_of_people: number | null
   reservation_date: string | null
   notes: string | null
+  event_id: string | null
   guest_name: string
   event_name: string | null
+  /** Present when filtering queue to upcoming reservations */
+  event_starting_date: string | null
+  event_ending_date: string | null
   table_number: string | null
   table_id: string | null
 }
@@ -84,6 +90,60 @@ function fmt(d: string | null) {
 
 function fmtShort(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function isoDay(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  const direct = trimmed.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (direct) return direct[1]
+  const d = new Date(trimmed)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+function matchesEventDate(reservationDate: string | null | undefined, eventDate: string | null | undefined) {
+  const rDay = isoDay(reservationDate)
+  const eDay = isoDay(eventDate)
+  return !!rDay && !!eDay && rDay === eDay
+}
+
+function reservationMatchesEvent(
+  r: { event_id: string | null; reservation_date: string | null },
+  ev: ClubEvent,
+) {
+  return r.event_id === ev.event_id ||
+    (!r.event_id && matchesEventDate(r.reservation_date, ev.event_starting_date))
+}
+
+/** Keep only bookings whose event night (or reservation_date fallback) has not ended vs now */
+function isReservationStillInQueue(
+  reservation_date: string | null,
+  event_starting_date: string | null | undefined,
+  event_ending_date?: string | null,
+): boolean {
+  const ref = (event_ending_date && String(event_ending_date).trim())
+    ? event_ending_date
+    : event_starting_date && String(event_starting_date).trim()
+      ? event_starting_date
+    : reservation_date && String(reservation_date).trim()
+      ? reservation_date
+      : null
+  if (!ref) return true
+  const d = new Date(ref)
+  if (Number.isNaN(d.getTime())) return true
+
+  const isMidnightOnly =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
+
+  if (isMidnightOnly) {
+    d.setHours(23, 59, 59, 999)
+  }
+
+  return d.getTime() >= Date.now()
 }
 
 function isVIP(t: VenueTable) {
@@ -261,22 +321,24 @@ export default function TablesScreen() {
     if (!profile?.club_id) { setLoading(false); return }
     const clubId = profile.club_id
 
-    const now = new Date().toISOString()
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayIso = today.toISOString()
 
     const [evUpcomingRes, evPastRes, tbRes] = await Promise.all([
       supabase
         .from('events')
-        .select('event_id, event_name, event_starting_date')
+        .select('event_id, event_name, event_starting_date, event_ending_date')
         .eq('club_id', clubId)
         .eq('event_status', 'published')
-        .gte('event_starting_date', now)
+        .gte('event_starting_date', todayIso)
         .order('event_starting_date', { ascending: true }),
       supabase
         .from('events')
-        .select('event_id, event_name, event_starting_date')
+        .select('event_id, event_name, event_starting_date, event_ending_date')
         .eq('club_id', clubId)
         .eq('event_status', 'published')
-        .lt('event_starting_date', now)
+        .lt('event_starting_date', todayIso)
         .order('event_starting_date', { ascending: false })
         .limit(20),
       supabase
@@ -340,43 +402,75 @@ export default function TablesScreen() {
       .eq('club_id', profile.club_id)
     const clubEventIds = (clubEvents ?? []).map((e: any) => e.event_id)
 
-    let q = supabase
-      .from('reservations')
-      .select(`
-        reservation_id, type, status, nr_of_people, reservation_date, notes, event_id, table_id,
-        profiles(name, surname),
-        events:event_id(event_name),
-        tables:table_id(table_number)
-      `)
-      .in('status', ['pending', 'confirmed'])
-      .order('created_at', { ascending: false })
+    const selectClause = `
+      reservation_id, type, status, nr_of_people, reservation_date, notes, event_id, table_id,
+      profiles(name, surname),
+      events:event_id(event_name, event_starting_date, event_ending_date),
+      tables:table_id(table_number)
+    `
 
-    if (selectedEvent) {
-      q = q.eq('event_id', selectedEvent.event_id)
-    } else if (clubEventIds.length > 0) {
-      q = q.in('event_id', clubEventIds)
-    } else {
-      setFlatReservs([]); return
+    const queries = []
+    if (clubEventIds.length > 0) {
+      queries.push(
+        supabase
+          .from('reservations')
+          .select(selectClause)
+          .in('status', ['pending', 'confirmed'])
+          .in('event_id', clubEventIds)
+          .order('created_at', { ascending: false }),
+      )
+    }
+    if (tableIds.length > 0) {
+      queries.push(
+        supabase
+          .from('reservations')
+          .select(selectClause)
+          .in('status', ['pending', 'confirmed'])
+          .in('table_id', tableIds)
+          .order('created_at', { ascending: false }),
+      )
+    }
+    if (queries.length === 0) {
+      setFlatReservs([])
+      return
     }
 
-    const { data } = await q
-    const items: FlatReservation[] = ((data ?? []) as any[]).map(r => {
-      const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
-      const ev   = Array.isArray(r.events)   ? r.events[0]   : r.events
-      const tb   = Array.isArray(r.tables)   ? r.tables[0]   : r.tables
-      return {
-        reservation_id:   r.reservation_id,
-        type:             r.type,
-        status:           r.status,
-        nr_of_people:     r.nr_of_people,
-        reservation_date: r.reservation_date,
-        notes:            r.notes,
-        guest_name:       [prof?.name, prof?.surname].filter(Boolean).join(' ') || 'Guest',
-        event_name:       ev?.event_name ?? null,
-        table_number:     tb?.table_number ?? null,
-        table_id:         r.table_id,
-      }
-    })
+    const results = await Promise.all(queries)
+    const byId = new Map<string, any>()
+    for (const result of results) {
+      for (const row of result.data ?? []) byId.set(row.reservation_id, row)
+    }
+
+    const rawRows = Array.from(byId.values())
+    const scopedRows = selectedEvent
+      ? rawRows.filter(r => reservationMatchesEvent(r, selectedEvent))
+      : rawRows
+
+    const items: FlatReservation[] = (scopedRows as any[])
+      .map(r => {
+        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
+        const ev = Array.isArray(r.events) ? r.events[0] : r.events
+        const tb = Array.isArray(r.tables) ? r.tables[0] : r.tables
+        const fallbackEvent = selectedEvent && !r.event_id && matchesEventDate(r.reservation_date, selectedEvent.event_starting_date)
+          ? selectedEvent
+          : null
+        return {
+          reservation_id:    r.reservation_id,
+          type:               r.type,
+          status:             r.status,
+          nr_of_people:       r.nr_of_people,
+          reservation_date:   r.reservation_date,
+          notes:              r.notes,
+          event_id:           r.event_id,
+          guest_name:         [prof?.name, prof?.surname].filter(Boolean).join(' ') || 'Guest',
+          event_name:         ev?.event_name ?? fallbackEvent?.event_name ?? null,
+          event_starting_date: (ev?.event_starting_date as string | undefined) ?? fallbackEvent?.event_starting_date ?? null,
+          event_ending_date:   (ev?.event_ending_date as string | undefined) ?? fallbackEvent?.event_ending_date ?? null,
+          table_number:       tb?.table_number ?? null,
+          table_id:           r.table_id,
+        }
+      })
+      .filter(r => isReservationStillInQueue(r.reservation_date, r.event_starting_date, r.event_ending_date))
     setFlatReservs(items)
   }
 
@@ -394,7 +488,7 @@ export default function TablesScreen() {
 
     const withEventReserv = tables.map(t => ({
       ...t,
-      reservations: t.reservations.filter(r => r.event_id === selectedEvent.event_id),
+      reservations: t.reservations.filter(r => reservationMatchesEvent(r, selectedEvent)),
     }))
 
     // Available tables first, then those with a reservation for this event
@@ -425,15 +519,21 @@ export default function TablesScreen() {
     })).filter(g => g.tables.length > 0)
   }, [tables, selectedEvent])
 
-  const filteredReservs = useMemo(() => {
+  const scopedReservs = useMemo(() => {
     let list = flatReservs
+    if (selectedEvent) list = list.filter(r => reservationMatchesEvent(r, selectedEvent))
+    return list.filter(r => isReservationStillInQueue(r.reservation_date, r.event_starting_date, r.event_ending_date))
+  }, [flatReservs, selectedEvent])
+
+  const filteredReservs = useMemo(() => {
+    let list = scopedReservs
     if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter)
     if (guestSearch.trim()) {
       const q = guestSearch.toLowerCase()
       list = list.filter(r => r.guest_name.toLowerCase().includes(q))
     }
     return list
-  }, [flatReservs, statusFilter, guestSearch])
+  }, [scopedReservs, statusFilter, guestSearch])
 
   const pickerEvents = useMemo(() => {
     const search = eventSearch.trim().toLowerCase()
@@ -447,7 +547,7 @@ export default function TablesScreen() {
   // Active reservation for a table — only shown when an event is selected
   function getActiveReserv(table: VenueTable): ReservationRow | null {
     if (!selectedEvent) return null
-    return table.reservations.find(r => r.event_id === selectedEvent.event_id) ?? null
+    return table.reservations.find(r => reservationMatchesEvent(r, selectedEvent)) ?? null
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -468,9 +568,8 @@ export default function TablesScreen() {
 
   // Tonight = nearest future event
   function selectTonight() {
-    const now = Date.now()
     const upcoming = [...events]
-      .filter(e => new Date(e.event_starting_date).getTime() > now)
+      .filter(e => isReservationStillInQueue(null, e.event_starting_date, e.event_ending_date))
       .sort((a, b) => new Date(a.event_starting_date).getTime() - new Date(b.event_starting_date).getTime())
     if (upcoming.length > 0) setSelectedEvent(upcoming[0])
     else if (events.length > 0) setSelectedEvent(events[0])
@@ -671,7 +770,7 @@ export default function TablesScreen() {
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
         <View style={s.center}><ActivityIndicator color={COLORS.purple} size="large" /></View>
       </SafeAreaView>
     )
@@ -681,7 +780,7 @@ export default function TablesScreen() {
   const cardW = (SCREEN_W - SPACING.md * 2 - SPACING.sm) / 2
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
 
       {/* ── Header ── */}
       <View style={s.headerBar}>
@@ -887,11 +986,15 @@ export default function TablesScreen() {
                 onPress={() => setStatusFilter(st)}
               >
                 <Text style={[s.chipText, statusFilter === st && s.chipTextActive]}>
-                  {st === 'all' ? `All (${flatReservs.length})` : st.charAt(0).toUpperCase() + st.slice(1)}
+                  {st === 'all' ? `All (${scopedReservs.length})` : st.charAt(0).toUpperCase() + st.slice(1)}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
+
+          <Text style={s.queueHint}>
+            Upcoming bookings only — past reservations are not shown here.
+          </Text>
 
           <FlatList
             data={filteredReservs}
@@ -911,7 +1014,11 @@ export default function TablesScreen() {
             renderItem={({ item: r }) => {
               const sc = RESERV_COLOR[r.status]
               return (
-                <View style={s.reservCard}>
+                <TouchableOpacity
+                  style={s.reservCard}
+                  onPress={() => openEditReserv(r as any)}
+                  activeOpacity={0.82}
+                >
                   <View style={[s.reservCardAccent, { backgroundColor: sc }]} />
                   <View style={s.reservCardInner}>
                     <View style={s.reservCardTop}>
@@ -979,7 +1086,7 @@ export default function TablesScreen() {
                       </TouchableOpacity>
                     </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               )
             }}
           />
@@ -1511,7 +1618,10 @@ export default function TablesScreen() {
                   // Derive availability from reservation data for the selected event,
                   // falling back to the raw table_status only when no event is chosen
                   const eventReserv = createEventId
-                    ? t.reservations.find(r => r.event_id === createEventId)
+                    ? t.reservations.find(r =>
+                      r.event_id === createEventId ||
+                      (!r.event_id && matchesEventDate(r.reservation_date, events.find(ev => ev.event_id === createEventId)?.event_starting_date))
+                    )
                     : null
                   const sc = createEventId
                     ? eventReserv
@@ -1722,11 +1832,15 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 4,
   },
   searchInput: { flex: 1, color: COLORS.white, fontSize: FONT.sm },
-  chipScroll:  { maxHeight: 44 },
-  chipContent: { paddingHorizontal: SPACING.md, gap: SPACING.xs, paddingVertical: SPACING.xs },
-  chip:       { borderRadius: RADIUS.pill, paddingHorizontal: SPACING.md, paddingVertical: 6, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border },
+  chipScroll:  { maxHeight: 34 },
+  chipContent: { paddingHorizontal: SPACING.md, gap: SPACING.xs, paddingVertical: 0, alignItems: 'center' },
+  queueHint: {
+    color: COLORS.mutedDark, fontSize: 11, lineHeight: 15,
+    paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, marginTop: -2,
+  },
+  chip:       { height: 28, borderRadius: RADIUS.pill, paddingHorizontal: SPACING.md, paddingVertical: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border },
   chipActive: { backgroundColor: COLORS.purpleDark, borderColor: COLORS.purple },
-  chipText:   { color: COLORS.mutedDark, fontSize: 12, fontWeight: '600' },
+  chipText:   { color: COLORS.mutedDark, fontSize: 12, lineHeight: 14, fontWeight: '600', includeFontPadding: false, textAlignVertical: 'center' },
   chipTextActive: { color: '#fff' },
 
   reservCard: {

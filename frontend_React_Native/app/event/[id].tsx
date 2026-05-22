@@ -92,7 +92,8 @@ export default function EventDetailScreen() {
   }
 
   const club = event.clubs
-  const isReservationOnly = club?.reservation_only ?? false
+  const hasTicketOffer = ticketTypes.length > 0 || event.final_ticket_price != null || event.ticket_price != null
+  const isReservationOnly = !hasTicketOffer && ((event.reservation_only ?? club?.reservation_only) ?? false)
   const lowestPrice = selectedTicket ? Number(selectedTicket.price) : Number(event.final_ticket_price ?? event.ticket_price ?? 0)
 
   return (

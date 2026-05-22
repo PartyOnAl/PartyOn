@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import DatePickerModal from '@/components/DatePickerModal'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
-  TouchableOpacity, TextInput, ActivityIndicator, Alert, Switch,
+  View, Text, ScrollView, StyleSheet,
+  TouchableOpacity, TextInput, ActivityIndicator, Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -11,10 +12,11 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { dbDateToDdMmYyyy, ddMmYyyyToIsoDate } from '@/lib/eventDates'
+import { MANAGER_EVENTS, replaceManagerRoute } from '@/lib/managerNavigation'
 
 const EVENT_TYPES = ['Party', 'DJ Night', 'Concert', 'Live Music', 'Festival', 'Private Event', 'Other']
-const STATUSES    = ['draft', 'published', 'cancelled', 'completed'] as const
-type EventStatus  = typeof STATUSES[number]
+type EventStatus  = 'draft' | 'published' | 'cancelled' | 'completed'
 
 const STATUS_COLOR: Record<EventStatus, string> = {
   draft:     COLORS.cta,
@@ -23,18 +25,7 @@ const STATUS_COLOR: Record<EventStatus, string> = {
   completed: COLORS.muted,
 }
 
-// Convert DD/MM/YYYY (picker display) → YYYY-MM-DD (Postgres date format).
-function toIsoDate(s: string): string | null {
-  const trimmed = s.trim()
-  if (!trimmed) return null
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed)
-  if (!m) return null
-  const [, dd, mm, yyyy] = m
-  const day   = parseInt(dd, 10)
-  const month = parseInt(mm, 10)
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return `${yyyy}-${mm}-${dd}`
-}
+
 
 export default function EditEventScreen() {
   const router = useRouter()
@@ -61,6 +52,8 @@ export default function EditEventScreen() {
   const [ticketPrice, setTicketPrice]     = useState('')
   const [discount, setDiscount]           = useState('')
   const [isFeatured, setIsFeatured]       = useState(false)
+  const [featuredRequestStatus, setFeaturedRequestStatus] = useState<string>('none')
+  const [featuredRejectionReason, setFeaturedRejectionReason] = useState<string | null>(null)
   const [eventStatus, setEventStatus]     = useState<EventStatus>('draft')
   const [bookingType, setBookingType]     = useState<'ticket' | 'reservation'>('ticket')
 
@@ -75,7 +68,6 @@ export default function EditEventScreen() {
   const capacityRef     = useRef(capacity)
   const ticketPriceRef  = useRef(ticketPrice)
   const discountRef     = useRef(discount)
-  const isFeaturedRef   = useRef(isFeatured)
   const coverImageRef   = useRef(coverImage)
   const bookingTypeRef  = useRef(bookingType)
 
@@ -90,7 +82,6 @@ export default function EditEventScreen() {
   function syncAndSetCapacity(v: string)      { capacityRef.current = v;      setCapacity(v) }
   function syncAndSetTicketPrice(v: string)   { ticketPriceRef.current = v;   setTicketPrice(v) }
   function syncAndSetDiscount(v: string)      { discountRef.current = v;      setDiscount(v) }
-  function syncAndSetIsFeatured(v: boolean)   { isFeaturedRef.current = v;    setIsFeatured(v) }
   function syncAndSetCoverImage(v: string | null) { coverImageRef.current = v; setCoverImage(v) }
   function syncAndSetBookingType(v: 'ticket' | 'reservation') { bookingTypeRef.current = v; setBookingType(v) }
 
@@ -112,7 +103,7 @@ export default function EditEventScreen() {
       .then(({ data, error }) => {
         if (error || !data) {
           Alert.alert('Error', 'Could not load event.')
-          router.back()
+          replaceManagerRoute(router, MANAGER_EVENTS)
           return
         }
         syncAndSetCoverImage(data.event_image ?? null)
@@ -120,28 +111,20 @@ export default function EditEventScreen() {
         syncAndSetEventType(data.event_type ?? '')
         syncAndSetDescription(data.event_description ?? '')
         syncAndSetSpecialGuests(data.special_guests ?? '')
-        syncAndSetStartDate(formatDateForDisplay(data.event_starting_date))
-        syncAndSetEndDate(formatDateForDisplay(data.event_ending_date))
+        syncAndSetStartDate(dbDateToDdMmYyyy(data.event_starting_date))
+        syncAndSetEndDate(dbDateToDdMmYyyy(data.event_ending_date))
         syncAndSetEventHours(data.event_hours ?? '')
         syncAndSetCapacity(data.event_capacity != null ? String(data.event_capacity) : '')
         syncAndSetTicketPrice(data.ticket_price != null ? String(data.ticket_price) : '')
         syncAndSetDiscount(data.ticket_discount != null ? String(data.ticket_discount) : '')
-        syncAndSetIsFeatured(data.is_featured ?? false)
+        setIsFeatured(data.is_featured ?? false)
+        setFeaturedRequestStatus(data.featured_request_status ?? 'none')
+        setFeaturedRejectionReason(data.featured_rejection_reason ?? null)
         syncAndSetBookingType(data.reservation_only ? 'reservation' : 'ticket')
         setEventStatus((data.event_status as EventStatus) ?? 'draft')
         setLoading(false)
       })
-  }, [id])
-
-  function formatDateForDisplay(d: string | null): string {
-    if (!d) return ''
-    // If already in DD/MM/YYYY just return as-is
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d
-    // Try to parse ISO date
-    const dt = new Date(d)
-    if (isNaN(dt.getTime())) return d
-    return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`
-  }
+  }, [id, router])
 
   // ── Image picker ──────────────────────────────────────────────────────────
   async function handlePickImage() {
@@ -197,12 +180,22 @@ export default function EditEventScreen() {
     const currentCapacity    = capacityRef.current
     const currentTicketPrice = ticketPriceRef.current
     const currentDiscount    = discountRef.current
-    const currentFeatured    = isFeaturedRef.current
     const currentImage       = coverImageRef.current
     const currentBooking     = bookingTypeRef.current
 
     if (!currentName.trim()) { Alert.alert('Validation', 'Event name is required.'); return }
     if (!id)                  { Alert.alert('Error', 'No event ID found.'); return }
+
+    const isoStart = ddMmYyyyToIsoDate(currentStartDate)
+    if (!isoStart) {
+      Alert.alert('Validation', 'Start date is invalid. Use the calendar to pick a date.')
+      return
+    }
+    const isoEnd = currentEndDate.trim() ? ddMmYyyyToIsoDate(currentEndDate) : null
+    if (currentEndDate.trim() && !isoEnd) {
+      Alert.alert('Validation', 'End date is invalid. Use the calendar to pick a date.')
+      return
+    }
 
     const isReservation = currentBooking === 'reservation'
     const base  = isReservation || currentTicketPrice === '' ? null : parseFloat(currentTicketPrice)
@@ -219,8 +212,8 @@ export default function EditEventScreen() {
         event_type:          currentEventType || null,
         event_description:   currentDescription.trim() || null,
         special_guests:      currentGuests.trim() || null,
-        event_starting_date: toIsoDate(currentStartDate),
-        event_ending_date:   toIsoDate(currentEndDate),
+        event_starting_date: isoStart,
+        event_ending_date:   isoEnd,
         event_hours:         currentHours.trim() || null,
         event_capacity:      currentCapacity !== '' ? parseInt(currentCapacity) : null,
         ticket_price:        base,
@@ -228,7 +221,6 @@ export default function EditEventScreen() {
         final_ticket_price:  final,
         reservation_only:    isReservation,
         event_image:         currentImage,
-        is_featured:         currentFeatured,
         event_status:        status,
         updated_at:          new Date().toISOString(),
       }
@@ -248,7 +240,7 @@ export default function EditEventScreen() {
 
       const label = status === 'published' ? 'Event Published!' : status === 'draft' ? 'Draft Saved' : 'Event Updated'
       Alert.alert(label, 'Your changes have been saved.', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => replaceManagerRoute(router, MANAGER_EVENTS) },
       ])
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Could not update event.')
@@ -272,11 +264,13 @@ export default function EditEventScreen() {
 
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_EVENTS)} style={s.backBtn}>
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager • {profile?.name ?? ''}</Text>
           </View>
           {/* Current status badge */}
@@ -502,19 +496,25 @@ export default function EditEventScreen() {
           </>
         )}
 
-        {/* Options */}
-        <SectionLabel>Options</SectionLabel>
-        <View style={s.toggleRow}>
-          <View>
-            <Text style={s.toggleLabel}>Feature this event</Text>
-            <Text style={s.toggleSublabel}>Appears in the featured section</Text>
-          </View>
-          <Switch
-            value={isFeatured}
-            onValueChange={syncAndSetIsFeatured}
-            trackColor={{ false: COLORS.border, true: COLORS.purpleDark }}
-            thumbColor={isFeatured ? COLORS.purple : COLORS.muted}
+        {/* Featured placement */}
+        <SectionLabel>Featured placement</SectionLabel>
+        <View style={s.featureInfoBox}>
+          <Ionicons
+            name={isFeatured ? 'star' : 'star-outline'}
+            size={18}
+            color={isFeatured ? COLORS.cta : COLORS.mutedDark}
           />
+          <View style={{ flex: 1 }}>
+            <Text style={s.toggleLabel}>
+              {isFeatured ? 'Approved featured event' : featuredRequestStatus === 'pending_review' ? 'Waiting for admin approval' : 'Not featured'}
+            </Text>
+            <Text style={s.toggleSublabel}>
+              Request paid featured placement from Event Management after saving.
+            </Text>
+            {featuredRequestStatus === 'rejected' && featuredRejectionReason ? (
+              <Text style={s.rejectionText}>Admin note: {featuredRejectionReason}</Text>
+            ) : null}
+          </View>
         </View>
 
         {/* Action Buttons */}
@@ -642,8 +642,10 @@ const s = StyleSheet.create({
   pillTextActive:{ color: '#fff', fontWeight: '600' },
 
   toggleRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: SPACING.md, paddingVertical: SPACING.md, marginBottom: SPACING.md },
+  featureInfoBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.cta + '44', paddingHorizontal: SPACING.md, paddingVertical: SPACING.md, marginBottom: SPACING.md },
   toggleLabel:   { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '500' },
   toggleSublabel:{ color: COLORS.mutedDark, fontSize: 12, marginTop: 2 },
+  rejectionText: { color: COLORS.red, fontSize: 12, marginTop: 4 },
 
   actionRow:    { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
   draftBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, paddingVertical: SPACING.md, borderWidth: 1, borderColor: COLORS.border },

@@ -4,17 +4,16 @@ import {
   ActivityIndicator, Image, Linking,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 
-type ManagerTab = 'all' | 'approved' | 'pending' | 'suspended'
+type ManagerTab = 'all' | 'approved' | 'suspended'
 
 const MANAGER_TABS: { key: ManagerTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'approved', label: 'Active' },
-  { key: 'pending', label: 'Pending' },
   { key: 'suspended', label: 'Suspended' },
 ]
 
@@ -55,11 +54,11 @@ function managerInitials(mgr: ClubManager) {
   return (n + s).toUpperCase()
 }
 
-function ManagerCard({ item }: { item: ClubManager }) {
+function ManagerCard({ item, onPress }: { item: ClubManager; onPress: () => void }) {
   const hasManager = !!item.manager_id
 
   return (
-    <View style={ms.card}>
+    <TouchableOpacity style={ms.card} onPress={onPress} activeOpacity={0.84}>
       {/* Club header */}
       <View style={ms.cardHeader}>
         <View style={ms.clubAvatarWrap}>
@@ -140,15 +139,16 @@ function ManagerCard({ item }: { item: ClubManager }) {
           ) : null}
         </View>
       ) : null}
-    </View>
+    </TouchableOpacity>
   )
 }
 
 export default function ClubManagersScreen() {
   const insets = useSafeAreaInsets()
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<ManagerTab>('all')
   const [clubs, setClubs] = useState<ClubManager[]>([])
-  const [counts, setCounts] = useState({ all: 0, approved: 0, pending: 0, suspended: 0 })
+  const [counts, setCounts] = useState({ all: 0, approved: 0, suspended: 0 })
   const [loading, setLoading] = useState(true)
 
   useFocusEffect(
@@ -197,7 +197,6 @@ export default function ClubManagersScreen() {
     setCounts({
       all: items.length,
       approved: items.filter(c => c.club_status === 'approved').length,
-      pending: items.filter(c => c.club_status === 'pending').length,
       suspended: items.filter(c => c.club_status === 'suspended').length,
     })
     setClubs(items)
@@ -232,7 +231,6 @@ export default function ClubManagersScreen() {
         {[
           { label: 'Total', val: counts.all, color: COLORS.purple },
           { label: 'Active', val: counts.approved, color: COLORS.green },
-          { label: 'Pending', val: counts.pending, color: '#f59e0b' },
           { label: 'Suspended', val: counts.suspended, color: COLORS.mutedDark },
         ].map(item => (
           <View key={item.label} style={ms.statChip}>
@@ -271,7 +269,13 @@ export default function ClubManagersScreen() {
               <Text style={ms.emptyText}>No clubs in this category</Text>
             </View>
           ) : (
-            filtered.map(item => <ManagerCard key={item.club_id} item={item} />)
+            filtered.map(item => (
+              <ManagerCard
+                key={item.club_id}
+                item={item}
+                onPress={() => router.push(`/(admin)/club-detail/${item.club_id}`)}
+              />
+            ))
           )}
         </ScrollView>
       )}

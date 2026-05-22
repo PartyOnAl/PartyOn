@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Event } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
@@ -328,12 +329,13 @@ export default function AllEventsScreen() {
 
   const fetchEvents = useCallback(async (from: Date | null, to: Date | null) => {
     setLoading(true)
-    const now = new Date().toISOString()
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     let q = supabase
       .from('events')
       .select('*, clubs(club_name, club_address)')
       .eq('event_status', 'published')
-      .gte('event_starting_date', from ? from.toISOString() : now)
+      .gte('event_starting_date', from ? from.toISOString() : today.toISOString())
       .order('event_starting_date', { ascending: true })
       .limit(50)
 
@@ -343,7 +345,8 @@ export default function AllEventsScreen() {
     }
 
     const { data } = await q
-    setEvents((data as Event[]) ?? [])
+    const rows = (data as Event[]) ?? []
+    setEvents(from ? rows : rows.filter(ev => isEventUpcomingOrLive(ev)))
     setLoading(false)
   }, [])
 

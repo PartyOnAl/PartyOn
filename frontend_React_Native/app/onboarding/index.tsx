@@ -61,9 +61,9 @@ export default function OnboardingScreen() {
         {/* Content */}
         <View style={s.content}>
           <Text style={s.headline}>
-            See what's <Text style={{ color: YELLOW }}>on</Text> near you
+            {`See what's `}<Text style={{ color: YELLOW }}>on</Text>{` near you`}
           </Text>
-          <Text style={s.sub}>Find out what's happening in your area</Text>
+          <Text style={s.sub}>{`Find out what's happening in your area`}</Text>
 
           <TouchableOpacity style={s.btnCity} onPress={() => setStep('city')} activeOpacity={0.85}>
             <Search size={16} color="#aaa" />

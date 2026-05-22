@@ -52,9 +52,7 @@ export async function registerForPushTokenAsync(profileId: string): Promise<stri
 
       const projectId = getProjectId()
       if (!projectId) {
-        // No EAS project id configured - push tokens cannot be issued. The
-        // in-app inbox still works without this.
-        console.warn('[push] No EAS projectId configured in app.json -> extra.eas.projectId. Skipping push token.')
+        // No EAS project id — Expo cannot issue tokens. In-app inbox still works.
         return null
       }
 
@@ -63,6 +61,9 @@ export async function registerForPushTokenAsync(profileId: string): Promise<stri
       if (!token) return null
 
       const nowIso = new Date().toISOString()
+      const fallbackLabel =
+        `${Device.brand ?? ''} ${Device.modelName ?? ''}`.trim()
+      const device_label = Device.deviceName ?? (fallbackLabel || null)
       const { error } = await supabase
         .from('push_tokens')
         .upsert(
@@ -70,7 +71,7 @@ export async function registerForPushTokenAsync(profileId: string): Promise<stri
             profile_id: profileId,
             expo_token: token,
             platform: (Platform.OS as 'ios' | 'android' | 'web'),
-            device_label: Device.deviceName ?? `${Device.brand ?? ''} ${Device.modelName ?? ''}`.trim() || null,
+            device_label,
             last_seen_at: nowIso,
           },
           { onConflict: 'expo_token' },

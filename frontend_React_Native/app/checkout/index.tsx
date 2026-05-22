@@ -140,7 +140,7 @@ export default function CheckoutScreen() {
 
         {/* Legal */}
         <Text style={s.legal}>
-          By purchasing you'll receive an account, agree to our general{' '}
+          {`By purchasing you'll receive an account, agree to our general `}
           <Text style={s.legalLink}>Terms of Use</Text>,{' '}
           <Text style={s.legalLink}>Privacy Policy</Text> and the{' '}
           <Text style={s.legalLink}>Ticket Purchase Terms</Text>.

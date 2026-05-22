@@ -1,16 +1,28 @@
-import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native'
+﻿import { useCallback, useEffect, useState } from 'react'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
+import { usePlatformSettings } from '@/lib/platformSettings'
+import { SubscriptionOffersModal } from '@/components/SubscriptionOffersModal'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 type WeeklyMetric = 'reservations' | 'sales'
 
-type DashEvent = { event_id: string; event_name: string; event_starting_date: string | null; final_ticket_price: number | null; event_status: string }
+type DashEvent = {
+  event_id: string
+  event_name: string
+  event_starting_date: string | null
+  event_ending_date: string | null
+  event_hours: string | null
+  final_ticket_price: number | null
+  event_status: string
+}
 type DashPromotion = {
   promotion_id: string; title: string; category: string | null
   discount_value: number | null; discounted_price: number | null
@@ -28,7 +40,9 @@ type DashReservation = {
 export default function DashboardScreen() {
   const router = useRouter()
   const { profile } = useAuth()
+  const { settings } = usePlatformSettings()
 
+  const [offersModal, setOffersModal] = useState(false)
   const [loading, setLoading]       = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -58,18 +72,19 @@ export default function DashboardScreen() {
 
     const clubId = profile.club_id
 
-    const now = new Date().toISOString()
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
 
     const [eventsRes, tablesRes, eventIdsRes, disputesRes, clubRes, promosRes] = await Promise.all([
-      // Upcoming published events only (not past)
+      // Candidate published events; filter upcoming/live client-side using hours & end dates
       supabase
         .from('events')
-        .select('event_id,event_name,event_starting_date,final_ticket_price,event_status')
+        .select('event_id,event_name,event_starting_date,event_ending_date,event_hours,final_ticket_price,event_status')
         .eq('club_id', clubId)
         .eq('event_status', 'published')
-        .gte('event_starting_date', now)
+        .gte('event_starting_date', today.toISOString())
         .order('event_starting_date', { ascending: true })
-        .limit(5),
+        .limit(12),
 
       // Table count
       supabase
@@ -107,7 +122,13 @@ export default function DashboardScreen() {
         .limit(3),
     ])
 
-    if (eventsRes.data) setUpcomingEvents(eventsRes.data as DashEvent[])
+    if (eventsRes.data) {
+      setUpcomingEvents(
+        (eventsRes.data as DashEvent[])
+          .filter(ev => isEventUpcomingOrLive(ev))
+          .slice(0, 5),
+      )
+    }
     if (tablesRes.count !== null) setTableCount(tablesRes.count)
     if (disputesRes.count !== null) setOpenDisputes(disputesRes.count)
     if (clubRes.data) {
@@ -116,8 +137,8 @@ export default function DashboardScreen() {
     }
     if (promosRes.data) setActivePromotions(promosRes.data as DashPromotion[])
 
-    // Fetch recent reservations for club's events
     const eventIds = (eventIdsRes.data ?? []).map((e: { event_id: string }) => e.event_id)
+    // Recent reservation queue: newest first (client sort + over-fetch avoids DB ordering quirks)
     if (eventIds.length > 0) {
       const { data: reservData, count } = await supabase
         .from('reservations')
@@ -128,16 +149,24 @@ export default function DashboardScreen() {
           tables(minimum_spend, table_number)
         `, { count: 'exact' })
         .in('event_id', eventIds)
-        .order('created_at', { ascending: false })
-        .limit(3)
+        .limit(40)
 
-      if (reservData) setRecentReservations(reservData as DashReservation[])
+      if (reservData) {
+        const sorted = [...(reservData as unknown as DashReservation[])].sort((a, b) => {
+          const tb = b.created_at != null ? new Date(b.created_at).getTime() : Number.NEGATIVE_INFINITY
+          const ta = a.created_at != null ? new Date(a.created_at).getTime() : Number.NEGATIVE_INFINITY
+          if (tb !== ta) return tb - ta
+          return String(b.reservation_id).localeCompare(String(a.reservation_id))
+        })
+        setRecentReservations(sorted.slice(0, 3))
+      } else setRecentReservations([])
       if (count !== null) setTotalReservations(count)
+    } else {
+      setRecentReservations([])
+      setTotalReservations(0)
     }
 
     // Weekly activity: last 7 days rolling, reservations + sales
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
     const since = new Date(today)
     since.setDate(since.getDate() - 6)
 
@@ -198,8 +227,9 @@ export default function DashboardScreen() {
     }
     refreshUnread()
 
+    const channelName = `notifications:badge:${profile.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`
     const channel = supabase
-      .channel('notifications:badge:' + profile.id)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -261,14 +291,14 @@ export default function DashboardScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
         <View style={s.center}><ActivityIndicator color={COLORS.purple} size="large" /></View>
       </SafeAreaView>
     )
   }
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView
         style={s.scroll}
         showsVerticalScrollIndicator={false}
@@ -299,13 +329,13 @@ export default function DashboardScreen() {
         </View>
 
         <Text style={s.pageTitle}>Dashboard Overview</Text>
-        <Text style={s.pageSubtitle}>Track your club's performance</Text>
+        <Text style={s.pageSubtitle}>{"Track your club's performance"}</Text>
 
         {/* Subscription banner */}
         {subBannerColor !== null && (
           <TouchableOpacity
             style={[s.subBanner, { backgroundColor: subBannerColor + '18', borderColor: subBannerColor + '55' }]}
-            onPress={() => router.push('/(manager)/(manager-tabs)/more' as any)}
+            onPress={() => setOffersModal(true)}
             activeOpacity={0.8}
           >
             <View style={[s.subBannerIcon, { backgroundColor: subBannerColor + '22' }]}>
@@ -320,7 +350,7 @@ export default function DashboardScreen() {
               <Text style={[s.subBannerSub, { color: subBannerColor }]}>
                 {daysUntilDue! <= 0
                   ? 'Service may be disrupted. Tap to renew.'
-                  : `${subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1)} plan • Tap to manage`}
+                  : `${subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1)} plan • Tap for all offers`}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={subBannerColor} />
@@ -615,6 +645,16 @@ export default function DashboardScreen() {
           )}
         </View>
       </ScrollView>
+      <SubscriptionOffersModal
+        visible={offersModal}
+        onClose={() => setOffersModal(false)}
+        settings={settings}
+        currentPlanType={subscriptionType}
+        onManageBilling={() => {
+          setOffersModal(false)
+          router.push('/(manager)/billing-history' as any)
+        }}
+      />
     </SafeAreaView>
   )
 }

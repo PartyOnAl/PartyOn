@@ -1,18 +1,26 @@
 import { useCallback, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { usePlatformSettings } from '@/lib/platformSettings'
 import { supabase } from '@/lib/supabase'
+import { SubscriptionOffersModal } from '@/components/SubscriptionOffersModal'
+import {
+  effectiveSubscriptionPrice,
+  subscriptionPeriodDays,
+  subscriptionPlanLabel,
+} from '@/lib/subscriptions'
 
 type SubInfo = {
-  subscription_type: 'monthly' | 'annual' | string
+  subscription_type: 'monthly' | 'three_monthly' | 'annual' | string
   subscription_due_date: string | null
+  subscription_price: number | null
   club_name: string | null
 }
 
@@ -50,7 +58,7 @@ function buildInvoices(sub: SubInfo, clubId: string | null | undefined, amount: 
   if (!sub.subscription_due_date) return []
 
   const now = new Date()
-  const stepDays = sub.subscription_type === 'annual' ? 365 : 30
+  const stepDays = subscriptionPeriodDays(sub.subscription_type)
   const rows: InvoiceRow[] = []
   const clubShort = shortClubId(clubId)
 
@@ -92,17 +100,18 @@ function buildInvoices(sub: SubInfo, clubId: string | null | undefined, amount: 
 export default function BillingHistoryScreen() {
   const router = useRouter()
   const { profile } = useAuth()
-  const { settings } = usePlatformSettings()
+  const { settings, reload: reloadPlatformSettings } = usePlatformSettings()
 
   const [loading, setLoading] = useState(true)
   const [sub, setSub]         = useState<SubInfo | null>(null)
+  const [offersModal, setOffersModal] = useState(false)
 
   const fetchSub = useCallback(async () => {
     if (!profile?.club_id) { setLoading(false); return }
     setLoading(true)
     const { data, error } = await supabase
       .from('clubs')
-      .select('subscription_type, subscription_due_date, club_name')
+      .select('subscription_type, subscription_due_date, subscription_price, club_name')
       .eq('club_id', profile.club_id)
       .single()
     if (!error && data) {
@@ -111,12 +120,13 @@ export default function BillingHistoryScreen() {
     setLoading(false)
   }, [profile?.club_id])
 
-  useFocusEffect(useCallback(() => { fetchSub() }, [fetchSub]))
+  useFocusEffect(useCallback(() => {
+    fetchSub()
+    reloadPlatformSettings()
+  }, [fetchSub, reloadPlatformSettings]))
 
-  const fee = sub?.subscription_type === 'annual'
-    ? settings.annual_club_fee
-    : settings.monthly_club_fee
-  const cycleLabel = sub?.subscription_type === 'annual' ? 'Annual' : 'Monthly'
+  const fee = effectiveSubscriptionPrice(settings, sub?.subscription_type, sub?.subscription_price)
+  const cycleLabel = subscriptionPlanLabel(sub?.subscription_type)
   const days = getDaysUntilDue(sub?.subscription_due_date ?? null)
   const isOverdue = days !== null && days <= 0
   const isDueSoon = days !== null && days > 0 && days <= 14
@@ -157,7 +167,9 @@ export default function BillingHistoryScreen() {
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager • {profile?.name ?? ''}</Text>
           </View>
         </View>
@@ -170,13 +182,21 @@ export default function BillingHistoryScreen() {
             <Ionicons name="document-text-outline" size={36} color={COLORS.mutedDark} />
             <Text style={s.emptyTitle}>No billing data yet</Text>
             <Text style={s.emptyText}>
-              Your club subscription details haven't been set up. Once you start a plan, invoices will appear here.
+              {`Your club subscription details haven't been set up. Once you start a plan, invoices will appear here.`}
             </Text>
+            <TouchableOpacity style={s.comparePlansBtn} onPress={() => setOffersModal(true)} activeOpacity={0.88}>
+              <Ionicons name="layers-outline" size={16} color={COLORS.white} />
+              <Text style={s.comparePlansBtnText}>View subscription options</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
             {/* Current Plan card */}
-            <View style={s.planCard}>
+            <TouchableOpacity
+              style={s.planCard}
+              activeOpacity={0.84}
+              onPress={() => setOffersModal(true)}
+            >
               <View style={s.planTop}>
                 <View style={s.iconWrap}>
                   <Ionicons name="card-outline" size={18} color={COLORS.muted} />
@@ -188,7 +208,7 @@ export default function BillingHistoryScreen() {
               </View>
 
               <Text style={s.planName}>
-                {sub.subscription_type.charAt(0).toUpperCase() + sub.subscription_type.slice(1)} Plan
+                {subscriptionPlanLabel(sub.subscription_type)} Plan
               </Text>
               <Text style={s.planLabel}>Club Subscription</Text>
 
@@ -208,7 +228,8 @@ export default function BillingHistoryScreen() {
                   <Text style={s.rowValue} numberOfLines={1}>{sub.club_name}</Text>
                 </View>
               ) : null}
-            </View>
+              <Text style={s.planHint}>Tap for monthly / 3-month / trial details</Text>
+            </TouchableOpacity>
 
             {/* Invoices list */}
             <Text style={s.sectionTitle}>Invoices</Text>
@@ -257,6 +278,13 @@ export default function BillingHistoryScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <SubscriptionOffersModal
+        visible={offersModal}
+        onClose={() => setOffersModal(false)}
+        settings={settings}
+        currentPlanType={sub?.subscription_type ?? null}
+      />
     </SafeAreaView>
   )
 }
@@ -298,6 +326,7 @@ const s = StyleSheet.create({
   row:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   rowLabel:  { color: COLORS.mutedDark, fontSize: FONT.sm },
   rowValue:  { color: COLORS.white, fontSize: FONT.sm, fontWeight: '600', maxWidth: '60%' },
+  planHint:  { color: COLORS.muted, fontSize: 11, marginTop: SPACING.md, fontStyle: 'italic' },
 
   sectionTitle: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700', marginBottom: SPACING.sm },
 
@@ -336,4 +365,10 @@ const s = StyleSheet.create({
   },
   emptyTitle: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700', marginTop: SPACING.xs },
   emptyText:  { color: COLORS.mutedDark, fontSize: FONT.sm, textAlign: 'center', lineHeight: 20 },
+  comparePlansBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.purple, paddingHorizontal: SPACING.md + 6, paddingVertical: 11,
+    borderRadius: RADIUS.md, marginTop: SPACING.sm,
+  },
+  comparePlansBtnText: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
 })

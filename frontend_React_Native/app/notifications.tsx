@@ -193,7 +193,7 @@ export default function NotificationsScreen() {
               value={prefs[r.key]}
               onChange={v => update(r.key, v)}
               isLast={i === activity.length - 1}
-              disabled={r.dependsOnPush && !prefs.pushEnabled}
+              disabled={r.dependsOnPush ? !prefs.pushEnabled : false}
             />
           ))}
         </Group>
@@ -219,7 +219,7 @@ export default function NotificationsScreen() {
         )}
 
         <Text style={s.footnote}>
-          PartyOn respects your operating system's Do Not Disturb settings.
+          {`PartyOn respects your operating system's Do Not Disturb settings.`}
         </Text>
       </ScrollView>
     </View>

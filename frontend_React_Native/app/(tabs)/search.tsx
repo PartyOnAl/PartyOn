@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Event, Club } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
 function fallbackColor(id: string) {
@@ -226,8 +227,9 @@ export default function SearchScreen() {
 
   const runSearch = useCallback(async () => {
     setLoading(true)
-    const now = new Date().toISOString()
-    let evQ = supabase.from('events').select('*, clubs(*)').eq('event_status', 'published').gte('event_starting_date', now).order('event_starting_date', { ascending: true })
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    let evQ = supabase.from('events').select('*, clubs(*)').eq('event_status', 'published').gte('event_starting_date', today.toISOString()).order('event_starting_date', { ascending: true })
     if (query.trim()) evQ = evQ.ilike('event_name', `%${query.trim()}%`)
     if (dateFrom) evQ = evQ.gte('event_starting_date', isoDate(dateFrom))
     if (dateTo) evQ = evQ.lte('event_starting_date', isoDate(dateTo) + 'T23:59:59')
@@ -236,7 +238,8 @@ export default function SearchScreen() {
     if (query.trim()) clQ = clQ.ilike('club_name', `%${query.trim()}%`)
 
     const [evRes, clRes] = await Promise.all([evQ, clQ])
-    setEvents((evRes.data as Event[]) ?? [])
+    const rows = (evRes.data as Event[]) ?? []
+    setEvents(dateFrom ? rows : rows.filter(ev => isEventUpcomingOrLive(ev)))
     setClubs((clRes.data as Club[]) ?? [])
     setLoading(false)
   }, [query, dateFrom, dateTo])
@@ -278,6 +281,8 @@ export default function SearchScreen() {
     }
     if (item.kind === 'event') {
       const ev = item.data
+      const hasTicketOffer = ev.final_ticket_price != null || ev.ticket_price != null
+      const isReservationOnly = !hasTicketOffer && ((ev.reservation_only ?? ev.clubs?.reservation_only) ?? false)
       return (
         <TouchableOpacity style={styles.row} onPress={() => router.push(`/event/${ev.event_id}`)} activeOpacity={0.7}>
           {ev.event_image ? (
@@ -297,10 +302,10 @@ export default function SearchScreen() {
                 </>
               )}
             </View>
-            {ev.clubs?.reservation_only ? (
-              <Text style={styles.reservationTag}>Reservation Only</Text>
-            ) : ev.final_ticket_price != null ? (
+            {ev.final_ticket_price != null ? (
               <Text style={styles.price}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
+            ) : isReservationOnly ? (
+              <Text style={styles.reservationTag}>Reservation Only</Text>
             ) : null}
           </View>
           <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />

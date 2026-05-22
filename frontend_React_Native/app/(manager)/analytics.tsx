@@ -1,13 +1,15 @@
 import { useCallback, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet,
   TouchableOpacity, ActivityIndicator, Dimensions,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { MANAGER_DASHBOARD, replaceManagerRoute } from '@/lib/managerNavigation'
 
 const { width: SCREEN_W } = Dimensions.get('window')
 const CHART_W = SCREEN_W - SPACING.md * 2 - SPACING.md * 2  // card padding
@@ -17,10 +19,12 @@ type Period = '7d' | '30d' | '90d' | 'all'
 type EventStat = {
   event_id: string
   event_name: string
-  event_date: string | null
+  event_starting_date: string | null
   tickets: number
   reservations: number
   revenue: number
+  commission: number
+  payout: number
   pending: number
   confirmed: number
   cancelled: number
@@ -183,107 +187,115 @@ export default function AnalyticsScreen() {
     if (!profile?.club_id) { setLoading(false); return }
     setLoading(true)
 
-    const cutoff = periodCutoff(period)
+    try {
+      const cutoff = periodCutoff(period)
+      const [clubRes, settingsRes] = await Promise.all([
+        supabase.from('clubs').select('commission_ticket_rate, commission_table_rate').eq('club_id', profile.club_id).single(),
+        supabase.from('platform_settings').select('key, value').in('key', ['commission_ticket', 'commission_table']),
+      ])
 
-    // Fetch events for club
-    let evQ = supabase
-      .from('events')
-      .select('event_id, event_name, event_date')
-      .eq('club_id', profile.club_id)
-      .order('event_date', { ascending: false })
-    if (cutoff) evQ = evQ.gte('event_date', cutoff)
-    const { data: events } = await evQ
-    const eventIds = (events ?? []).map((e: any) => e.event_id)
+      const settingsMap: Record<string, string> = {}
+      ;(settingsRes.data ?? []).forEach((r: any) => { settingsMap[r.key] = r.value })
+      const ticketRate = Number(clubRes.data?.commission_ticket_rate ?? settingsMap.commission_ticket ?? 15)
+      const tableRate = Number(clubRes.data?.commission_table_rate ?? settingsMap.commission_table ?? 15)
 
-    // Pull commission summary + effective rates regardless of events presence
-    const [summaryRes, clubRes, settingsRes] = await Promise.all([
-      supabase.from('club_commission_summary').select('gross_revenue, commission_collected, club_payout').eq('club_id', profile.club_id).single(),
-      supabase.from('clubs').select('commission_ticket_rate, commission_table_rate').eq('club_id', profile.club_id).single(),
-      supabase.from('platform_settings').select('key, value').in('key', ['commission_ticket', 'commission_table']),
-    ])
-    const settingsMap: Record<string, string> = {}
-    ;(settingsRes.data ?? []).forEach((r: any) => { settingsMap[r.key] = r.value })
-    setCommission({
-      gross: Number(summaryRes.data?.gross_revenue ?? 0),
-      fee:   Number(summaryRes.data?.commission_collected ?? 0),
-      net:   Number(summaryRes.data?.club_payout ?? 0),
-      ticketRate: Number(clubRes.data?.commission_ticket_rate ?? settingsMap.commission_ticket ?? 15),
-      tableRate:  Number(clubRes.data?.commission_table_rate  ?? settingsMap.commission_table  ?? 15),
-    })
+      let evQ = supabase
+        .from('events')
+        .select('event_id, event_name, event_starting_date, event_status')
+        .eq('club_id', profile.club_id)
+        .order('event_starting_date', { ascending: false })
+      if (cutoff) evQ = evQ.gte('event_starting_date', cutoff)
+      const { data: events, error: eventsError } = await evQ
+      if (eventsError) throw eventsError
 
-    if (eventIds.length === 0) {
+      const eventIds = (events ?? []).map((e: any) => e.event_id)
+      if (eventIds.length === 0) {
+        setOverview({ totalReservations: 0, totalTickets: 0, totalRevenue: 0, confirmed: 0, pending: 0, cancelled: 0 })
+        setEventStats([])
+        setCommission({ gross: 0, fee: 0, net: 0, ticketRate, tableRate })
+        return
+      }
+
+      const { data: reservations, error: reservationsError } = await supabase
+        .from('reservations')
+        .select('reservation_id, event_id, type, status, nr_of_people, created_at')
+        .in('event_id', eventIds)
+      if (reservationsError) throw reservationsError
+
+      const resIds = (reservations ?? []).map((r: any) => r.reservation_id)
+      let payments: any[] = []
+      if (resIds.length > 0) {
+        const { data: p, error: paymentsError } = await supabase
+          .from('payments')
+          .select('reservation_id, amount, gross_amount, commission_amount, net_amount, payment_type, status, payment_date')
+          .in('reservation_id', resIds)
+          .eq('status', 'completed')
+        if (paymentsError) throw paymentsError
+        payments = p ?? []
+      }
+
+      const eventMap: Record<string, EventStat> = {}
+      for (const ev of events ?? []) {
+        eventMap[ev.event_id] = {
+          event_id: ev.event_id,
+          event_name: ev.event_name,
+          event_starting_date: ev.event_starting_date,
+          tickets: 0, reservations: 0, revenue: 0, commission: 0, payout: 0,
+          pending: 0, confirmed: 0, cancelled: 0,
+        }
+      }
+
+      const reservationById: Record<string, any> = {}
+      for (const r of reservations ?? []) {
+        reservationById[r.reservation_id] = r
+        const es = eventMap[r.event_id]
+        if (!es) continue
+        es.reservations++
+        if (r.type === 'ticket') es.tickets += (r.nr_of_people ?? 1)
+        if (r.status === 'confirmed') es.confirmed++
+        else if (r.status === 'pending') es.pending++
+        else if (r.status === 'cancelled') es.cancelled++
+      }
+
+      for (const p of payments) {
+        const reservation = reservationById[p.reservation_id]
+        const es = reservation ? eventMap[reservation.event_id] : null
+        if (!es) continue
+        const gross = Number(p.gross_amount ?? p.amount ?? 0)
+        const type = p.payment_type ?? reservation.type
+        const fallbackRate = type === 'table' ? tableRate : ticketRate
+        const fee = Number(p.commission_amount ?? 0) || (gross * fallbackRate) / 100
+        const net = Number(p.net_amount ?? 0) || Math.max(gross - fee, 0)
+        es.revenue += Number.isFinite(gross) ? gross : 0
+        es.commission += Number.isFinite(fee) ? fee : 0
+        es.payout += Number.isFinite(net) ? net : 0
+      }
+
+      const stats = Object.values(eventMap)
+        .sort((a, b) => (b.revenue + b.tickets + b.reservations) - (a.revenue + a.tickets + a.reservations))
+
+      const gross = stats.reduce((s, e) => s + e.revenue, 0)
+      const fee = stats.reduce((s, e) => s + e.commission, 0)
+      const net = stats.reduce((s, e) => s + e.payout, 0)
+
+      setCommission({ gross, fee, net, ticketRate, tableRate })
+      setOverview({
+        totalReservations: (reservations ?? []).filter((r: any) => r.status !== 'cancelled').length,
+        totalTickets: (reservations ?? []).filter((r: any) => r.type === 'ticket' && r.status === 'confirmed')
+          .reduce((s: number, r: any) => s + (r.nr_of_people ?? 1), 0),
+        totalRevenue: gross,
+        confirmed: (reservations ?? []).filter((r: any) => r.status === 'confirmed').length,
+        pending: (reservations ?? []).filter((r: any) => r.status === 'pending').length,
+        cancelled: (reservations ?? []).filter((r: any) => r.status === 'cancelled').length,
+      })
+      setEventStats(stats)
+    } catch (err) {
+      console.warn('Analytics load failed', err)
       setOverview({ totalReservations: 0, totalTickets: 0, totalRevenue: 0, confirmed: 0, pending: 0, cancelled: 0 })
       setEventStats([])
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Fetch all reservations for those events
-    const { data: reservations } = await supabase
-      .from('reservations')
-      .select('reservation_id, event_id, type, status, nr_of_people')
-      .in('event_id', eventIds)
-
-    // Fetch payments for revenue
-    const resIds = (reservations ?? []).map((r: any) => r.reservation_id)
-    let payments: any[] = []
-    if (resIds.length > 0) {
-      const { data: p } = await supabase
-        .from('payments')
-        .select('reservation_id, amount, status')
-        .in('reservation_id', resIds)
-        .eq('status', 'completed')
-      payments = p ?? []
-    }
-
-    // Build per-event map
-    const eventMap: Record<string, EventStat> = {}
-    for (const ev of events ?? []) {
-      eventMap[ev.event_id] = {
-        event_id: ev.event_id,
-        event_name: ev.event_name,
-        event_date: ev.event_date,
-        tickets: 0, reservations: 0, revenue: 0,
-        pending: 0, confirmed: 0, cancelled: 0,
-      }
-    }
-
-    for (const r of reservations ?? []) {
-      const es = eventMap[r.event_id]
-      if (!es) continue
-      es.reservations++
-      if (r.type === 'ticket') es.tickets += (r.nr_of_people ?? 1)
-      if (r.status === 'confirmed')  es.confirmed++
-      else if (r.status === 'pending')   es.pending++
-      else if (r.status === 'cancelled') es.cancelled++
-    }
-
-    const payByRes: Record<string, number> = {}
-    for (const p of payments) payByRes[p.reservation_id] = p.amount
-
-    for (const r of reservations ?? []) {
-      if (eventMap[r.event_id] && payByRes[r.reservation_id]) {
-        eventMap[r.event_id].revenue += payByRes[r.reservation_id]
-      }
-    }
-
-    const stats = Object.values(eventMap)
-    stats.sort((a, b) => (b.tickets + b.reservations) - (a.tickets + a.reservations))
-
-    // Overview totals
-    const ov: Overview = {
-      totalReservations: (reservations ?? []).filter((r: any) => r.status !== 'cancelled').length,
-      totalTickets: (reservations ?? []).filter((r: any) => r.type === 'ticket' && r.status === 'confirmed')
-        .reduce((s: number, r: any) => s + (r.nr_of_people ?? 1), 0),
-      totalRevenue: payments.reduce((s, p) => s + (p.amount ?? 0), 0),
-      confirmed: (reservations ?? []).filter((r: any) => r.status === 'confirmed').length,
-      pending:   (reservations ?? []).filter((r: any) => r.status === 'pending').length,
-      cancelled: (reservations ?? []).filter((r: any) => r.status === 'cancelled').length,
-    }
-
-    setOverview(ov)
-    setEventStats(stats)
-    setLoading(false)
   }, [profile?.club_id, period])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
@@ -306,7 +318,7 @@ export default function AnalyticsScreen() {
 
   // Revenue sparkline — one point per event (sorted by date asc)
   const sparkValues = [...eventStats]
-    .sort((a, b) => (a.event_date ?? '').localeCompare(b.event_date ?? ''))
+    .sort((a, b) => (a.event_starting_date ?? '').localeCompare(b.event_starting_date ?? ''))
     .map(e => e.revenue)
 
   return (
@@ -315,11 +327,13 @@ export default function AnalyticsScreen() {
 
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_DASHBOARD)} style={s.backBtn}>
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager Portal</Text>
           </View>
         </View>
@@ -344,12 +358,6 @@ export default function AnalyticsScreen() {
 
         {loading ? (
           <View style={s.loader}><ActivityIndicator color={COLORS.purple} size="large" /></View>
-        ) : eventStats.length === 0 ? (
-          <View style={s.empty}>
-            <Ionicons name="bar-chart-outline" size={52} color={COLORS.mutedDark} />
-            <Text style={s.emptyTitle}>No data yet</Text>
-            <Text style={s.emptySubtitle}>Create events and take bookings to see analytics here.</Text>
-          </View>
         ) : (
           <>
             {/* KPI cards */}
@@ -426,7 +434,7 @@ export default function AnalyticsScreen() {
             </View>
 
             {/* Revenue sparkline */}
-            {sparkValues.length > 1 && overview.totalRevenue > 0 && (
+            {sparkValues.length > 1 && (
               <View style={s.card}>
                 <View style={s.cardHeader}>
                   <View>
@@ -442,49 +450,59 @@ export default function AnalyticsScreen() {
             )}
 
             {/* Tickets per event */}
-            {topByTickets.some(d => d.value > 0) && (
-              <View style={s.card}>
-                <Text style={s.cardTitle}>Tickets Sold per Event</Text>
-                <Text style={s.cardSubtitle}>Top {topByTickets.length} events</Text>
-                <View style={{ marginTop: SPACING.md }}>
+            <View style={s.card}>
+              <Text style={s.cardTitle}>Tickets Sold per Event</Text>
+              <Text style={s.cardSubtitle}>{topByTickets.length > 0 ? `Top ${topByTickets.length} events` : 'No events in this period'}</Text>
+              <View style={{ marginTop: SPACING.md }}>
+                {topByTickets.length > 0 ? (
                   <BarChart data={topByTickets} color={COLORS.cta} />
-                </View>
+                ) : (
+                  <Text style={s.emptyCardText}>No ticket data yet.</Text>
+                )}
               </View>
-            )}
+            </View>
 
             {/* Reservations per event */}
             <View style={s.card}>
               <Text style={s.cardTitle}>Reservations per Event</Text>
               <Text style={s.cardSubtitle}>All bookings (tables + tickets)</Text>
               <View style={{ marginTop: SPACING.md }}>
-                <BarChart data={topByReservations} color={COLORS.purple} />
+                {topByReservations.length > 0 ? (
+                  <BarChart data={topByReservations} color={COLORS.purple} />
+                ) : (
+                  <Text style={s.emptyCardText}>No reservation data yet.</Text>
+                )}
               </View>
             </View>
 
             {/* Revenue per event */}
-            {topByRevenue.length > 0 && (
-              <View style={s.card}>
+            <View style={s.card}>
                 <Text style={s.cardTitle}>Revenue per Event</Text>
                 <Text style={s.cardSubtitle}>Completed ticket payments</Text>
                 <View style={{ marginTop: SPACING.md }}>
                   <BarChart data={topByRevenue} color={COLORS.green} valueFormatter={v => `€${v.toFixed(0)}`} />
                 </View>
-              </View>
-            )}
+            </View>
 
             {/* Event leaderboard */}
             <Text style={s.sectionLabel}>TOP EVENTS</Text>
             <View style={s.leaderCard}>
-              {eventStats.slice(0, 5).map((e, i) => (
+              {eventStats.length === 0 ? (
+                <Text style={s.emptyCardText}>No events found for this period.</Text>
+              ) : eventStats.slice(0, 5).map((e, i) => (
                 <View key={e.event_id}>
-                  <View style={s.leaderRow}>
+                  <TouchableOpacity
+                    style={s.leaderRow}
+                    onPress={() => router.push({ pathname: '/(manager)/edit-event', params: { id: e.event_id } })}
+                    activeOpacity={0.8}
+                  >
                     <View style={[s.rank, i === 0 && { backgroundColor: COLORS.cta + '22' }]}>
                       <Text style={[s.rankText, i === 0 && { color: COLORS.cta }]}>#{i + 1}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={s.leaderName} numberOfLines={1}>{e.event_name}</Text>
                       <Text style={s.leaderDate}>
-                        {e.event_date ? new Date(e.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '–'}
+                        {e.event_starting_date ? new Date(e.event_starting_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '–'}
                       </Text>
                     </View>
                     <View style={s.leaderStats}>
@@ -503,7 +521,7 @@ export default function AnalyticsScreen() {
                         </View>
                       )}
                     </View>
-                  </View>
+                  </TouchableOpacity>
                   {i < Math.min(eventStats.length, 5) - 1 && <View style={s.div} />}
                 </View>
               ))}
@@ -537,6 +555,7 @@ const s = StyleSheet.create({
   empty:  { alignItems: 'center', paddingTop: 60, gap: SPACING.sm },
   emptyTitle:    { color: COLORS.white, fontSize: FONT.base, fontWeight: '700', marginTop: SPACING.sm },
   emptySubtitle: { color: COLORS.mutedDark, fontSize: FONT.sm, textAlign: 'center', paddingHorizontal: SPACING.xl },
+  emptyCardText: { color: COLORS.mutedDark, fontSize: FONT.sm, lineHeight: 20, paddingVertical: SPACING.sm },
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.md },
   kpiCard: {

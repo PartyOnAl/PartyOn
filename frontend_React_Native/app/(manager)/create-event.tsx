@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, StyleSheet, SafeAreaView,
-  TouchableOpacity, TextInput, ActivityIndicator, Alert, Switch,
+  View, Text, ScrollView, StyleSheet,
+  TouchableOpacity, TextInput, ActivityIndicator, Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter } from 'expo-router'
@@ -12,6 +13,7 @@ import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 import DatePickerModal from '@/components/DatePickerModal'
 import TimePickerModal from '@/components/TimePickerModal'
+import { MANAGER_EVENTS, replaceManagerRoute } from '@/lib/managerNavigation'
 
 const EVENT_TYPES = ['Party', 'DJ Night', 'Concert', 'Live Music', 'Festival', 'Private Event', 'Other']
 
@@ -86,9 +88,6 @@ export default function CreateEventScreen() {
   // `finalPriceSource` tracks which field was last edited so we auto-derive the other.
   const finalPriceSource = useRef<'discount' | 'final'>('discount')
 
-  // Flags
-  const [isFeatured, setIsFeatured] = useState(false)
-
   // Pickers
   const [showStartDatePicker, setShowStartDatePicker] = useState(false)
   const [showEndDatePicker,   setShowEndDatePicker]   = useState(false)
@@ -120,7 +119,7 @@ export default function CreateEventScreen() {
     }
     loadDefaults()
     return () => { cancelled = true }
-  }, [profile?.club_id])
+  }, [profile?.club_id, userTouched])
 
   // Mark user-touched on any meaningful change so we don't clobber edits with defaults.
   function touch<T>(setter: (v: T) => void) {
@@ -224,8 +223,6 @@ export default function CreateEventScreen() {
       if (sd && ed && ed.getTime() < sd.getTime()) e.endDate = 'End date is before start date.'
       if (!/^\d{2}:\d{2}$/.test(startTime)) e.startTime = 'Pick a start time.'
       if (!/^\d{2}:\d{2}$/.test(endTime))   e.endTime   = 'Pick an end time.'
-      // Allow overnight (end < start when both on same day - treated as next day).
-      // If endDate is on the SAME date as startDate, end can be earlier (overnight) - so no check.
     }
     if (s === 2) {
       const capN  = capacity ? parseInt(capacity, 10) : NaN
@@ -245,12 +242,12 @@ export default function CreateEventScreen() {
     const e = validateStep(step)
     setErrors(e)
     if (Object.keys(e).length > 0) return
-    setStep(s => Math.min(3, (s + 1) as StepIdx))
+    setStep(s => Math.min(3, s + 1) as StepIdx)
   }
   function back() {
     setErrors({})
     if (step === 0) { router.back(); return }
-    setStep(s => Math.max(0, (s - 1) as StepIdx))
+    setStep(s => Math.max(0, s - 1) as StepIdx)
   }
   function goTo(s: StepIdx) {
     if (s <= step) { setErrors({}); setStep(s); return }
@@ -291,6 +288,12 @@ export default function CreateEventScreen() {
       const startIso = composeIsoDateTime(startDate, startTime)
       const endIso   = endDate ? composeIsoDateTime(endDate, endTime || startTime) : null
 
+      if (!startIso) {
+        setSaving(false)
+        Alert.alert('Validation', 'Start date or time is invalid.')
+        return
+      }
+
       const { error } = await supabase.from('events').insert({
         club_id:             profile.club_id,
         event_name:          name.trim(),
@@ -306,7 +309,8 @@ export default function CreateEventScreen() {
         final_ticket_price:  isReservation ? null : (final || null),
         reservation_only:    isReservation,
         event_image:         coverImage,
-        is_featured:         isFeatured,
+        is_featured:         false,
+        featured_request_status: 'none',
         event_status:        status,
         created_by:          profile.id ?? null,
       })
@@ -316,7 +320,7 @@ export default function CreateEventScreen() {
       Alert.alert(
         status === 'published' ? 'Event Published!' : 'Draft Saved',
         status === 'published' ? 'Your event is now live.' : 'Your event has been saved as a draft.',
-        [{ text: 'OK', onPress: () => router.back() }],
+        [{ text: 'OK', onPress: () => replaceManagerRoute(router, MANAGER_EVENTS) }],
       )
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Could not save event.')
@@ -342,7 +346,9 @@ export default function CreateEventScreen() {
             <Ionicons name="chevron-back" size={20} color={COLORS.white} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={s.appName}>PartyOn</Text>
+            <Text style={s.appName}>
+              Party<Text style={{ color: COLORS.purple }}>On</Text>
+            </Text>
             <Text style={s.sub}>Manager • {profile?.name ?? ''}</Text>
           </View>
         </View>
@@ -615,18 +621,13 @@ export default function CreateEventScreen() {
               </>
             )}
 
-            <SectionLabel>Options</SectionLabel>
-            <View style={s.toggleRow}>
-              <View>
-                <Text style={s.toggleLabel}>Feature this event</Text>
-                <Text style={s.toggleSublabel}>Appears in the featured section</Text>
+            <SectionLabel>Featured placement</SectionLabel>
+            <View style={s.featureInfoBox}>
+              <Ionicons name="star-outline" size={18} color={COLORS.cta} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.toggleLabel}>Request after publishing</Text>
+                <Text style={s.toggleSublabel}>Featured placement is paid and reviewed by PartyOn admin from Event Management.</Text>
               </View>
-              <Switch
-                value={isFeatured}
-                onValueChange={v => { setUserTouched(true); setIsFeatured(v) }}
-                trackColor={{ false: COLORS.border, true: COLORS.purpleDark }}
-                thumbColor={isFeatured ? COLORS.purple : COLORS.muted}
-              />
             </View>
           </>
         )}
@@ -667,7 +668,7 @@ export default function CreateEventScreen() {
                   Base €{parseFloat(ticketPrice).toFixed(2)}{discount && parseFloat(discount) > 0 ? ` • ${discount}% off` : ''}
                 </Text>
               ) : null}
-              {isFeatured ? <Text style={[s.summaryMeta, { color: COLORS.cta }]}>★ Featured event</Text> : null}
+              <Text style={[s.summaryMeta, { color: COLORS.cta }]}>Featured placement can be requested after publishing.</Text>
             </SummaryCard>
           </>
         )}
@@ -862,6 +863,18 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, borderWidth: 1,
     borderColor: COLORS.border, paddingHorizontal: SPACING.md, paddingVertical: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  featureInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.cta + '44',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
     marginBottom: SPACING.md,
   },
   toggleLabel:    { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '500' },

@@ -56,7 +56,7 @@ export default function WelcomeScreen() {
 
         <TouchableOpacity
           style={styles.browseBtn}
-          onPress={() => router.push('/(tabs)')}
+          onPress={() => router.replace('/(tabs)')}
           activeOpacity={0.85}
         >
           <Text style={styles.browseBtnText}>Browse events</Text>
