@@ -182,12 +182,12 @@ export default function PurchasedTicketScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/bookings')} activeOpacity={0.8}>
             <Ionicons name="ticket-outline" size={20} color={COLORS.purple} />
-            <Text style={styles.actionBtnText}>My Tickets</Text>
+            <Text style={styles.actionBtnText}>My Nights</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.savedNote}>
-          Your {isReservation ? 'reservation' : 'ticket'} is saved in the Tickets tab.
+          Your {isReservation ? 'reservation' : 'ticket'} is saved in My Nights.
         </Text>
       </ScrollView>
 

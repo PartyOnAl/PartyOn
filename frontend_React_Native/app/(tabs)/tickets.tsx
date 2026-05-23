@@ -3,8 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, Image,
   StyleSheet, Modal, RefreshControl, ActivityIndicator, Share,
 } from 'react-native'
-import { useRouter } from 'expo-router'
-import { CalendarDays, MapPin, QrCode, X, Ticket, Clock, Eye, Download, Calendar } from 'lucide-react-native'
+import { CalendarDays, MapPin, QrCode, X, Ticket, Eye, Download, Calendar } from 'lucide-react-native'
 import Svg, { Rect } from 'react-native-svg'
 import { supabase } from '@/lib/supabase'
 import type { Reservation } from '@/types'
@@ -52,7 +51,6 @@ function QRCode({ size = 160 }: { size?: number }) {
 }
 
 export default function TicketsScreen() {
-  const router = useRouter()
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [selected, setSelected] = useState<Reservation | null>(null)
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming')

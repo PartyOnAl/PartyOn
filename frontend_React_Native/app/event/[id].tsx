@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Image, Share, Alert, Modal, FlatList, Pressable,
+  ActivityIndicator, Image, Share, Alert, Modal, Linking,
 } from 'react-native'
+import * as WebBrowser from 'expo-web-browser'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
@@ -113,7 +114,7 @@ export default function EventDetailScreen() {
     const addr = event?.clubs?.club_address
     if (!addr) return
     const url = `https://maps.google.com/?q=${encodeURIComponent(addr)}`
-    require('expo-web-browser').openBrowserAsync(url)
+    WebBrowser.openBrowserAsync(url)
   }
 
   function handleBuy() {
@@ -450,7 +451,7 @@ export default function EventDetailScreen() {
               </View>
               <Text style={styles.peopleStepTitle}>How many guests?</Text>
               <Text style={styles.peopleStepSub}>
-                We'll show the best table categories for your group.
+                {"We'll show the best table categories for your group."}
               </Text>
 
               <View style={styles.guestCounter}>
@@ -491,7 +492,7 @@ export default function EventDetailScreen() {
                     onPress={() => {
                       setTableModalVisible(false)
                       const phone = event?.clubs?.club_phone_number
-                      if (phone) require('expo-linking').openURL(`tel:${phone}`)
+                      if (phone) Linking.openURL(`tel:${phone}`)
                     }}
                     activeOpacity={0.85}
                   >

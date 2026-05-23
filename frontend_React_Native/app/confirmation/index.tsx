@@ -1,11 +1,10 @@
-import { View, Text, TouchableOpacity, StyleSheet, Share, Dimensions } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Share } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { CheckCircle, Calendar, MapPin, Eye, Download, X } from 'lucide-react-native'
-import Svg, { Rect, Path } from 'react-native-svg'
+import Svg, { Rect } from 'react-native-svg'
 import { COLORS } from '@/lib/theme'
 
 const ACCENT = COLORS.purple
-const { width } = Dimensions.get('window')
 
 function QRCode({ size = 160 }: { size?: number }) {
   const cell = size / 21
@@ -107,7 +106,7 @@ export default function ConfirmationScreen() {
 
       {/* Action buttons */}
       <View style={s.actions}>
-        <TouchableOpacity style={s.actionBtn} onPress={() => router.push('/(tabs)/tickets')}>
+        <TouchableOpacity style={s.actionBtn} onPress={() => router.push('/(tabs)/bookings')}>
           <Eye size={20} color="#fff" />
           <Text style={s.actionBtnText}>View</Text>
         </TouchableOpacity>
@@ -122,7 +121,7 @@ export default function ConfirmationScreen() {
       </View>
 
       {/* Go to my nights */}
-      <TouchableOpacity style={s.goBtn} onPress={() => router.replace('/(tabs)/tickets')}>
+      <TouchableOpacity style={s.goBtn} onPress={() => router.replace('/(tabs)/bookings')}>
         <Text style={s.goBtnText}>Go to My Nights →</Text>
       </TouchableOpacity>
 

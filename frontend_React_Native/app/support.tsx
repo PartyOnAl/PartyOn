@@ -14,7 +14,7 @@ const SUPPORT_PHONE = '+355692000000'
 const FAQS: { q: string; a: string }[] = [
   {
     q: 'How do I get my ticket QR code?',
-    a: 'After a successful purchase your QR code is generated instantly. Find it in the Tickets tab, or tap any past booking from My Tickets to view it again.',
+    a: 'After a successful purchase your QR code is generated instantly. Find it in My Nights, or tap any past booking there to view it again.',
   },
   {
     q: 'Can I cancel or refund a ticket?',

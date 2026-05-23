@@ -11,9 +11,6 @@ import type { Event, Club } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
-}
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
@@ -34,7 +31,7 @@ export default function ClubEventsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!id) return
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -49,20 +46,20 @@ export default function ClubEventsScreen() {
     setClub(clubRes.data as Club)
     setEvents(((evRes.data as Event[]) ?? []).filter(ev => isEventUpcomingOrLive(ev)))
     setLoading(false)
-  }
+  }, [id])
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true)
       load()
-    }, [id]),
+    }, [load]),
   )
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
     await load()
     setRefreshing(false)
-  }, [id])
+  }, [load])
 
   function renderEvent({ item: ev }: { item: Event }) {
     return (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, Image, Share, Modal, Pressable,
+  ActivityIndicator, Image, Share, Modal,
   ScrollView, Dimensions,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'

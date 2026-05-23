@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
-  TextInput, FlatList, Alert, ActivityIndicator,
+  TextInput, FlatList, ActivityIndicator,
 } from 'react-native'
 import { router } from 'expo-router'
 import { MapPin, Search, ChevronRight, Navigation } from 'lucide-react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const { width, height } = Dimensions.get('window')
+const { height } = Dimensions.get('window')
 const YELLOW = '#a78bfa'
 
 const POPULAR_CITIES = ['Tirana', 'Durrës', 'Vlorë']

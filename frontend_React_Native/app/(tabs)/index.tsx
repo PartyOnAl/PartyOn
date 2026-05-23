@@ -225,7 +225,7 @@ export default function HomeScreen() {
         </Text>
         <View style={s.headerActions}>
           <TouchableOpacity style={s.headerIcon} onPress={() => router.push('/promotions')} activeOpacity={0.78}>
-            <Ionicons name="ticket-outline" size={18} color={WHITE} />
+            <Ionicons name="pricetag-outline" size={18} color={WHITE} />
           </TouchableOpacity>
           <TouchableOpacity style={s.headerIcon} onPress={() => router.push('/clubs-map')} activeOpacity={0.78}>
             <Ionicons name="location-outline" size={18} color={WHITE} />
