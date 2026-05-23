@@ -66,7 +66,30 @@ export default function TicketsScreen() {
       .select('*, events(*, clubs(club_name,club_address)), ticket_types(name,price), payments(*), tables(table_number,sector,minimum_spend)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-    setReservations(data ?? [])
+    let rows = data ?? []
+
+    // Auto-mark past reservations as completed in DB (mirrors manager screen logic)
+    const idsToComplete = rows
+      .filter(r => {
+        if (r.status === 'cancelled' || r.status === 'completed') return false
+        const ref = (r.events as any)?.event_ending_date || (r.events as any)?.event_starting_date
+        if (!ref) return false
+        const dt = new Date(ref)
+        return !isNaN(dt.getTime()) && dt.getTime() < Date.now()
+      })
+      .map(r => r.reservation_id)
+
+    if (idsToComplete.length > 0) {
+      const { error } = await supabase.from('reservations')
+        .update({ status: 'completed' })
+        .in('reservation_id', idsToComplete)
+      if (!error) {
+        const done = new Set(idsToComplete)
+        rows = rows.map(r => done.has(r.reservation_id) ? { ...r, status: 'completed' } : r)
+      }
+    }
+
+    setReservations(rows)
     setLoading(false)
   }
 
@@ -74,13 +97,26 @@ export default function TicketsScreen() {
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false) }, [])
 
   const now = new Date()
+
+  function effectiveStatus(r: Reservation) {
+    if (r.status === 'completed' || r.status === 'cancelled') return r.status
+    const ref = (r.events as any)?.event_ending_date || (r.events as any)?.event_starting_date
+    if (ref) {
+      const dt = new Date(ref)
+      if (!isNaN(dt.getTime()) && dt.getTime() < Date.now()) return 'completed'
+    }
+    return r.status
+  }
+
   const upcoming = reservations.filter(r => {
-    if (r.status === 'cancelled' || r.status === 'completed') return false
+    const eff = effectiveStatus(r)
+    if (eff === 'cancelled' || eff === 'completed') return false
     const d = new Date((r.events as any)?.event_starting_date)
     return !isNaN(d.getTime()) && d >= now
   })
   const past = reservations.filter(r => {
-    if (r.status === 'cancelled' || r.status === 'completed') return true
+    const eff = effectiveStatus(r)
+    if (eff === 'cancelled' || eff === 'completed') return true
     const d = new Date((r.events as any)?.event_starting_date)
     return isNaN(d.getTime()) || d < now
   })
@@ -122,7 +158,7 @@ export default function TicketsScreen() {
             const event = r.events as any
             const dateStr = event ? new Date(event.event_starting_date).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' }) : ''
             const timeStr = event?.event_hours ?? ''
-            const st = STATUS[r.status] ?? STATUS.pending
+            const st = STATUS[effectiveStatus(r)] ?? STATUS.pending
             const payment = Array.isArray(r.payments) ? (r.payments as any[])[0] : r.payments
             return (
               <TouchableOpacity style={s.card} activeOpacity={0.85} onPress={() => setSelected(r)}>

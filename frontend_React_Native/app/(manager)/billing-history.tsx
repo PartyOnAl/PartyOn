@@ -228,7 +228,7 @@ export default function BillingHistoryScreen() {
                   <Text style={s.rowValue} numberOfLines={1}>{sub.club_name}</Text>
                 </View>
               ) : null}
-              <Text style={s.planHint}>Tap for monthly / 3-month / trial details</Text>
+              <Text style={s.planHint}>Tap for monthly / 3-month options and admin contact</Text>
             </TouchableOpacity>
 
             {/* Invoices list */}
@@ -284,6 +284,7 @@ export default function BillingHistoryScreen() {
         onClose={() => setOffersModal(false)}
         settings={settings}
         currentPlanType={sub?.subscription_type ?? null}
+        currentPlanPrice={sub?.subscription_price ?? null}
       />
     </SafeAreaView>
   )

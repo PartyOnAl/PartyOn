@@ -28,6 +28,7 @@ type ReservationRow = {
   reservation_date: string | null
   notes: string | null
   event_id: string | null
+  table_id: string | null
   profiles: { name: string | null; surname: string | null } | null
   events: { event_name: string } | null
 }
@@ -92,28 +93,11 @@ function fmtShort(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-function isoDay(value: string | null | undefined): string | null {
-  if (!value) return null
-  const trimmed = String(value).trim()
-  const direct = trimmed.match(/^(\d{4}-\d{2}-\d{2})/)
-  if (direct) return direct[1]
-  const d = new Date(trimmed)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString().slice(0, 10)
-}
-
-function matchesEventDate(reservationDate: string | null | undefined, eventDate: string | null | undefined) {
-  const rDay = isoDay(reservationDate)
-  const eDay = isoDay(eventDate)
-  return !!rDay && !!eDay && rDay === eDay
-}
-
 function reservationMatchesEvent(
   r: { event_id: string | null; reservation_date: string | null },
   ev: ClubEvent,
 ) {
-  return r.event_id === ev.event_id ||
-    (!r.event_id && matchesEventDate(r.reservation_date, ev.event_starting_date))
+  return r.event_id === ev.event_id
 }
 
 /** Keep only bookings whose event night (or reservation_date fallback) has not ended vs now */
@@ -148,6 +132,37 @@ function isReservationStillInQueue(
 
 function isVIP(t: VenueTable) {
   return t.type === 'VIP' || t.type === 'Premium'
+}
+
+function normalizeTableType(value: string | null | undefined) {
+  const trimmed = (value ?? 'Standard').trim()
+  if (!trimmed) return 'Standard'
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
+}
+
+function tableSortKey(table: VenueTable) {
+  return table.table_number || table.location || table.id
+}
+
+function sortTablesByName(a: VenueTable, b: VenueTable) {
+  return tableSortKey(a).localeCompare(tableSortKey(b), undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function groupTablesByType(source: VenueTable[]) {
+  const TYPE_ORDER = ['VIP', 'Premium', 'Lounge', 'Standard']
+  const normalized = source.map(t => normalizeTableType(t.type))
+  const seen = new Set<string>()
+  const allTypes = [
+    ...TYPE_ORDER.filter(o => normalized.some(n => n === o)),
+    ...Array.from(new Set(normalized)).filter(t => !TYPE_ORDER.includes(t)).sort(),
+  ].filter(t => { if (seen.has(t)) return false; seen.add(t); return true })
+
+  return allTypes.map(type => ({
+    type,
+    tables: source
+      .filter(t => normalizeTableType(t.type) === type)
+      .sort(sortTablesByName),
+  })).filter(g => g.tables.length > 0)
 }
 
 // ── Table Grid Card ───────────────────────────────────────────────────────────
@@ -347,7 +362,7 @@ export default function TablesScreen() {
           id, table_number, seating_capacity, minimum_spend,
           sector, location, type, table_status,
           reservations(
-            reservation_id, status, nr_of_people, reservation_date, notes, event_id,
+            reservation_id, status, nr_of_people, reservation_date, notes, event_id, table_id,
             profiles(name, surname),
             events:event_id(event_name)
           )
@@ -451,9 +466,6 @@ export default function TablesScreen() {
         const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
         const ev = Array.isArray(r.events) ? r.events[0] : r.events
         const tb = Array.isArray(r.tables) ? r.tables[0] : r.tables
-        const fallbackEvent = selectedEvent && !r.event_id && matchesEventDate(r.reservation_date, selectedEvent.event_starting_date)
-          ? selectedEvent
-          : null
         return {
           reservation_id:    r.reservation_id,
           type:               r.type,
@@ -463,9 +475,9 @@ export default function TablesScreen() {
           notes:              r.notes,
           event_id:           r.event_id,
           guest_name:         [prof?.name, prof?.surname].filter(Boolean).join(' ') || 'Guest',
-          event_name:         ev?.event_name ?? fallbackEvent?.event_name ?? null,
-          event_starting_date: (ev?.event_starting_date as string | undefined) ?? fallbackEvent?.event_starting_date ?? null,
-          event_ending_date:   (ev?.event_ending_date as string | undefined) ?? fallbackEvent?.event_ending_date ?? null,
+          event_name:         ev?.event_name ?? null,
+          event_starting_date: (ev?.event_starting_date as string | undefined) ?? null,
+          event_ending_date:   (ev?.event_ending_date as string | undefined) ?? null,
           table_number:       tb?.table_number ?? null,
           table_id:           r.table_id,
         }
@@ -484,44 +496,24 @@ export default function TablesScreen() {
 
   // ── Derived / filtered ────────────────────────────────────────────────────
   const filteredTables = useMemo(() => {
-    if (!selectedEvent) return tables
+    if (!selectedEvent) return [...tables].sort(sortTablesByName)
 
-    const withEventReserv = tables.map(t => ({
+    return tables.map(t => ({
       ...t,
       reservations: t.reservations.filter(r => reservationMatchesEvent(r, selectedEvent)),
-    }))
-
-    // Available tables first, then those with a reservation for this event
-    return [...withEventReserv].sort((a, b) => {
-      const aReserved = a.reservations.length > 0
-      const bReserved = b.reservations.length > 0
-      if (!aReserved && bReserved) return -1
-      if (aReserved && !bReserved) return 1
-      return 0
-    })
+    })).sort(sortTablesByName)
   }, [tables, selectedEvent])
 
-  // Grouped by type — used only when no event is selected
+  // Grouped by type in both normal and selected-event floor views.
   const tablesByType = useMemo(() => {
-    if (selectedEvent) return null
-    // Normalize to title-case so "standard" and "Standard" collapse into one group
-    const normalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-    const TYPE_ORDER = ['VIP', 'Premium', 'Lounge', 'Standard']
-    const seen = new Set<string>()
-    const normalized = tables.map(t => normalize(t.type ?? 'Standard'))
-    const allTypes = [
-      ...TYPE_ORDER.filter(o => normalized.some(n => n === o)),
-      ...Array.from(new Set(normalized)).filter(t => !TYPE_ORDER.includes(t)),
-    ].filter(t => { if (seen.has(t)) return false; seen.add(t); return true })
-    return allTypes.map(type => ({
-      type,
-      tables: tables.filter(t => normalize(t.type ?? 'Standard') === type),
-    })).filter(g => g.tables.length > 0)
-  }, [tables, selectedEvent])
+    return groupTablesByType(filteredTables)
+  }, [filteredTables])
 
   const scopedReservs = useMemo(() => {
+    if (!selectedEvent) return []
+
     let list = flatReservs
-    if (selectedEvent) list = list.filter(r => reservationMatchesEvent(r, selectedEvent))
+    list = list.filter(r => reservationMatchesEvent(r, selectedEvent))
     return list.filter(r => isReservationStillInQueue(r.reservation_date, r.event_starting_date, r.event_ending_date))
   }, [flatReservs, selectedEvent])
 
@@ -659,7 +651,7 @@ export default function TablesScreen() {
   function openEditReserv(r: ReservationRow | FlatReservation) {
     setEditingReserv(r); setReservStatus(r.status); setReservNotes(r.notes ?? '')
     setReservGuestCount(r.nr_of_people ?? 1)
-    setReservTableId('table_id' in r ? r.table_id : null)
+    setReservTableId(r.table_id ?? null)
     setShowReservModal(true)
   }
 
@@ -691,22 +683,8 @@ export default function TablesScreen() {
     setSavingReserv(false)
     if (error) { Alert.alert('Error', error.message); return }
 
-    const newTableNum = reservTableId ? tables.find(t => t.id === reservTableId)?.table_number ?? null : null
-    setTables(prev => prev.map(t => ({
-      ...t,
-      reservations: t.reservations
-        .map(r => r.reservation_id === editingReserv.reservation_id
-          ? { ...r, status: reservStatus, notes: reservNotes.trim() || null, nr_of_people: reservGuestCount }
-          : r
-        )
-        .filter(r => r.status === 'pending' || r.status === 'confirmed'),
-    })))
-    setFlatReservs(prev => prev.map(r =>
-      r.reservation_id === editingReserv.reservation_id
-        ? { ...r, status: reservStatus, notes: reservNotes.trim() || null, nr_of_people: reservGuestCount, table_id: reservTableId, table_number: newTableNum }
-        : r
-    ))
     setShowReservModal(false); setEditingReserv(null)
+    await fetchAll()
   }
 
   // ── Create reservation ─────────────────────────────────────────────────────
@@ -843,7 +821,7 @@ export default function TablesScreen() {
         >
           <Ionicons name="list-outline" size={13} color={viewMode === 'list' ? COLORS.white : COLORS.mutedDark} />
           <Text style={[s.modeBtnText, viewMode === 'list' && s.modeBtnTextActive]}>
-            Reservations ({flatReservs.length})
+            Reservations ({scopedReservs.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -898,7 +876,7 @@ export default function TablesScreen() {
               </TouchableOpacity>
             </View>
           ) : tablesByType ? (
-            /* ── No event: grouped by type ── */
+            /* ── Grouped by type; event selection only changes status data ── */
             <>
               {tablesByType.map(group => (
                 <View key={group.type} style={s.typeGroup}>
@@ -911,8 +889,9 @@ export default function TablesScreen() {
                       <View key={table.id} style={{ width: cardW }}>
                         <TableGridCard
                           table={table}
-                          activeReserv={null}
-                          eventMode={false}
+                          activeReserv={getActiveReserv(table)}
+                          eventMode={!!selectedEvent}
+                          manualOccupied={eventOccupied[table.id] === true}
                           onPress={() => setDetailTable(table)}
                         />
                       </View>
@@ -993,7 +972,9 @@ export default function TablesScreen() {
           </ScrollView>
 
           <Text style={s.queueHint}>
-            Upcoming bookings only — past reservations are not shown here.
+            {selectedEvent
+              ? 'Upcoming bookings only - past reservations are not shown here.'
+              : 'Select an event to view its table reservations.'}
           </Text>
 
           <FlatList
@@ -1007,7 +988,7 @@ export default function TablesScreen() {
                 <Ionicons name="receipt-outline" size={48} color={COLORS.mutedDark} />
                 <Text style={s.emptyTitle}>No reservations found</Text>
                 <Text style={s.emptySub}>
-                  {selectedEvent ? `No reservations for "${selectedEvent.event_name}"` : 'Try selecting an event or adjusting filters'}
+                  {selectedEvent ? `No reservations for "${selectedEvent.event_name}"` : 'Select an event first to avoid mixing reservations from different nights.'}
                 </Text>
               </View>
             }
@@ -1028,7 +1009,7 @@ export default function TablesScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={s.reservCardName}>{r.guest_name}</Text>
                         <Text style={s.reservCardSub} numberOfLines={1}>
-                          {[r.table_number ? `Table ${r.table_number}` : null, r.event_name].filter(Boolean).join(' · ')}
+                          {[r.table_number ? `Table ${r.table_number}` : 'No table assigned', r.event_name].filter(Boolean).join(' · ')}
                         </Text>
                         {r.reservation_date && (
                           <Text style={s.reservCardDate}>{fmtShort(r.reservation_date)}</Text>
@@ -1505,11 +1486,19 @@ export default function TablesScreen() {
                 Table {reservTableId ? `— ${tables.find(t => t.id === reservTableId)?.table_number ?? ''}` : '— None assigned'}
               </Text>
               <View style={m.tableGrid}>
-                {tables
+                {[...tables]
                   .filter(t => t.seating_capacity >= reservGuestCount)
+                  .sort(sortTablesByName)
                   .map(t => {
                     const isSel = reservTableId === t.id
-                    const isTaken = t.table_status === 'reserved' && !isSel
+                    const eventTaken = selectedEvent
+                      ? scopedReservs.some(r =>
+                        r.table_id === t.id &&
+                        r.reservation_id !== editingReserv?.reservation_id &&
+                        (r.status === 'pending' || r.status === 'confirmed')
+                      )
+                      : false
+                    const isTaken = selectedEvent ? eventTaken && !isSel : t.table_status === 'reserved' && !isSel
                     return (
                       <TouchableOpacity
                         key={t.id}
@@ -1616,12 +1605,9 @@ export default function TablesScreen() {
                   const fits = t.seating_capacity >= guestCount
 
                   // Derive availability from reservation data for the selected event,
-                  // falling back to the raw table_status only when no event is chosen
+                  // falling back to the raw table_status only when no event is chosen.
                   const eventReserv = createEventId
-                    ? t.reservations.find(r =>
-                      r.event_id === createEventId ||
-                      (!r.event_id && matchesEventDate(r.reservation_date, events.find(ev => ev.event_id === createEventId)?.event_starting_date))
-                    )
+                    ? t.reservations.find(r => r.event_id === createEventId)
                     : null
                   const sc = createEventId
                     ? eventReserv

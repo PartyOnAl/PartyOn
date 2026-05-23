@@ -1,16 +1,29 @@
-import { Modal, Pressable, View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Alert, Linking, Modal, Pressable, View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import type { PlatformSettings } from '@/lib/platformSettings'
 import { normalizeSubscriptionPlan } from '@/lib/subscriptions'
+import { supabase } from '@/lib/supabase'
 
 type Props = {
   visible: boolean
   onClose: () => void
   settings: Pick<PlatformSettings, 'monthly_club_fee' | 'three_month_club_fee' | 'trial_period_days'>
-  /** Current clubs.subscription_type — shown as badge */
   currentPlanType?: string | null
+  currentPlanPrice?: number | string | null
   onManageBilling?: () => void
+  adminContactEmail?: string
+}
+
+type OfferKind = 'monthly' | 'three_monthly' | 'contact_admin'
+
+type Offer = {
+  kind: OfferKind
+  title: string
+  priceLine: string
+  detail: string
+  icon: keyof typeof Ionicons.glyphMap
 }
 
 export function SubscriptionOffersModal({
@@ -18,35 +31,126 @@ export function SubscriptionOffersModal({
   onClose,
   settings,
   currentPlanType,
+  currentPlanPrice,
   onManageBilling,
+  adminContactEmail = 'support@partyon.com',
 }: Props) {
   const cur = normalizeSubscriptionPlan(currentPlanType)
+  const parsedCurrentPlanPrice = currentPlanPrice !== null && currentPlanPrice !== undefined && currentPlanPrice !== ''
+    ? Number(currentPlanPrice)
+    : null
+  const currentOverridePrice = parsedCurrentPlanPrice !== null && Number.isFinite(parsedCurrentPlanPrice)
+    ? parsedCurrentPlanPrice
+    : null
+  const [liveSettings, setLiveSettings] = useState(settings)
+  const [loadingPrices, setLoadingPrices] = useState(false)
 
-  const offers: {
-    kind: string
-    title: string
-    priceLine: string
-    detail: string
-  }[] = [
+  useEffect(() => {
+    setLiveSettings(settings)
+  }, [settings])
+
+  useEffect(() => {
+    if (!visible) return
+
+    let cancelled = false
+    async function loadPlanPrices() {
+      setLoadingPrices(true)
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('key, value')
+        .in('key', ['monthly_club_fee', 'three_month_club_fee', 'annual_club_fee', 'trial_period_days'])
+
+      if (!cancelled && data) {
+        const next = { ...settings }
+        for (const row of data as { key: string; value: string }[]) {
+          const parsed = Number(row.value)
+          if (!Number.isFinite(parsed)) continue
+          if (row.key === 'monthly_club_fee') next.monthly_club_fee = parsed
+          if (row.key === 'three_month_club_fee' || row.key === 'annual_club_fee') next.three_month_club_fee = parsed
+          if (row.key === 'trial_period_days') next.trial_period_days = parsed
+        }
+        setLiveSettings(next)
+      }
+
+      if (!cancelled) setLoadingPrices(false)
+    }
+
+    loadPlanPrices()
+    return () => { cancelled = true }
+  }, [settings, visible])
+
+  const monthlyPrice = cur === 'monthly' && currentOverridePrice !== null
+    ? currentOverridePrice
+    : liveSettings.monthly_club_fee
+  const threeMonthPrice = cur === 'three_monthly' && currentOverridePrice !== null
+    ? currentOverridePrice
+    : liveSettings.three_month_club_fee
+
+  const offers: Offer[] = [
     {
       kind: 'monthly',
       title: 'Monthly',
-      priceLine: `\u20ac${settings.monthly_club_fee.toFixed(0)} / month`,
-      detail: 'Charged monthly. Flexible — switch or cancel according to PartyOn terms.',
+      priceLine: `€${monthlyPrice.toFixed(0)} / month`,
+      detail: cur === 'monthly' && currentOverridePrice !== null
+        ? 'Your current monthly billing amount for this club.'
+        : 'Charged monthly. Flexible billing for venues that prefer a shorter cycle.',
+      icon: 'calendar-outline',
     },
     {
       kind: 'three_monthly',
       title: '3-Month',
-      priceLine: `\u20ac${settings.three_month_club_fee.toFixed(0)} / 3 months`,
-      detail: `Three months together. ${settings.monthly_club_fee > 0 ? `Equivalent to \u20ac${(settings.three_month_club_fee / 3).toFixed(0)} / month.` : 'Set by PartyOn admin.'}`,
+      priceLine: `€${threeMonthPrice.toFixed(0)} / 3 months`,
+      detail: cur === 'three_monthly' && currentOverridePrice !== null
+        ? `Your current 3-month billing amount for this club. Equivalent to €${(threeMonthPrice / 3).toFixed(0)} / month.`
+        : `Three months together. ${liveSettings.monthly_club_fee > 0 ? `Equivalent to €${(threeMonthPrice / 3).toFixed(0)} / month.` : 'Set by PartyOn admin.'}`,
+      icon: 'layers-outline',
     },
     {
-      kind: 'trial',
-      title: 'Trial period',
-      priceLine: `${settings.trial_period_days} days`,
-      detail: 'New venues may start on a trial. Your active plan is set by PartyOn administration.',
+      kind: 'contact_admin',
+      title: 'Need another plan?',
+      priceLine: adminContactEmail,
+      detail: 'Contact PartyOn admin for more information about custom plans, trial availability, or billing questions.',
+      icon: 'headset-outline',
     },
   ]
+
+  function openMail(subject: string, body?: string) {
+    const url = `mailto:${adminContactEmail}?subject=${encodeURIComponent(subject)}${body ? `&body=${encodeURIComponent(body)}` : ''}`
+    Linking.openURL(url)
+  }
+
+  function handleOfferPress(offer: Offer) {
+    const isCurrent =
+      (offer.kind === 'monthly' && cur === 'monthly') ||
+      (offer.kind === 'three_monthly' && cur === 'three_monthly')
+
+    if (offer.kind === 'contact_admin') {
+      openMail('Subscription plan information')
+      return
+    }
+
+    if (isCurrent) {
+      Alert.alert('Current plan', `Your club is already on the ${offer.title} plan.`)
+      return
+    }
+
+    const subject = `Request to switch to ${offer.title} subscription`
+    const body = [
+      'Hello PartyOn admin,',
+      '',
+      `I would like to switch my club subscription to the ${offer.title} plan (${offer.priceLine}).`,
+      'Please confirm the billing change and next steps.',
+    ].join('\n')
+
+    Alert.alert(
+      `Switch to ${offer.title}?`,
+      `Plan changes are confirmed by PartyOn admin. Send a request now for ${offer.priceLine}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Contact Admin', onPress: () => openMail(subject, body) },
+      ],
+    )
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -55,8 +159,11 @@ export function SubscriptionOffersModal({
           <View style={s.handle} />
           <Text style={s.title}>Subscription options</Text>
           <Text style={s.subtitle}>
-            Standard rates configured by PartyOn admin. Your club uses the plan shown on your account.
+            Tap an option to request a billing-cycle change. PartyOn admin confirms plan changes before billing updates.
           </Text>
+          {loadingPrices ? (
+            <Text style={s.loadingPrices}>Refreshing latest plan prices...</Text>
+          ) : null}
 
           <ScrollView style={s.list} showsVerticalScrollIndicator={false}>
             {offers.map(offer => {
@@ -64,24 +171,36 @@ export function SubscriptionOffersModal({
                 (offer.kind === 'monthly' && cur === 'monthly') ||
                 (offer.kind === 'three_monthly' && cur === 'three_monthly')
               return (
-                <View key={offer.kind} style={[s.card, isCurrent && s.cardHighlight]}>
+                <TouchableOpacity
+                  key={offer.kind}
+                  style={[s.card, isCurrent && s.cardHighlight]}
+                  activeOpacity={0.84}
+                  onPress={() => handleOfferPress(offer)}
+                >
                   <View style={s.cardTop}>
-                    <Text style={s.cardTitle}>{offer.title}</Text>
+                    <View style={s.cardTitleRow}>
+                      <View style={s.offerIcon}>
+                        <Ionicons name={offer.icon} size={16} color={COLORS.purple} />
+                      </View>
+                      <Text style={s.cardTitle}>{offer.title}</Text>
+                    </View>
                     {isCurrent ? (
                       <View style={s.badge}>
                         <Text style={s.badgeText}>Current</Text>
                       </View>
-                    ) : null}
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+                    )}
                   </View>
                   <Text style={s.price}>{offer.priceLine}</Text>
                   <Text style={s.detail}>{offer.detail}</Text>
-                </View>
+                </TouchableOpacity>
               )
             })}
           </ScrollView>
 
           <Text style={s.footnote}>
-            To change billing cycle or negotiate a custom arrangement, contact support. Managers cannot self-switch plan type in-app.
+            Admin contact: {adminContactEmail}. Managers can request a plan change here; final approval and billing updates are handled by PartyOn admin.
           </Text>
 
           {onManageBilling ? (
@@ -122,6 +241,7 @@ const s = StyleSheet.create({
   subtitle: {
     color: COLORS.mutedDark, fontSize: FONT.sm, lineHeight: 20, marginTop: SPACING.xs, marginBottom: SPACING.md,
   },
+  loadingPrices: { color: COLORS.purple, fontSize: 12, fontWeight: '700', marginBottom: SPACING.sm },
   list: { marginBottom: SPACING.sm },
   card: {
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -132,7 +252,9 @@ const s = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   cardHighlight: { borderColor: COLORS.purple + '55', backgroundColor: COLORS.purple + '14' },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACING.sm },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1 },
+  offerIcon: { width: 30, height: 30, borderRadius: RADIUS.sm, backgroundColor: COLORS.purple + '18', alignItems: 'center', justifyContent: 'center' },
   cardTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
   badge: { backgroundColor: COLORS.green + '33', paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.sm },
   badgeText: { color: COLORS.green, fontSize: 11, fontWeight: '700' },

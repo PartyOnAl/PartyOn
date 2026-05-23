@@ -128,6 +128,8 @@ export type Promotion = {
   description: string | null
   category: string | null
   discount_value: number | null
+  original_price: number | null
+  discounted_price: number | null
   valid_from: string | null
   valid_until: string | null
   status: 'pending' | 'approved' | 'active' | 'expired'
@@ -156,6 +158,7 @@ export type Profile = {
   email: string | null
   birth_date: string | null
   phone_number: string | null
+  avatar_url?: string | null
   role: string
   club_id: string | null
 }

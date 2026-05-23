@@ -124,6 +124,7 @@ export default function RootLayout() {
               <Stack.Screen name="event/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="payment" options={{ presentation: 'card', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="payment-method" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+              <Stack.Screen name="change-password" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="purchased-ticket" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="top-clubs" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="promotions" options={{ presentation: 'card', animation: 'slide_from_right' }} />

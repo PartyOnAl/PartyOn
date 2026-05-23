@@ -54,6 +54,13 @@ function badgeInfo(promo: Promotion): { label: string } | null {
   return null
 }
 
+function calculatedDiscountedPrice(promo: Promotion): number | null {
+  if (promo.discounted_price != null) return promo.discounted_price
+  if (promo.original_price == null || promo.discount_value == null) return null
+  const discount = Math.min(100, Math.max(0, promo.discount_value))
+  return Math.max(0, promo.original_price * (1 - discount / 100))
+}
+
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9']
 function fallbackColor(id: string) {
   let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff
@@ -302,7 +309,7 @@ export default function PromotionsScreen() {
     let base: PromoItem[]
     switch (filter) {
       case 'saved': {
-        const active = promotions.filter((p) => savedIds.has(p.promotion_id))
+        const active: PromoItem[] = promotions.filter((p) => savedIds.has(p.promotion_id))
         const unavailable: PromoItem[] = deletedSaved.map(p => ({ ...p, _unavailable: true }))
         return [...active, ...unavailable].sort((a, b) => {
           if (a._unavailable && !b._unavailable) return 1
@@ -439,6 +446,7 @@ export default function PromotionsScreen() {
               new Date(promo.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
             const dateBlock = formatDateBlock(promo.valid_until)
             const includedTags = parseIncludedItems((promo as any).included_items)
+            const promoPrice = calculatedDiscountedPrice(promo)
 
             return (
               <TouchableOpacity
@@ -529,6 +537,17 @@ export default function PromotionsScreen() {
                         </Text>
                       </View>
                     ) : null}
+
+                    {!isUnavailable && (promo.original_price != null || promoPrice != null) && (
+                      <View style={styles.priceRow}>
+                        {promo.original_price != null && (
+                          <Text style={styles.originalPrice}>€{promo.original_price.toFixed(2)}</Text>
+                        )}
+                        {promoPrice != null && (
+                          <Text style={styles.promoPrice}>€{promoPrice.toFixed(2)}</Text>
+                        )}
+                      </View>
+                    )}
 
                     {/* Included items tags */}
                     {!isUnavailable && includedTags.length > 0 && (
@@ -653,6 +672,9 @@ const styles = StyleSheet.create({
   metaLeft: { flex: 1, gap: 5 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metaText: { color: COLORS.muted, fontSize: FONT.sm, flex: 1 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  originalPrice: { color: COLORS.mutedDark, fontSize: FONT.sm, textDecorationLine: 'line-through' },
+  promoPrice: { color: COLORS.green, fontSize: FONT.sm, fontWeight: '800' },
   shareBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.bgInput, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
 
   // Included items tags

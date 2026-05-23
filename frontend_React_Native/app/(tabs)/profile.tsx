@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView,
-  StyleSheet, RefreshControl, Alert, TextInput, ActivityIndicator,
+  StyleSheet, RefreshControl, Alert, TextInput, ActivityIndicator, Image,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
@@ -145,7 +146,8 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(params.edit === '1')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [form, setForm] = useState({ name: '', surname: '', username: '', phone_number: '' })
+  const [uploading, setUploading] = useState(false)
+  const [form, setForm] = useState({ name: '', surname: '', username: '', phone_number: '', avatar_url: '' })
 
   const load = useCallback(async () => {
     if (!user?.id) { setLoading(false); return }
@@ -157,6 +159,7 @@ export default function ProfileScreen() {
         surname: p.surname ?? '',
         username: p.username ?? '',
         phone_number: (p as any).phone_number ?? '',
+        avatar_url: (p as any).avatar_url ?? '',
       })
     }
     setLoading(false)
@@ -200,9 +203,57 @@ export default function ProfileScreen() {
         surname: profile.surname ?? '',
         username: (profile as any).username ?? '',
         phone_number: (profile as any).phone_number ?? '',
+        avatar_url: profile.avatar_url ?? '',
       })
     }
     setEditing(false)
+  }
+
+  async function handlePickPhoto() {
+    if (!user?.id) return
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'Please allow access to your photo library.')
+      return
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    })
+    if (result.canceled || !result.assets[0]) return
+
+    setUploading(true)
+    try {
+      const asset = result.assets[0]
+      const ext = asset.uri.split('.').pop()?.split('?')[0] || 'jpg'
+      const fileName = `user-${user.id}-${Date.now()}.${ext}`
+      const response = await fetch(asset.uri)
+      const arrayBuffer = await response.arrayBuffer()
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true })
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(fileName)
+      const url = urlData.publicUrl
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: url })
+        .eq('id', user.id)
+      if (updateError) throw updateError
+
+      setForm(f => ({ ...f, avatar_url: url }))
+      setProfile(prev => prev ? { ...prev, avatar_url: url } : prev)
+    } catch (err: any) {
+      Alert.alert('Upload failed', err?.message ?? 'Could not upload photo.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   function handleDeleteAccount() {
@@ -268,8 +319,25 @@ export default function ProfileScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.purple} />}
       >
         <View style={s.heroBand}>
-          <View style={s.avatar}>
-            <Text style={s.avatarText}>{initial}</Text>
+          <View style={s.avatarWrap}>
+            {form.avatar_url ? (
+              <Image source={{ uri: form.avatar_url }} style={s.avatarImg} />
+            ) : (
+              <View style={s.avatar}>
+                <Text style={s.avatarText}>{initial}</Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={s.cameraBtn}
+              onPress={handlePickPhoto}
+              disabled={uploading}
+              activeOpacity={0.8}
+            >
+              {uploading
+                ? <ActivityIndicator color={COLORS.white} size="small" />
+                : <Ionicons name="camera" size={14} color={COLORS.white} />
+              }
+            </TouchableOpacity>
           </View>
 
           {editing ? (
@@ -390,10 +458,18 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     gap: SPACING.sm,
   },
+  avatarWrap: { position: 'relative', width: 84, height: 84 },
+  avatarImg: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 3,
+    borderColor: COLORS.purple,
+  },
   avatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: COLORS.purpleDark,
     borderWidth: 3,
     borderColor: COLORS.purple,
@@ -401,6 +477,19 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: { color: COLORS.white, fontSize: 28, fontWeight: '800' },
+  cameraBtn: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: COLORS.purpleDark,
+    borderWidth: 2,
+    borderColor: COLORS.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   heroInfo: { alignItems: 'center', gap: 3 },
   heroName: { color: COLORS.white, fontSize: FONT.lg, fontWeight: '700' },
   heroUsername: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '600' },

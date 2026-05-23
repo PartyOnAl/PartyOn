@@ -72,6 +72,30 @@ function fmtDate(s: string | null): string {
   return new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function fmtValidityRange(from: string | null, until: string | null): string {
+  if (from && until) {
+    const fromDate = fmtDate(from)
+    const untilDate = fmtDate(until)
+    return fromDate === untilDate ? fromDate : `${fromDate} → ${untilDate}`
+  }
+  return fmtDate(from ?? until)
+}
+
+function parseMoney(value: string): number | null {
+  const parsed = parseFloat(value.replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function calculateDiscountedPrice(original: number | null, discount: number | null): number | null {
+  if (original == null || discount == null) return null
+  const clampedDiscount = Math.min(100, Math.max(0, discount))
+  return Math.max(0, original * (1 - clampedDiscount / 100))
+}
+
+function formatMoneyInput(value: number): string {
+  return value.toFixed(2).replace(/\.?0+$/, '')
+}
+
 // ── Mini inline calendar ───────────────────────────────────────────────────────
 const CAL_DAYS   = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const CAL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -272,12 +296,24 @@ export default function ManagerPromotionsScreen() {
 
   function closeModal() { resetForm(); setEditingPromo(null); setShowModal(false) }
 
+  function onChangeOriginalPrice(value: string) {
+    setOriginalPrice(value)
+    const calculated = calculateDiscountedPrice(parseMoney(value), parseMoney(discountVal))
+    if (calculated != null) setDiscountedPrice(formatMoneyInput(calculated))
+  }
+
+  function onChangeDiscountVal(value: string) {
+    setDiscountVal(value)
+    const calculated = calculateDiscountedPrice(parseMoney(originalPrice), parseMoney(value))
+    if (calculated != null) setDiscountedPrice(formatMoneyInput(calculated))
+  }
+
   // ── Image upload ──────────────────────────────────────────────────────────
   async function handlePickImage() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (!perm.granted) { Alert.alert('Permission required', 'Please allow photo library access.'); return }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true, aspect: [16, 9], quality: 0.8,
     })
     if (result.canceled || !result.assets[0]) return
@@ -308,14 +344,19 @@ export default function ManagerPromotionsScreen() {
     if (!profile?.club_id) { Alert.alert('Error', 'No club associated with your account.'); return }
     setSaving(true)
 
+    const originalPriceValue = parseMoney(originalPrice)
+    const discountValue = parseMoney(discountVal)
+    const calculatedDiscountedPrice = calculateDiscountedPrice(originalPriceValue, discountValue)
+    const discountedPriceValue = parseMoney(discountedPrice) ?? calculatedDiscountedPrice
+
     const payload = {
       club_id:          profile.club_id,
       title:            t,
       description:      description.trim() || null,
       category,
-      discount_value:   discountVal ? parseFloat(discountVal) : null,
-      original_price:   originalPrice ? parseFloat(originalPrice) : null,
-      discounted_price: discountedPrice ? parseFloat(discountedPrice) : null,
+      discount_value:   discountValue,
+      original_price:   originalPriceValue,
+      discounted_price: discountedPriceValue,
       terms_conditions: termsConditions.trim() || null,
       included_items:   includedItems.trim() || null,
       why_worth_it:     whyWorthIt.trim() || null,
@@ -491,6 +532,7 @@ export default function ManagerPromotionsScreen() {
 
             const isArchived = !!p.deleted_at
             const effectiveStatusKey: PromoStatus | 'archived' = isArchived ? 'archived' : p.status
+            const displayedDiscountedPrice = p.discounted_price ?? calculateDiscountedPrice(p.original_price, p.discount_value)
 
             return (
               <TouchableOpacity
@@ -532,13 +574,13 @@ export default function ManagerPromotionsScreen() {
                     <Text style={s.cardDesc} numberOfLines={2}>{p.description}</Text>
                   ) : null}
 
-                  {(p.original_price != null || p.discounted_price != null) && (
+                  {(p.original_price != null || displayedDiscountedPrice != null) && (
                     <View style={s.priceRow}>
                       {p.original_price != null && (
                         <Text style={s.originalPrice}>€{p.original_price.toFixed(2)}</Text>
                       )}
-                      {p.discounted_price != null && (
-                        <Text style={s.discountedPrice}>€{p.discounted_price.toFixed(2)}</Text>
+                      {displayedDiscountedPrice != null && (
+                        <Text style={s.discountedPrice}>€{displayedDiscountedPrice.toFixed(2)}</Text>
                       )}
                     </View>
                   )}
@@ -552,11 +594,10 @@ export default function ManagerPromotionsScreen() {
 
                   {(p.valid_from || p.valid_until) ? (
                     <View style={s.dateRow}>
-                      <Ionicons name="calendar-outline" size={12} color={expiringSoon ? COLORS.red : COLORS.mutedDark} />
-                      <Text style={[s.dateText, expiringSoon && { color: COLORS.red }]}>
+                      <Ionicons name="calendar-outline" size={12} color={expiringSoon ? COLORS.pink : COLORS.mutedDark} />
+                      <Text style={[s.dateText, expiringSoon && { color: COLORS.pink }]}>
                         {expiringSoon ? '⚡ Ending soon · ' : ''}
-                        {p.valid_from ? fmtDate(p.valid_from) : '—'}
-                        {p.valid_until ? ` → ${fmtDate(p.valid_until)}` : ''}
+                        {fmtValidityRange(p.valid_from, p.valid_until)}
                       </Text>
                     </View>
                   ) : null}
@@ -683,7 +724,7 @@ export default function ManagerPromotionsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={m.subLabel}>Original Price (€)</Text>
                   <TextInput
-                    style={m.input} value={originalPrice} onChangeText={setOriginalPrice}
+                    style={m.input} value={originalPrice} onChangeText={onChangeOriginalPrice}
                     placeholder="e.g. 50" placeholderTextColor={COLORS.mutedDark}
                     keyboardType="decimal-pad"
                   />
@@ -701,7 +742,7 @@ export default function ManagerPromotionsScreen() {
               {/* Discount % */}
               <Text style={m.label}>Discount % (optional)</Text>
               <TextInput
-                style={m.input} value={discountVal} onChangeText={setDiscountVal}
+                style={m.input} value={discountVal} onChangeText={onChangeDiscountVal}
                 placeholder="e.g. 20" placeholderTextColor={COLORS.mutedDark}
                 keyboardType="decimal-pad"
               />

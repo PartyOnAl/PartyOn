@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Share,
-  Linking, Platform,
+  Linking, Platform, Image,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -250,6 +250,12 @@ export default function AccountScreen() {
           onPress: () => router.push('/(tabs)/profile'),
         },
         {
+          icon: 'key-outline',
+          label: 'Change password',
+          subtitle: 'Update your login password',
+          onPress: () => router.push('/change-password'),
+        },
+        {
           icon: 'lock-closed-outline',
           label: 'Privacy',
           onPress: () => router.push('/privacy'),
@@ -341,9 +347,13 @@ export default function AccountScreen() {
 
         {/* User info strip */}
         <View style={s.userStrip}>
-          <View style={s.avatar}>
-            <Text style={s.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
-          </View>
+          {profile?.avatar_url ? (
+            <Image source={{ uri: profile.avatar_url }} style={s.avatar} />
+          ) : (
+            <View style={s.avatar}>
+              <Text style={s.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             <Text style={s.displayName}>{displayName}</Text>
             <Text style={s.email}>{user.email}</Text>

@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { isEventUpcomingOrLive } from '@/lib/eventDates'
 import { usePlatformSettings } from '@/lib/platformSettings'
 import { SubscriptionOffersModal } from '@/components/SubscriptionOffersModal'
+import { subscriptionPlanLabel } from '@/lib/subscriptions'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -54,7 +55,8 @@ export default function DashboardScreen() {
   const [totalReservations, setTotalReservations]   = useState(0)
   const [openDisputes, setOpenDisputes]             = useState(0)
   const [subscriptionDueDate, setSubscriptionDueDate] = useState<string | null>(null)
-  const [subscriptionType, setSubscriptionType]       = useState<string>('trial')
+  const [subscriptionType, setSubscriptionType]       = useState<string>('monthly')
+  const [subscriptionPrice, setSubscriptionPrice]     = useState<number | null>(null)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   // Weekly chart - real data, last 7 days rolling
@@ -108,7 +110,7 @@ export default function DashboardScreen() {
       // Subscription info
       supabase
         .from('clubs')
-        .select('subscription_type, subscription_due_date')
+        .select('subscription_type, subscription_due_date, subscription_price')
         .eq('club_id', clubId)
         .single(),
 
@@ -132,8 +134,9 @@ export default function DashboardScreen() {
     if (tablesRes.count !== null) setTableCount(tablesRes.count)
     if (disputesRes.count !== null) setOpenDisputes(disputesRes.count)
     if (clubRes.data) {
-      setSubscriptionType(clubRes.data.subscription_type ?? 'trial')
+      setSubscriptionType(clubRes.data.subscription_type ?? 'monthly')
       setSubscriptionDueDate(clubRes.data.subscription_due_date ?? null)
+      setSubscriptionPrice(clubRes.data.subscription_price ?? null)
     }
     if (promosRes.data) setActivePromotions(promosRes.data as DashPromotion[])
 
@@ -350,7 +353,7 @@ export default function DashboardScreen() {
               <Text style={[s.subBannerSub, { color: subBannerColor }]}>
                 {daysUntilDue! <= 0
                   ? 'Service may be disrupted. Tap to renew.'
-                  : `${subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1)} plan • Tap for all offers`}
+                  : `${subscriptionPlanLabel(subscriptionType)} plan • Tap for all offers`}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={subBannerColor} />
@@ -650,6 +653,7 @@ export default function DashboardScreen() {
         onClose={() => setOffersModal(false)}
         settings={settings}
         currentPlanType={subscriptionType}
+        currentPlanPrice={subscriptionPrice}
         onManageBilling={() => {
           setOffersModal(false)
           router.push('/(manager)/billing-history' as any)
@@ -758,8 +762,8 @@ const s = StyleSheet.create({
   promoIcon:   { width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: COLORS.cta + '22', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   promoTitle:  { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '600', marginBottom: 3 },
   promoMeta:   { color: COLORS.mutedDark, fontSize: 12 },
-  expireBadge: { backgroundColor: COLORS.red + '22', borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
-  expireText:  { color: COLORS.red, fontSize: 10, fontWeight: '700' },
+  expireBadge: { backgroundColor: COLORS.pink + '22', borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
+  expireText:  { color: COLORS.pink, fontSize: 10, fontWeight: '700' },
   activeDot:   { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.green },
 
   reservRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md },

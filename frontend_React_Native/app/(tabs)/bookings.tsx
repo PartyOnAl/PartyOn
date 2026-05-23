@@ -856,6 +856,7 @@ export default function BookingsScreen() {
           .from('reservations')
           .select('*, events(event_id, event_name, event_starting_date, event_ending_date, event_hours, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
           .eq('user_id', user.id)
+          .is('user_hidden_at', null)
           .order('created_at', { ascending: false }),
         supabase
           .from('event_ratings')
@@ -907,8 +908,23 @@ export default function BookingsScreen() {
     setClaims((prev) => prev.filter((c) => c.id !== claim.id))
   }
 
-  function handleClearReservation(reservation: Reservation) {
+  async function handleClearReservation(reservation: Reservation) {
+    // Optimistic local removal so the UI responds instantly
     setHiddenIds((prev) => new Set(prev).add(reservation.reservation_id))
+    // Persist so every platform (web, another device, etc.) respects the choice
+    const { error } = await supabase
+      .from('reservations')
+      .update({ user_hidden_at: new Date().toISOString() })
+      .eq('reservation_id', reservation.reservation_id)
+    if (error) {
+      // Roll back the optimistic hide if DB write failed
+      setHiddenIds((prev) => {
+        const next = new Set(prev)
+        next.delete(reservation.reservation_id)
+        return next
+      })
+      Alert.alert('Error', 'Could not remove this night from your history. Please try again.')
+    }
   }
 
   async function handleCancel(reservation: Reservation) {

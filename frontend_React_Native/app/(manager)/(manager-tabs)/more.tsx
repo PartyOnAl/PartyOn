@@ -432,6 +432,7 @@ export default function MoreScreen() {
         onClose={() => setOffersModal(false)}
         settings={settings}
         currentPlanType={sub?.subscription_type ?? null}
+        currentPlanPrice={sub?.subscription_price ?? null}
         onManageBilling={() => {
           setOffersModal(false)
           router.push('/(manager)/billing-history' as any)

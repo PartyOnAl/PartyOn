@@ -43,6 +43,13 @@ function badgeLabel(promo: Promotion): string | null {
   return null
 }
 
+function calculatedDiscountedPrice(promo: Promotion): number | null {
+  if (promo.discounted_price != null) return promo.discounted_price
+  if (promo.original_price == null || promo.discount_value == null) return null
+  const discount = Math.min(100, Math.max(0, promo.discount_value))
+  return Math.max(0, promo.original_price * (1 - discount / 100))
+}
+
 // ── Related card ──────────────────────────────────────────────────────────────
 function RelatedCard({ promo, onPress }: { promo: Promotion; onPress: () => void }) {
   const label = badgeLabel(promo)
@@ -229,6 +236,7 @@ export default function PromotionDetailScreen() {
   }
 
   const label = badgeLabel(promo)
+  const promoPrice = calculatedDiscountedPrice(promo)
   const isExpiringSoon =
     !!promo.valid_until &&
     new Date(promo.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
@@ -310,6 +318,16 @@ export default function PromotionDetailScreen() {
 
           {/* ── Claim card ── */}
           <View style={s.priceCard}>
+            {(promo.original_price != null || promoPrice != null) && (
+              <View style={s.offerPriceRow}>
+                {promo.original_price != null && (
+                  <Text style={s.offerOriginalPrice}>€{promo.original_price.toFixed(2)}</Text>
+                )}
+                {promoPrice != null && (
+                  <Text style={s.offerPromoPrice}>€{promoPrice.toFixed(2)}</Text>
+                )}
+              </View>
+            )}
             {promo.discount_value && (
               <View style={s.savingsBadge}>
                 <Text style={s.savingsText}>You save {promo.discount_value}% with this offer</Text>
@@ -390,7 +408,7 @@ export default function PromotionDetailScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.chipLabel}>Valid Until</Text>
-                  <Text style={[s.chipValue, isExpiringSoon && { color: COLORS.red }]}>
+                  <Text style={[s.chipValue, isExpiringSoon && { color: COLORS.pink }]}>
                     {isExpiringSoon ? '⚡ ' : ''}{formatDate(promo.valid_until)}
                   </Text>
                 </View>
@@ -576,6 +594,9 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.lg,
     padding: SPACING.md, gap: SPACING.sm,
   },
+  offerPriceRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: SPACING.sm },
+  offerOriginalPrice: { color: COLORS.mutedDark, fontSize: FONT.base, textDecorationLine: 'line-through', marginBottom: 3 },
+  offerPromoPrice: { color: COLORS.green, fontSize: FONT.xl, fontWeight: '900' },
   savingsBadge: {
     backgroundColor: 'rgba(74,222,128,0.12)',
     borderWidth: 1, borderColor: 'rgba(74,222,128,0.3)',
