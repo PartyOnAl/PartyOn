@@ -455,16 +455,6 @@ body {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.cap__tab:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.cap__tab--active {
-  background: #ffffff;
-  color: #0a0a0a;
-  border-color: #ffffff;
-}
-
 .cap__club-list {
   list-style: none;
   margin: 0;

@@ -53,11 +53,14 @@ import AdminPlatformAnalysis from './admin/AdminPlatformAnalysis'
 import ClubApproving from './admin/ClubApproving'
 import UserManagement from './admin/UserManagement'
 import RevenueAndPayments from './admin/RevenueAndPayments'
+import FeaturedEvents from './admin/FeaturedEvents'
+import PlatformAnalytics from './admin/PlatformAnalytics'
+import AdminSettings from './admin/AdminSettings'
 import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
 import StaffMobileOnlyPage from './StaffMobileOnlyPage'
 import { userMustChangePassword } from './lib/mustChangePassword'
 import { getStaffRoleFromUser, isMobileOnlyStaffRole } from './lib/staffRoles'
-import { isSupabaseConfigured, supabase } from './lib/supabase'
+import { authLaneFromPathname, isSupabaseConfigured, userSupabase } from './lib/supabase'
 
 function MustChangePasswordGuard() {
   const { user, isLoading } = useAuth()
@@ -66,8 +69,9 @@ function MustChangePasswordGuard() {
 
   useEffect(() => {
     if (isLoading) return
-    if (!userMustChangePassword(user)) return
     const path = location.pathname
+    if (authLaneFromPathname(path) !== 'user') return
+    if (!userMustChangePassword(user)) return
     if (
       path === '/staff/change-password' ||
       path === '/login' ||
@@ -86,20 +90,11 @@ function WebStaffAccessGuard() {
   const { user, profile, isLoading } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const isManagerPath =
-    location.pathname.startsWith('/manager') || location.pathname.startsWith('/admin')
+  const lane = authLaneFromPathname(location.pathname)
 
   useEffect(() => {
     if (isLoading) return
-    if (isManagerPath) return
-
-    const roleNorm = String(profile?.role ?? '').toLowerCase().trim()
-    const isAdminRole =
-      roleNorm === 'admin' || roleNorm === 'superadmin' || roleNorm === 'super_admin'
-    if (isAdminRole) {
-      navigate('/admin/platform-analysis', { replace: true })
-      return
-    }
+    if (lane !== 'user') return
 
     const staffRole = getStaffRoleFromUser(user ?? null)
     if (!staffRole) return
@@ -115,17 +110,17 @@ function WebStaffAccessGuard() {
       return
     }
 
-    if (!supabase || !isSupabaseConfigured) return
+    if (!userSupabase || !isSupabaseConfigured) return
 
     if (isMobileOnlyStaffRole(staffRole)) {
-      void supabase.auth.signOut({ scope: 'local' })
+      void userSupabase.auth.signOut({ scope: 'local' })
       navigate('/staff/mobile-only', { replace: true })
       return
     }
 
-    void supabase.auth.signOut({ scope: 'local' })
+    void userSupabase.auth.signOut({ scope: 'local' })
     navigate('/login', { replace: true, state: { staffWebBlocked: true } })
-  }, [user, profile, isLoading, location.pathname, isManagerPath, navigate])
+  }, [user, profile, isLoading, location.pathname, lane, navigate])
 
   return null
 }
@@ -168,7 +163,6 @@ function App() {
               <Route path="/home" element={<Home />} />
               <Route path="/profile" element={<MyProfile />} />
               <Route path="/my-profile" element={<MyProfile />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
               {/* <Route path="/search" element={<Search />} /> */}
               <Route
                 path="/search"
@@ -258,6 +252,18 @@ function App() {
                 path="/admin/revenue-payments"
                 element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
               />
+              <Route
+                path="/admin/featured-events"
+                element={<AdminRoute><FeaturedEvents /></AdminRoute>}
+              />
+              <Route
+                path="/admin/platform-analytics"
+                element={<AdminRoute><PlatformAnalytics /></AdminRoute>}
+              />
+              <Route
+                path="/admin/settings"
+                element={<AdminRoute><AdminSettings /></AdminRoute>}
+              />
 
               <Route path="/header" element={<Header />} />
               <Route path="/footer" element={<Footer />} />
@@ -268,6 +274,7 @@ function App() {
               <Route path="/topclubs" element={<TopClubs />} />
               <Route path="/purchasedticket" element={<PurchasedTicket />} />
               <Route path="/paymentmethod" element={<PaymentMethod />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </SavedEventsProvider>
         </CatalogProvider>

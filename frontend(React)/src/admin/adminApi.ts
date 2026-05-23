@@ -1,5 +1,35 @@
 import { deleteJsonAuth, getJsonAuth, patchJsonAuth, postJsonAuth } from '../api'
 
+export type AdminEventInsight = {
+  id: string
+  rank?: number
+  name: string
+  venue: string
+  location?: string
+  dateTime?: string | null
+  status?: string
+  reservations?: number
+  capacity?: number | null
+  capacityPercent?: number | null
+  revenue: number
+  bookings: number
+  organizer?: string
+  vipTableAvailability?: number | null
+  fewTablesRemain?: boolean
+  reservationSpike?: boolean
+  occupancyAlert?: boolean
+  thumbnail?: string | null
+  isFeatured?: boolean
+  createdDate?: string | null
+  awaitingApproval?: boolean
+  hasMissingDetails?: boolean
+  publicationStatus?: 'draft' | 'published'
+  views?: number | null
+  clicks?: number | null
+  favorites?: number | null
+  rating: number | null
+}
+
 export type AdminOverviewData = {
   metrics: {
     totalUsers: number
@@ -26,15 +56,9 @@ export type AdminOverviewData = {
     revenue: number
     rating: number | null
   }[]
-  topEvents: {
-    id: string
-    rank: number
-    name: string
-    venue: string
-    revenue: number
-    bookings: number
-    rating: number | null
-  }[]
+  topEvents: Array<AdminEventInsight & { rank: number }>
+  featuredEvents?: Array<AdminEventInsight & { rank: number }>
+  newEvents?: AdminEventInsight[]
 }
 
 export type AdminClub = {

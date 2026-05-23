@@ -2,7 +2,7 @@ import './PurchasedTicket.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getJson } from '@/api'
-import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import {
@@ -225,7 +225,7 @@ export default function PurchasedTicket() {
 
       const {
         data: { user },
-      } = await supabase.auth.getUser()
+      } = await getAuthUser('user')
 
       if (!active) return
 

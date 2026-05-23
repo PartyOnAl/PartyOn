@@ -15,7 +15,11 @@ import {
   type AdminClub,
   type AdminClubsData,
 } from './adminApi'
+import { setCachedAdminData } from './adminDataCache'
+import { useAdminData } from './useAdminData'
+import AdminNavLink from './AdminNavLink'
 import './ClubApproving.css'
+import './admin-controls.css'
 
 type NavId =
   | 'overview'
@@ -38,9 +42,9 @@ const NAV: NavItem[] = [
   { id: 'clubs', label: 'Club Approvals', href: '/admin/club-approvals', active: true },
   { id: 'users', label: 'User Management', href: '/admin/user-management' },
   { id: 'revenue', label: 'Revenue & Payments', href: '/admin/revenue-payments' },
-  { id: 'featured', label: 'Featured Events', href: '#' },
-  { id: 'analysis', label: 'Platform Analytics', href: '#' },
-  { id: 'settings', label: 'Settings', href: '#' },
+  { id: 'featured', label: 'Featured Events', href: '/admin/featured-events' },
+  { id: 'analysis', label: 'Platform Analytics', href: '/admin/platform-analytics' },
+  { id: 'settings', label: 'Settings', href: '/admin/settings' },
 ]
 
 type TabFilter = 'pending' | 'approved' | 'rejected' | 'suspended' | 'all'
@@ -233,9 +237,6 @@ function matchesFilter(club: AdminClub, tab: TabFilter): boolean {
 export default function ClubApproving() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<TabFilter>('all')
-  const [data, setData] = useState<AdminClubsData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [addClubOpen, setAddClubOpen] = useState(false)
   const [selectedClub, setSelectedClub] = useState<AdminClub | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
@@ -251,8 +252,20 @@ export default function ClubApproving() {
     address?: string
   }>({})
   const [addClubError, setAddClubError] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
   const [addingClub, setAddingClub] = useState(false)
   const { session } = useAuth()
+  const {
+    data,
+    loading,
+    error,
+    setData,
+    reload: reloadClubs,
+  } = useAdminData<AdminClubsData>(
+    'admin:clubs',
+    session?.access_token,
+    fetchAdminClubs,
+  )
   const navId = useId()
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -266,34 +279,31 @@ export default function ClubApproving() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  const loadClubs = useCallback(async () => {
-    const token = session?.access_token
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    const result = await fetchAdminClubs(token)
-    if (result.error) {
-      setError(result.error)
-      setData(null)
-    } else {
-      setData(result.data)
-    }
-    setLoading(false)
-  }, [session?.access_token])
-
-  useEffect(() => {
-    void loadClubs()
-  }, [loadClubs])
-
   const setClubStatus = async (clubId: string, status: AdminClub['status']) => {
     const token = session?.access_token
     if (!token) return false
     const result = await updateAdminClubStatus(token, clubId, status)
-    if (result.error) {
-      setError(result.error)
-      return false
-    }
-    await loadClubs()
+    if (result.error) return false
+    setData((prev) => {
+      if (!prev) return prev
+      const clubs = prev.clubs.map((club) =>
+        club.id === clubId ? { ...club, status } : club,
+      )
+      const next = {
+        ...prev,
+        clubs,
+        stats: {
+          pending: clubs.filter((club) => club.status === 'pending').length,
+          approved: clubs.filter((club) => club.status === 'approved').length,
+          rejected: clubs.filter((club) => club.status === 'rejected').length,
+          suspended: clubs.filter((club) => club.status === 'suspended').length,
+          total: clubs.length,
+        },
+      }
+      setCachedAdminData('admin:clubs', next)
+      return next
+    })
+    void reloadClubs({ silent: true })
     return true
   }
 
@@ -346,7 +356,7 @@ export default function ClubApproving() {
 
     closeAddClubModal()
     setActiveTab('all')
-    await loadClubs()
+    void reloadClubs()
   }
 
   const closeDetailsModal = useCallback(() => setSelectedClub(null), [])
@@ -364,13 +374,31 @@ export default function ClubApproving() {
     if (!token) return
     const result = await deleteAdminClub(token, club.id)
     if (result.error) {
-      setError(result.error)
+      setMutationError(result.error)
       return
     }
+    setMutationError(null)
     if (selectedClub?.id === club.id) {
       closeDetailsModal()
     }
-    await loadClubs()
+    setData((prev) => {
+      if (!prev) return prev
+      const clubs = prev.clubs.filter((row) => row.id !== club.id)
+      const next = {
+        ...prev,
+        clubs,
+        stats: {
+          pending: clubs.filter((row) => row.status === 'pending').length,
+          approved: clubs.filter((row) => row.status === 'approved').length,
+          rejected: clubs.filter((row) => row.status === 'rejected').length,
+          suspended: clubs.filter((row) => row.status === 'suspended').length,
+          total: clubs.length,
+        },
+      }
+      setCachedAdminData('admin:clubs', next)
+      return next
+    })
+    void reloadClubs({ silent: true })
   }
 
   const performRevokeClub = async (club: AdminClub) => {
@@ -588,19 +616,29 @@ export default function ClubApproving() {
           </div>
 
           <nav className="cap__nav">
-            {NAV.map((item) => (
-              <a
-                key={item.id}
-                className={`cap__nav-link${item.active ? ' cap__nav-link--active' : ''}`}
-                href={item.href}
-                onClick={closeSidebar}
-              >
-                <span className="cap__nav-icon" aria-hidden>
-                  {NAV_ICONS[item.id]}
+            {NAV.map((item) =>
+              item.href === '#' ? (
+                <span key={item.id} className="cap__nav-link cap__nav-link--muted">
+                  <span className="cap__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
                 </span>
-                {item.label}
-              </a>
-            ))}
+              ) : (
+                <AdminNavLink
+                  key={item.id}
+                  to={item.href}
+                  className="cap__nav-link"
+                  activeClassName=" cap__nav-link--active"
+                  onNavigate={closeSidebar}
+                >
+                  <span className="cap__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
+                </AdminNavLink>
+              ),
+            )}
           </nav>
         </div>
 
@@ -645,7 +683,9 @@ export default function ClubApproving() {
           </header>
 
           {loading ? <p className="cap__empty">Loading club applications...</p> : null}
-          {error ? <p className="cap__empty">{error}</p> : null}
+          {error || mutationError ? (
+            <p className="cap__empty">{error ?? mutationError}</p>
+          ) : null}
 
           <section className="cap__stat-row" aria-label="Application stats">
             {stats.map((s) => (

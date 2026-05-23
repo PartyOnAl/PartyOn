@@ -30,9 +30,15 @@ type ClubRow = {
 type EventRow = {
   event_id: string;
   event_name: string;
+  event_capacity: number | null;
+  event_image: string | null;
   event_starting_date: string | null;
+  event_ending_date?: string | null;
   event_status: string | null;
   club_id: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  is_featured: boolean | null;
 };
 
 type ReservationRow = {
@@ -66,6 +72,10 @@ type TableRow = {
 
 type TicketTypeRow = {
   id: string;
+  event_id: string | null;
+};
+
+type BookmarkRow = {
   event_id: string | null;
 };
 
@@ -172,7 +182,14 @@ function isCompletedStatus(value: unknown): boolean {
 
 @Injectable()
 export class AdminService {
+  /** Avoids a profiles round-trip on every admin API call within the TTL window. */
+  private readonly adminRoleCache = new Map<string, number>();
+  private static readonly ADMIN_ROLE_CACHE_MS = 60_000;
+
   private async assertAdmin(supabase: SupabaseClient, userId: string): Promise<void> {
+    const cachedUntil = this.adminRoleCache.get(userId);
+    if (cachedUntil && cachedUntil > Date.now()) return;
+
     const { data, error } = await supabase
       .from('profiles')
       .select('role')
@@ -183,6 +200,8 @@ export class AdminService {
     if (!isAdminRole(data?.role)) {
       throw new ForbiddenException('Admin access required.');
     }
+
+    this.adminRoleCache.set(userId, Date.now() + AdminService.ADMIN_ROLE_CACHE_MS);
   }
 
   private async listAuthUsers(supabase: SupabaseClient) {
@@ -254,7 +273,9 @@ export class AdminService {
           ),
         supabase
           .from('events')
-          .select('event_id, event_name, event_starting_date, event_status, club_id'),
+          .select(
+            'event_id, event_name, event_starting_date, event_ending_date, event_capacity, event_image, event_status, club_id, created_at, created_by, is_featured',
+          ),
         supabase
           .from('reservations')
           .select('reservation_id, type, status, event_id, table_id, ticket_type_id, user_id, created_at'),
@@ -294,6 +315,64 @@ export class AdminService {
       eventRatings: (eventRatingsResult.data ?? []) as EventRatingRow[],
       tables: (tablesResult.data ?? []) as TableRow[],
       ticketTypes: (ticketTypesResult.data ?? []) as TicketTypeRow[],
+    };
+  }
+
+  /** Overview metrics do not need tables/ticket_types — skip two full-table reads. */
+  private async fetchOverviewData(supabase: SupabaseClient) {
+    const [
+      profilesResult,
+      clubsResult,
+      eventsResult,
+      reservationsResult,
+      paymentsResult,
+      eventRatingsResult,
+      tablesResult,
+    ] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, name, surname, username, email, phone_number, role, club_id, created_at'),
+      supabase
+        .from('clubs')
+        .select(
+          'club_id, club_name, club_address, club_email_id, club_phone_number, club_description, club_status, created_at, manager_id',
+        ),
+      supabase
+        .from('events')
+        .select(
+          'event_id, event_name, event_starting_date, event_ending_date, event_capacity, event_image, event_status, club_id, created_at, created_by, is_featured',
+        ),
+      supabase
+        .from('reservations')
+        .select('reservation_id, type, status, event_id, table_id, ticket_type_id, user_id, created_at'),
+      supabase.from('payments').select('payment_id, amount, payment_date, status, reservation_id'),
+      supabase.from('event_ratings').select('event_id, rating'),
+      supabase.from('tables').select('id, club_id'),
+    ]);
+
+    for (const result of [
+      profilesResult,
+      clubsResult,
+      eventsResult,
+      reservationsResult,
+      paymentsResult,
+      eventRatingsResult,
+      tablesResult,
+    ]) {
+      if (result.error) throw new Error(result.error.message);
+    }
+
+    const bookmarksResult = await supabase.from('bookmarks').select('event_id');
+
+    return {
+      profiles: (profilesResult.data ?? []) as ProfileRow[],
+      clubs: (clubsResult.data ?? []) as ClubRow[],
+      events: (eventsResult.data ?? []) as EventRow[],
+      reservations: (reservationsResult.data ?? []) as ReservationRow[],
+      payments: (paymentsResult.data ?? []) as PaymentRow[],
+      eventRatings: (eventRatingsResult.data ?? []) as EventRatingRow[],
+      tables: (tablesResult.data ?? []) as TableRow[],
+      bookmarks: bookmarksResult.error ? [] : ((bookmarksResult.data ?? []) as BookmarkRow[]),
     };
   }
 
@@ -344,15 +423,24 @@ export class AdminService {
     const supabase = getSupabaseClient();
     await this.assertAdmin(supabase, userId);
 
-    const { profiles, clubs, events, reservations, payments, eventRatings } = await this.fetchCoreData(supabase);
+    const { profiles, clubs, events, reservations, payments, eventRatings, tables, bookmarks } =
+      await this.fetchOverviewData(supabase);
     const reservationById = new Map(reservations.map((reservation) => [reservation.reservation_id, reservation]));
     const eventById = new Map(events.map((event) => [event.event_id, event]));
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const clubById = new Map(clubs.map((club) => [club.club_id, club]));
     const clubRevenue = new Map<string, number>();
     const clubBookings = new Map<string, number>();
     const eventRevenue = new Map<string, number>();
     const eventBookings = new Map<string, number>();
+    const eventFavorites = new Map<string, number>();
     const clubRatingTotals = new Map<string, { sum: number; count: number }>();
     const eventRatingTotals = new Map<string, { sum: number; count: number }>();
+
+    for (const bookmark of bookmarks) {
+      if (!bookmark.event_id) continue;
+      eventFavorites.set(bookmark.event_id, (eventFavorites.get(bookmark.event_id) ?? 0) + 1);
+    }
 
     for (const reservation of reservations) {
       const event = reservation.event_id ? eventById.get(reservation.event_id) : undefined;
@@ -416,6 +504,97 @@ export class AdminService {
       return { month: date.toLocaleString('en-US', { month: 'short' }), value };
     });
 
+    const buildEventInsight = (event: EventRow) => {
+      const club = event.club_id ? clubById.get(event.club_id) : undefined;
+      const eventReservations = reservations.filter((reservation) => reservation.event_id === event.event_id);
+      const bookings = eventBookings.get(event.event_id) ?? 0;
+      const revenue = eventRevenue.get(event.event_id) ?? 0;
+      const capacity = typeof event.event_capacity === 'number' && event.event_capacity > 0
+        ? event.event_capacity
+        : null;
+      const capacityPercent = capacity ? Math.min(100, Math.round((bookings / capacity) * 100)) : null;
+      const statusRaw = normalizeStatus(event.event_status);
+      const eventDate = event.event_starting_date ? new Date(event.event_starting_date) : null;
+      const status =
+        statusRaw === 'cancelled' || statusRaw === 'canceled'
+          ? 'Cancelled'
+          : capacityPercent !== null && capacityPercent >= 100
+            ? 'Sold Out'
+            : capacityPercent !== null && capacityPercent >= 70
+              ? 'Selling Fast'
+              : eventDate && eventDate >= now
+                ? 'Upcoming'
+                : statusRaw === 'published'
+                  ? 'Upcoming'
+                  : statusRaw || 'Upcoming';
+      const recentCutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+      const previousCutoff = new Date(now.getTime() - 96 * 60 * 60 * 1000);
+      const recentReservations = eventReservations.filter((reservation) => {
+        const created = reservation.created_at ? new Date(reservation.created_at) : null;
+        return created !== null && created >= recentCutoff;
+      }).length;
+      const previousReservations = eventReservations.filter((reservation) => {
+        const created = reservation.created_at ? new Date(reservation.created_at) : null;
+        return created !== null && created >= previousCutoff && created < recentCutoff;
+      }).length;
+      const reservationSpike = recentReservations >= 3 && recentReservations > Math.max(1, previousReservations * 1.5);
+      const clubTables = tables.filter((table) => table.club_id === event.club_id);
+      const reservedTableIds = new Set(
+        eventReservations
+          .filter((reservation) => {
+            const reservationStatus = normalizeStatus(reservation.status);
+            return reservation.table_id && reservationStatus !== 'cancelled' && reservationStatus !== 'canceled';
+          })
+          .map((reservation) => reservation.table_id),
+      );
+      const vipTableAvailability = clubTables.length > 0
+        ? Math.max(0, clubTables.length - reservedTableIds.size)
+        : null;
+      const fewTablesRemain = vipTableAvailability !== null
+        && vipTableAvailability <= Math.max(1, Math.ceil(clubTables.length * 0.2));
+      const hostProfile = event.created_by ? profileById.get(event.created_by) : undefined;
+      const managerProfile = club?.manager_id ? profileById.get(club.manager_id) : undefined;
+
+      return {
+        id: event.event_id,
+        name: event.event_name,
+        venue: club?.club_name ?? 'Unknown club',
+        location: club?.club_address ?? club?.club_name ?? 'Unknown location',
+        dateTime: event.event_starting_date,
+        status,
+        reservations: bookings,
+        bookings,
+        capacity,
+        capacityPercent,
+        revenue,
+        organizer: hostProfile || managerProfile
+          ? fullName(hostProfile ?? managerProfile)
+          : club?.club_name || 'Organizer pending',
+        vipTableAvailability,
+        fewTablesRemain,
+        reservationSpike,
+        occupancyAlert: capacityPercent !== null && capacityPercent > 70,
+        thumbnail: event.event_image,
+        isFeatured: event.is_featured === true,
+        createdDate: event.created_at,
+        awaitingApproval: statusRaw === 'pending' || statusRaw === 'awaiting_approval',
+        hasMissingDetails: !event.event_image || !event.event_starting_date || !event.event_name,
+        publicationStatus: statusRaw === 'draft' ? 'draft' : 'published',
+        views: null,
+        clicks: null,
+        favorites: eventFavorites.get(event.event_id) ?? 0,
+        rating:
+          (eventRatingTotals.get(event.event_id)?.count ?? 0) > 0
+            ? roundToSingleDecimal(
+                (eventRatingTotals.get(event.event_id)?.sum ?? 0) /
+                  (eventRatingTotals.get(event.event_id)?.count ?? 1),
+              )
+            : null,
+      };
+    };
+
+    const eventInsights = [...events].map(buildEventInsight);
+
     const topClubs = [...clubs]
       .map((club) => ({
         id: club.club_id,
@@ -434,27 +613,27 @@ export class AdminService {
       .slice(0, 3)
       .map((club, index) => ({ ...club, rank: index + 1 }));
 
-    const topEvents = [...events]
-      .map((event) => {
-        const club = clubs.find((item) => item.club_id === event.club_id);
-        return {
-          id: event.event_id,
-          name: event.event_name,
-          venue: club?.club_name ?? 'Unknown club',
-          revenue: eventRevenue.get(event.event_id) ?? 0,
-          bookings: eventBookings.get(event.event_id) ?? 0,
-          rating:
-            (eventRatingTotals.get(event.event_id)?.count ?? 0) > 0
-              ? roundToSingleDecimal(
-                  (eventRatingTotals.get(event.event_id)?.sum ?? 0) /
-                    (eventRatingTotals.get(event.event_id)?.count ?? 1),
-                )
-              : null,
-        };
-      })
+    const topEvents = [...eventInsights]
       .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || b.bookings - a.bookings || b.revenue - a.revenue)
       .slice(0, 3)
       .map((event, index) => ({ ...event, rank: index + 1 }));
+    const featuredEvents = [...eventInsights]
+      .sort(
+        (a, b) =>
+          Number(b.isFeatured) - Number(a.isFeatured) ||
+          b.reservations - a.reservations ||
+          b.revenue - a.revenue ||
+          (b.favorites ?? 0) - (a.favorites ?? 0),
+      )
+      .slice(0, 12)
+      .map((event, index) => ({ ...event, rank: index + 1 }));
+    const newEvents = [...eventInsights]
+      .sort((a, b) => {
+        const bTime = b.createdDate ? new Date(b.createdDate).getTime() : 0;
+        const aTime = a.createdDate ? new Date(a.createdDate).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, 8);
 
     const activeClubs = clubs.filter((club) => normalizeStatus(club.club_status) === 'approved').length;
     const pendingApprovals = clubs.filter((club) => normalizeStatus(club.club_status) === 'pending').length;
@@ -479,6 +658,8 @@ export class AdminService {
       revenuePoints,
       topClubs,
       topEvents,
+      featuredEvents,
+      newEvents,
     };
   }
 
@@ -629,7 +810,32 @@ export class AdminService {
       event_id: string | null;
       created_at: string | null;
     }[];
-    const paymentRows = (paymentsResult.data ?? []) as { amount: string | number | null; status: string | null; user_id: string | null }[];
+    const paymentRows = (paymentsResult.data ?? []) as {
+      amount: string | number | null;
+      status: string | null;
+      user_id: string | null;
+    }[];
+
+    const reservationsByUser = new Map<string, typeof reservationRows>();
+    for (const reservation of reservationRows) {
+      const uid = reservation.user_id;
+      if (!uid) continue;
+      const bucket = reservationsByUser.get(uid);
+      if (bucket) bucket.push(reservation);
+      else reservationsByUser.set(uid, [reservation]);
+    }
+    for (const bucket of reservationsByUser.values()) {
+      bucket.sort(
+        (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime(),
+      );
+    }
+
+    const spentByUser = new Map<string, number>();
+    for (const payment of paymentRows) {
+      const uid = payment.user_id;
+      if (!uid || normalizeStatus(payment.status) !== 'completed') continue;
+      spentByUser.set(uid, (spentByUser.get(uid) ?? 0) + parseAmount(payment.amount));
+    }
 
     const users = authUsers.map((authUser) => {
       const profile = profileById.get(authUser.id);
@@ -638,13 +844,9 @@ export class AdminService {
       const type = mapUserType(role);
       const status =
         authUser.banned_until && new Date(authUser.banned_until) > new Date() ? 'blocked' : 'active';
-      const userReservations = reservationRows
-        .filter((reservation) => reservation.user_id === authUser.id)
-        .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+      const userReservations = reservationsByUser.get(authUser.id) ?? [];
       const bookings = userReservations.length;
-      const spent = paymentRows
-        .filter((payment) => payment.user_id === authUser.id && normalizeStatus(payment.status) === 'completed')
-        .reduce((sum, payment) => sum + parseAmount(payment.amount), 0);
+      const spent = spentByUser.get(authUser.id) ?? 0;
       const complaints = complaintCountsByUser.get(authUser.id) ?? (status === 'blocked' ? 1 : 0);
 
       return {
@@ -833,16 +1035,6 @@ export class AdminService {
       .map(({ sortDate: _sortDate, ...item }) => item);
 
     const totalRevenue = Object.values(categoryTotals).reduce((sum, value) => sum + value, 0);
-
-    console.log('[AdminRevenue] DB totals', {
-      totalRevenue,
-      ticketCommission: categoryTotals.ticket,
-      subscriptionRevenue: categoryTotals.subscription,
-      advertisementCommission: categoryTotals.advertisement,
-      paymentRowsCompleted: completedPayments.length,
-      subscriptionRowsCompleted: completedSubscriptionRows.length,
-      transactionCount: transactions.length,
-    });
 
     return {
       totalRevenue,

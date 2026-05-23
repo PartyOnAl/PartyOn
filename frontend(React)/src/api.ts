@@ -8,7 +8,7 @@ const trimmedApiUrl = import.meta.env.VITE_API_URL?.trim() ?? ''
 export const API_BASE_URL =
   trimmedApiUrl || (import.meta.env.DEV ? '' : 'http://localhost:3000')
 
-type ApiResult<T> = {
+export type ApiResult<T> = {
   data: T | null;
   error: string | null;
 };

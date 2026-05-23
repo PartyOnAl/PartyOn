@@ -1,15 +1,26 @@
-import {
+﻿import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { useLocation } from 'react-router-dom'
-import type { Session, User, SupabaseClient } from '@supabase/supabase-js'
-import { isSupabaseConfigured, managerSupabase, userSupabase } from '@/lib/supabase'
+import { useLocation, useNavigate } from 'react-router-dom'
+import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
+
+import { isAuthBanError, isUserBlocked } from '@/lib/accountBlocked'
+import { roleFromUser } from '@/lib/accountRoles'
+import { persistAdminRoleHint, recoverPersistedSession } from '@/lib/authSession'
+import {
+  authClientForLane,
+  authLaneFromPathname,
+  getAuthUser,
+  isSupabaseConfigured,
+  type AuthLane,
+} from '@/lib/supabase'
 
 type UserProfile = {
   id: string
@@ -35,105 +46,245 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+const PROFILE_COLUMNS =
+  'id, role, name, surname, username, email, birth_date, phone_number, club_id, created_at, updated_at'
 
-type AuthLane = 'user' | 'manager'
+function profileFromUserMetadata(user: User): UserProfile | null {
+  const role = roleFromUser(user)
+  if (!role) return null
+
+  return {
+    id: user.id,
+    role,
+    name: null,
+    surname: null,
+    username: null,
+    email: typeof user.email === 'string' ? user.email : null,
+    birth_date: null,
+    phone_number: null,
+    club_id: null,
+    created_at: null,
+    updated_at: null,
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const location = useLocation()
-  const lane: AuthLane =
-    location.pathname.startsWith('/manager') || location.pathname.startsWith('/admin')
-      ? 'manager'
-      : 'user'
-  const authClient: SupabaseClient | null =
-    lane === 'manager' ? managerSupabase : userSupabase
+  const navigate = useNavigate()
+  const lane = authLaneFromPathname(location.pathname)
+  const authClient = authClientForLane(lane)
   const laneRef = useRef(lane)
+  const pathnameRef = useRef(location.pathname)
+
   laneRef.current = lane
+  pathnameRef.current = location.pathname
 
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  /** Last lane we finished loading session+profile for (see auth race fix). */
   const [readyLane, setReadyLane] = useState<AuthLane | null>(null)
 
-  const syncProfile = useCallback(async (client: SupabaseClient | null, nextUser: User | null) => {
-    if (!client || !nextUser?.id) {
-      setProfile(null)
-      return
-    }
-    const { data, error } = await client
-      .from('profiles')
-      .select(
-        'id, role, name, surname, username, email, birth_date, phone_number, club_id, created_at, updated_at',
-      )
-      .eq('id', nextUser.id)
-      .single()
-
-    if (error) {
-      setProfile(null)
-      return
-    }
-    setProfile(data as UserProfile)
+  const clearState = useCallback(() => {
+    setSession(null)
+    setUser(null)
+    setProfile(null)
   }, [])
 
-  const isLoading =
-    !isSupabaseConfigured || !authClient
-      ? false
-      : readyLane !== lane
+  const redirectBlockedToLogin = useCallback(() => {
+    const path = pathnameRef.current
+    if (path === '/login' || path === '/signup' || path === '/reset-password') return
+    navigate('/login', { replace: true, state: { accountBlocked: true } })
+  }, [navigate])
+
+  const loadProfile = useCallback(
+    async (client: SupabaseClient, nextUser: User | null) => {
+      if (!nextUser?.id) {
+        setProfile(null)
+        return
+      }
+
+      const { data, error } = await client
+        .from('profiles')
+        .select(PROFILE_COLUMNS)
+        .eq('id', nextUser.id)
+        .single()
+
+      setProfile(error ? profileFromUserMetadata(nextUser) : (data as UserProfile))
+    },
+    [],
+  )
+
+  const applySession = useCallback(
+    async (
+      nextSession: Session | null,
+      client: SupabaseClient,
+      sessionLane: AuthLane,
+      options?: { verifyBlocked?: boolean },
+    ) => {
+      if (laneRef.current !== sessionLane) return
+
+      if (!nextSession) {
+        clearState()
+        return
+      }
+
+      if (isUserBlocked(nextSession.user)) {
+        await client.auth.signOut({ scope: 'local' })
+        clearState()
+        redirectBlockedToLogin()
+        return
+      }
+
+      if (options?.verifyBlocked) {
+        const { data, error } = await getAuthUser(sessionLane)
+        if ((!error || isAuthBanError(error)) && isUserBlocked(data.user)) {
+          await client.auth.signOut({ scope: 'local' })
+          clearState()
+          redirectBlockedToLogin()
+          return
+        }
+      }
+
+      if (laneRef.current !== sessionLane) return
+
+      setSession(nextSession)
+      setUser(nextSession.user ?? null)
+      await loadProfile(client, nextSession.user ?? null)
+
+      if (sessionLane === 'admin') {
+        persistAdminRoleHint(nextSession.user)
+      }
+    },
+    [clearState, loadProfile, redirectBlockedToLogin],
+  )
 
   useEffect(() => {
     if (!isSupabaseConfigured || !authClient) {
-      setUser(null)
-      setSession(null)
-      setProfile(null)
+      clearState()
       setReadyLane(lane)
       return
     }
 
-    const laneAtStart = lane
+    const effectLane = lane
+    const client = authClient
     let cancelled = false
+    let initialized = false
 
-    const applySession = async (s: Session | null) => {
-      setSession(s ?? null)
-      const nextUser = s?.user ?? null
-      setUser(nextUser)
-      await syncProfile(authClient, nextUser)
-      if (!cancelled && laneRef.current === laneAtStart) {
-        setReadyLane(laneAtStart)
-      }
+    setReadyLane(null)
+    clearState()
+
+    const markReady = () => {
+      if (cancelled || laneRef.current !== effectLane) return
+      initialized = true
+      setReadyLane(effectLane)
     }
 
-    void authClient.auth.getSession().then(({ data: { session: s } }) => {
-      if (cancelled || laneRef.current !== laneAtStart) return
-      void applySession(s ?? null)
-    })
+    const handleSession = async (
+      nextSession: Session | null,
+      options?: { verifyBlocked?: boolean; clearWhenNull?: boolean },
+    ) => {
+      if (cancelled || laneRef.current !== effectLane) return
+
+      if (!nextSession && options?.clearWhenNull === false) {
+        markReady()
+        return
+      }
+
+      await applySession(nextSession, client, effectLane, {
+        verifyBlocked: options?.verifyBlocked,
+      })
+      markReady()
+    }
 
     const {
       data: { subscription },
-    } = authClient.auth.onAuthStateChange((_event, s) => {
-      if (laneRef.current !== laneAtStart) return
-      void applySession(s ?? null)
+    } = client.auth.onAuthStateChange((event, nextSession) => {
+      if (cancelled || laneRef.current !== effectLane) return
+
+      if (event === 'SIGNED_OUT') {
+        if (initialized) void handleSession(null)
+        return
+      }
+
+      if (!nextSession) return
+
+      void handleSession(nextSession, {
+        verifyBlocked:
+          effectLane === 'user' && (event === 'SIGNED_IN' || event === 'USER_UPDATED'),
+      })
     })
+
+    void (async () => {
+      const restored = await recoverPersistedSession(client, effectLane)
+      if (cancelled || laneRef.current !== effectLane) return
+
+      await handleSession(restored, {
+        clearWhenNull: true,
+        verifyBlocked: effectLane === 'user',
+      })
+    })()
 
     return () => {
       cancelled = true
       subscription.unsubscribe()
     }
-  }, [lane, authClient, syncProfile])
+  }, [applySession, authClient, clearState, lane])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authClient || !session || lane !== 'user') return
+
+    const check = () => {
+      if (laneRef.current !== 'user') return
+      void getAuthUser('user').then(async ({ data, error }) => {
+        if (error && !isAuthBanError(error)) return
+        if (!isUserBlocked(data.user)) return
+
+        await authClient.auth.signOut({ scope: 'local' })
+        clearState()
+        redirectBlockedToLogin()
+      })
+    }
+
+    const intervalId = window.setInterval(check, 60_000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') check()
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [authClient, clearState, redirectBlockedToLogin, lane, session])
 
   const signOut = useCallback(async () => {
-    if (authClient) await authClient.auth.signOut()
-  }, [authClient])
+    if (!authClient) return
+    await authClient.auth.signOut({ scope: 'local' })
+    clearState()
+    setReadyLane(lane)
+  }, [authClient, clearState, lane])
 
-  const hasRole = useCallback((role: string) => {
-    const r = profile?.role ?? user?.user_metadata?.role
-    return typeof r === 'string' && r === role
-  }, [profile, user])
-
-  return (
-    <AuthContext.Provider value={{ user, session, profile, isLoading, signOut, hasRole }}>
-      {children}
-    </AuthContext.Provider>
+  const hasRole = useCallback(
+    (role: string) => {
+      const currentRole = profile?.role ?? user?.user_metadata?.role
+      return currentRole === role
+    },
+    [profile, user],
   )
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      session,
+      profile,
+      isLoading: isSupabaseConfigured && Boolean(authClient) && readyLane !== lane,
+      signOut,
+      hasRole,
+    }),
+    [authClient, hasRole, lane, profile, readyLane, session, signOut, user],
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

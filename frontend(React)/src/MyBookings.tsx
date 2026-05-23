@@ -3,7 +3,7 @@ import { CalendarDays, MapPin, ReceiptText, Ticket } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
-import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 type BookingItem = {
   bookingId: string
@@ -128,7 +128,7 @@ export default function MyBookings() {
       const {
         data: { user },
         error: userError,
-      } = await supabase.auth.getUser()
+      } = await getAuthUser('user')
       if (!active) return
 
       if (userError || !user) {

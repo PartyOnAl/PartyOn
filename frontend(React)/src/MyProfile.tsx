@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Calendar, Mail, Phone, ShieldCheck, Ticket } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
-import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 type ProfileRow = {
   id: string
@@ -144,7 +144,7 @@ export default function MyProfile() {
       const {
         data: { user },
         error: userError,
-      } = await supabase.auth.getUser()
+      } = await getAuthUser('user')
 
       if (!active) return
 

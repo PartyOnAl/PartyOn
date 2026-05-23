@@ -13,7 +13,11 @@ import {
   type AdminUser,
   type AdminUsersData,
 } from './adminApi'
+import { invalidateAdminCache, setCachedAdminData } from './adminDataCache'
+import { useAdminData } from './useAdminData'
+import AdminNavLink from './AdminNavLink'
 import './UserManagement.css'
+import './admin-controls.css'
 
 type NavId =
   | 'overview'
@@ -36,9 +40,9 @@ const NAV: NavItem[] = [
   { id: 'clubs', label: 'Club Approvals', href: '/admin/club-approvals' },
   { id: 'users', label: 'User Management', href: '/admin/user-management', active: true },
   { id: 'revenue', label: 'Revenue & Payments', href: '/admin/revenue-payments' },
-  { id: 'featured', label: 'Featured Events', href: '#' },
-  { id: 'analysis', label: 'Platform Analytics', href: '#' },
-  { id: 'settings', label: 'Settings', href: '#' },
+  { id: 'featured', label: 'Featured Events', href: '/admin/featured-events' },
+  { id: 'analysis', label: 'Platform Analytics', href: '/admin/platform-analytics' },
+  { id: 'settings', label: 'Settings', href: '/admin/settings' },
 ]
 
 type RoleTab = 'all' | 'customer' | 'managers' | 'staff'
@@ -231,14 +235,22 @@ function normalizeUserType(user: AdminUser): AdminUser['type'] {
 export default function UserManagement() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<RoleTab>('all')
-  const [data, setData] = useState<AdminUsersData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const { session } = useAuth()
+  const {
+    data,
+    loading,
+    error,
+    setData,
+    reload: reloadUsers,
+  } = useAdminData<AdminUsersData>(
+    'admin:users',
+    session?.access_token,
+    fetchAdminUsers,
+  )
   const navId = useId()
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -252,34 +264,39 @@ export default function UserManagement() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  const loadUsers = useCallback(async () => {
-    const token = session?.access_token
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    const result = await fetchAdminUsers(token)
-    if (result.error) {
-      setError(result.error)
-      setData(null)
-    } else {
-      setData(result.data)
-    }
-    setLoading(false)
-  }, [session?.access_token])
-
-  useEffect(() => {
-    void loadUsers()
-  }, [loadUsers])
+  const applyUsersPatch = useCallback(
+    (updater: (prev: AdminUsersData) => AdminUsersData) => {
+      setData((prev) => {
+        if (!prev) return prev
+        const next = updater(prev)
+        setCachedAdminData('admin:users', next)
+        return next
+      })
+    },
+    [setData],
+  )
 
   const setUserStatus = async (userId: string, status: AdminUser['status']) => {
     const token = session?.access_token
     if (!token) return false
     const result = await updateAdminUserStatus(token, userId, status)
-    if (result.error) {
-      setError(result.error)
-      return false
-    }
-    await loadUsers()
+    if (result.error) return false
+    applyUsersPatch((prev) => {
+      const users = prev.users.map((user) =>
+        user.id === userId ? { ...user, status } : user,
+      )
+      return {
+        ...prev,
+        users,
+        stats: {
+          total: users.length,
+          active: users.filter((user) => user.status === 'active').length,
+          blocked: users.filter((user) => user.status === 'blocked').length,
+          complaints: users.filter((user) => user.complaints > 0).length,
+        },
+      }
+    })
+    void reloadUsers({ silent: true })
     return true
   }
 
@@ -287,11 +304,28 @@ export default function UserManagement() {
     const token = session?.access_token
     if (!token) return false
     const result = await deleteAdminUser(token, userId)
-    if (result.error) {
-      setError(result.error)
-      return false
-    }
-    await loadUsers()
+    if (result.error) return false
+    applyUsersPatch((prev) => {
+      const users = prev.users.filter((user) => user.id !== userId)
+      return {
+        ...prev,
+        users,
+        stats: {
+          total: users.length,
+          active: users.filter((user) => user.status === 'active').length,
+          blocked: users.filter((user) => user.status === 'blocked').length,
+          complaints: users.filter((user) => user.complaints > 0).length,
+        },
+        tabs: {
+          all: users.length,
+          customer: users.filter((user) => user.type === 'customer').length,
+          managers: users.filter((user) => user.type === 'club_manager').length,
+          staff: users.filter((user) => user.type === 'staff').length,
+        },
+      }
+    })
+    invalidateAdminCache('admin:users')
+    void reloadUsers({ silent: true })
     return true
   }
 
@@ -440,19 +474,29 @@ export default function UserManagement() {
           </div>
 
           <nav className="um__nav">
-            {NAV.map((item) => (
-              <a
-                key={item.id}
-                className={`um__nav-link${item.active ? ' um__nav-link--active' : ''}`}
-                href={item.href}
-                onClick={closeSidebar}
-              >
-                <span className="um__nav-icon" aria-hidden>
-                  {NAV_ICONS[item.id]}
+            {NAV.map((item) =>
+              item.href === '#' ? (
+                <span key={item.id} className="um__nav-link um__nav-link--muted">
+                  <span className="um__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
                 </span>
-                {item.label}
-              </a>
-            ))}
+              ) : (
+                <AdminNavLink
+                  key={item.id}
+                  to={item.href}
+                  className="um__nav-link"
+                  activeClassName=" um__nav-link--active"
+                  onNavigate={closeSidebar}
+                >
+                  <span className="um__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
+                </AdminNavLink>
+              ),
+            )}
           </nav>
         </div>
 

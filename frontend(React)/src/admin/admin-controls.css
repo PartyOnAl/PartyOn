@@ -1,0 +1,320 @@
+/**
+ * Shared admin UI: custom selects and filter/sort chip buttons.
+ */
+
+/* —— Custom AdminSelect (dark dropdown list) —— */
+
+.admin-select {
+  --admin-select-radius: 0.75rem;
+  --admin-select-height: 2.75rem;
+  --admin-select-pad-x: 0.875rem;
+  --admin-select-gap: 0.5rem;
+  --admin-select-font: 0.8125rem;
+  --admin-select-chevron: 1.5rem;
+  --admin-select-menu-gap: 0.5rem;
+  --admin-select-menu-pad: 0.375rem;
+  --admin-select-option-h: 2.375rem;
+
+  position: relative;
+  width: 100%;
+}
+
+.admin-select__trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--admin-select-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--admin-select-gap);
+  padding: 0 var(--admin-select-pad-x);
+  padding-right: calc(var(--admin-select-pad-x) - 0.125rem);
+  border-radius: var(--admin-select-radius);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  color: inherit;
+  font: inherit;
+  font-size: var(--admin-select-font);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.admin-select__trigger:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.035) 100%);
+}
+
+.admin-select__trigger:focus-visible {
+  outline: none;
+  border-color: rgba(247, 181, 56, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(247, 181, 56, 0.1),
+    0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.admin-select--open .admin-select__trigger {
+  border-color: rgba(247, 181, 56, 0.42);
+  box-shadow: 0 0 0 3px rgba(247, 181, 56, 0.08);
+}
+
+.admin-select__trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.125rem;
+}
+
+.admin-select__chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--admin-select-chevron);
+  height: var(--admin-select-chevron);
+  border-radius: calc(var(--admin-select-radius) - 0.2rem);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.65);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.admin-select--open .admin-select__chevron {
+  border-color: rgba(247, 181, 56, 0.35);
+  background: rgba(247, 181, 56, 0.12);
+  color: #f8cf73;
+}
+
+.admin-select__chevron-svg {
+  width: 0.7rem;
+  height: 0.7rem;
+  transition: transform 0.2s ease;
+}
+
+.admin-select__chevron-svg--open {
+  transform: rotate(180deg);
+}
+
+.admin-select__menu {
+  margin: 0;
+  padding: var(--admin-select-menu-pad);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  border-radius: calc(var(--admin-select-radius) + 0.05rem);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(14, 14, 16, 0.98);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  max-height: min(14rem, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: admin-select-menu-in 0.14s ease-out;
+}
+
+@keyframes admin-select-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.admin-select__menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.admin-select__menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.admin-select__menu > li {
+  margin: 0;
+  padding: 0;
+}
+
+.admin-select__option {
+  width: 100%;
+  min-height: var(--admin-select-option-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.4375rem 0.625rem;
+  border: none;
+  border-radius: calc(var(--admin-select-radius) - 0.15rem);
+  background: transparent;
+  color: #d1d5db;
+  font: inherit;
+  font-size: var(--admin-select-font);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.admin-select__option > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-select__option:hover,
+.admin-select__option--highlighted {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f3f4f6;
+}
+
+.admin-select__option--selected {
+  background: rgba(247, 181, 56, 0.12);
+  color: #f8cf73;
+}
+
+.admin-select__option--selected:hover,
+.admin-select__option--selected.admin-select__option--highlighted {
+  background: rgba(247, 181, 56, 0.18);
+  color: #fde68a;
+}
+
+.admin-select__check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  color: #f8cf73;
+}
+
+.admin-select__check svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* Settings: align with .as__field inputs */
+.as__field .admin-select {
+  --admin-select-radius: 0.8rem;
+  --admin-select-height: 2.6875rem;
+  --admin-select-pad-x: 0.9rem;
+  --admin-select-font: 0.875rem;
+}
+
+/* Featured Events: align with .fe__input */
+.fe__field .admin-select {
+  --admin-select-radius: 0.85rem;
+  --admin-select-height: 2.75rem;
+  --admin-select-pad-x: 0.95rem;
+  --admin-select-font: 0.8125rem;
+}
+
+.fe__field .fe__field-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.fe__field .admin-select {
+  margin-top: 0.05rem;
+}
+
+/* —— Filter / sort chip buttons (tab-style menus) —— */
+
+.um__tab,
+.cap__tab,
+.fe__sort-btn {
+  position: relative;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.um__tab:hover:not(.um__tab--active),
+.cap__tab:hover:not(.cap__tab--active),
+.fe__sort-btn:hover:not(.fe__sort-btn--active) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f3f4f6;
+}
+
+.um__tab--active,
+.cap__tab--active,
+.fe__sort-btn--active {
+  background: linear-gradient(180deg, #ffffff 0%, #ececec 100%);
+  border-color: rgba(255, 255, 255, 0.95);
+  color: #0a0a0a;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.um__tab:focus-visible,
+.cap__tab:focus-visible,
+.fe__sort-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(247, 181, 56, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.um__tab--active:focus-visible,
+.cap__tab--active:focus-visible,
+.fe__sort-btn--active:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(247, 181, 56, 0.25),
+    0 2px 10px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Expand / more toggle on event cards */
+.fe__more-btn {
+  border-radius: 0.65rem;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.fe__more-btn:hover,
+.fe__more-btn--active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #f9fafb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.fe__more-btn--active {
+  background: rgba(247, 181, 56, 0.12);
+  border-color: rgba(247, 181, 56, 0.35);
+  color: #f8cf73;
+}

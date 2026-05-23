@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -36,6 +36,7 @@ type GuestStatus = 'validated' | 'arrived' | 'finalised'
 type FilterKey = 'all' | GuestStatus | 'walk-in'
 type HostessClientGuardStatus = 'paid' | 'checked'
 type HostessClientStatus = 'pending' | 'ready' | 'finalised'
+type FlowSectionKey = 'customer' | 'tickets'
 
 type HostessGuest = {
   reservation_id: string
@@ -326,6 +327,7 @@ export default function HostessScreen() {
   const router = useRouter()
   const { user, loading: authInitializing } = useAuth()
   const insets = useSafeAreaInsets()
+  const scrollRef = useRef<ScrollView>(null)
 
   const params = useLocalSearchParams<{
     id?: string | string[]
@@ -377,6 +379,14 @@ export default function HostessScreen() {
   )
   const [paidTicketDeskModalPaymentId, setPaidTicketDeskModalPaymentId] =
     useState<string | null>(null)
+  const [expandedGuestIds, setExpandedGuestIds] =
+    useState<Record<string, boolean>>({})
+  const [expandedClientIds, setExpandedClientIds] =
+    useState<Record<string, boolean>>({})
+  const [sectionOffsets, setSectionOffsets] = useState<Record<FlowSectionKey, number>>({
+    customer: 0,
+    tickets: 0,
+  })
 
   const effectivePaidTicketHostessStatus = useCallback(
     (client: HostessClient): HostessClientStatus => {
@@ -390,6 +400,39 @@ export default function HostessScreen() {
 
   const paidTicketDeskModalClient =
     clients.find((c) => c.payment_id === paidTicketDeskModalPaymentId) ?? null
+
+  const setSectionOffset = useCallback((key: FlowSectionKey, y: number) => {
+    setSectionOffsets((prev) => {
+      if (Math.abs(prev[key] - y) < 2) {
+        return prev
+      }
+      return {
+        ...prev,
+        [key]: y,
+      }
+    })
+  }, [])
+
+  const scrollToSection = useCallback((key: FlowSectionKey) => {
+    scrollRef.current?.scrollTo({
+      y: Math.max(sectionOffsets[key] - 14, 0),
+      animated: true,
+    })
+  }, [sectionOffsets])
+
+  const toggleGuestExpanded = useCallback((reservationId: string) => {
+    setExpandedGuestIds((prev) => ({
+      ...prev,
+      [reservationId]: !prev[reservationId],
+    }))
+  }, [])
+
+  const toggleClientExpanded = useCallback((paymentId: string) => {
+    setExpandedClientIds((prev) => ({
+      ...prev,
+      [paymentId]: !prev[paymentId],
+    }))
+  }, [])
 
   const filteredGuests = useMemo(() => {
     return guests.filter((guest) => {
@@ -1128,6 +1171,7 @@ export default function HostessScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + SPACING.xl }]}
         showsVerticalScrollIndicator={false}
       >
@@ -1167,6 +1211,50 @@ export default function HostessScreen() {
           <MetricCard label="Walk-ins" value={walkInCount} accent={COLORS.pink} />
         </View>
 
+        <View style={styles.flowPanel}>
+          <View style={styles.flowPanelHeader}>
+            <View>
+              <Text style={styles.flowPanelEyebrow}>Desk lanes</Text>
+              <Text style={styles.flowPanelTitle}>Jump straight into the active flow</Text>
+            </View>
+            <View style={styles.flowPanelBadge}>
+              <Text style={styles.flowPanelBadgeText}>{filteredGuests.length + clients.length} live cards</Text>
+            </View>
+          </View>
+
+          <View style={styles.flowPanelActions}>
+            <TouchableOpacity
+              style={[styles.flowJumpButton, styles.flowJumpButtonCustomer]}
+              activeOpacity={0.84}
+              onPress={() => scrollToSection('customer')}
+            >
+              <View style={styles.flowJumpIcon}>
+                <Users size={16} color="#050505" />
+              </View>
+              <View style={styles.flowJumpCopy}>
+                <Text style={styles.flowJumpLabel}>Customer Flow</Text>
+                <Text style={styles.flowJumpHint}>{filteredGuests.length} guests moving through arrival</Text>
+              </View>
+              <ChevronRight size={16} color="#050505" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.flowJumpButton, styles.flowJumpButtonTickets]}
+              activeOpacity={0.84}
+              onPress={() => scrollToSection('tickets')}
+            >
+              <View style={[styles.flowJumpIcon, styles.flowJumpIconTickets]}>
+                <Sparkles size={16} color={COLORS.white} />
+              </View>
+              <View style={styles.flowJumpCopy}>
+                <Text style={styles.flowJumpLabelAlt}>Paid Tickets</Text>
+                <Text style={styles.flowJumpHintAlt}>{checkedTicketCount} checked, {paidTicketCount} paid tonight</Text>
+              </View>
+              <ChevronRight size={16} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
           {FILTERS.map((filter) => (
             <TouchableOpacity
@@ -1182,6 +1270,7 @@ export default function HostessScreen() {
           ))}
         </ScrollView>
 
+        <View onLayout={(event) => setSectionOffset('customer', event.nativeEvent.layout.y)}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Customer Flow</Text>
           <View style={styles.sectionHeaderRight}>
@@ -1338,6 +1427,9 @@ export default function HostessScreen() {
               remainingGuests === 1
                 ? '1 guest still expected'
                 : `${remainingGuests} guests still expected`
+            const isGuestExpanded = Boolean(
+              expandedGuestIds[guest.reservation_id],
+            )
 
             return (
               <View key={guest.reservation_id}>
@@ -1361,8 +1453,24 @@ export default function HostessScreen() {
                         {guest.pass_label} - Party of {guest.party_size} - Cleared at {formatValidatedAt(guest.validated_at)}
                       </Text>
                       {guest.event_name ? <Text style={styles.guestEvent}>{guest.event_name}</Text> : null}
-                      <Text style={styles.guestNote}>{guest.note}</Text>
                     </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.cardToggleButton,
+                        isGuestExpanded && styles.cardToggleButtonActive,
+                      ]}
+                      activeOpacity={0.82}
+                      onPress={() => toggleGuestExpanded(guest.reservation_id)}
+                    >
+                      <Text
+                        style={[
+                          styles.cardToggleButtonText,
+                          isGuestExpanded && styles.cardToggleButtonTextActive,
+                        ]}
+                      >
+                        {isGuestExpanded ? 'Collapse' : '...'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   <View style={styles.badgesRow}>
@@ -1384,13 +1492,32 @@ export default function HostessScreen() {
                     </View>
                   </View>
 
-                  <View
-                    style={[
-                      styles.seatBlock,
-                      seatBlockActive && styles.seatBlockActive,
-                      seatBlockComplete && styles.seatBlockComplete,
-                    ]}
-                  >
+                  <View style={styles.cardPreviewRow}>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>Seated</Text>
+                      <Text style={styles.cardPreviewValue}>{guest.seated}/{guest.party_size}</Text>
+                    </View>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>Progress</Text>
+                      <Text style={styles.cardPreviewValue}>{seatedProgress}%</Text>
+                    </View>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>ETA</Text>
+                      <Text style={styles.cardPreviewValue}>{guest.expected_arrival_time ?? 'Now'}</Text>
+                    </View>
+                  </View>
+
+                  {isGuestExpanded ? (
+                    <View style={styles.cardExpandedContent}>
+                      <Text style={styles.guestNote}>{guest.note}</Text>
+
+                      <View
+                        style={[
+                          styles.seatBlock,
+                          seatBlockActive && styles.seatBlockActive,
+                          seatBlockComplete && styles.seatBlockComplete,
+                        ]}
+                      >
                     <View style={styles.seatBlockHeader}>
                       <View style={styles.seatBlockCopy}>
                         <Text
@@ -1521,9 +1648,9 @@ export default function HostessScreen() {
                         )}
                       </TouchableOpacity>
                     ) : null}
-                  </View>
+                      </View>
 
-                  <View style={styles.actionsRow}>
+                      <View style={styles.actionsRow}>
                     {canManageTable ? (
                       <TouchableOpacity
                         style={[styles.secondaryButton, hasLinkedTable && styles.secondaryButtonAssigned]}
@@ -1625,7 +1752,9 @@ export default function HostessScreen() {
                         <Text style={styles.completeStateText}>Guest flow completed</Text>
                       </View>
                     )}
-                  </View>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
                 {index < filteredGuests.length - 1 && <View style={styles.divider} />}
               </View>
@@ -1644,7 +1773,9 @@ export default function HostessScreen() {
             </View>
           )}
         </View>
+        </View>
 
+        <View onLayout={(event) => setSectionOffset('tickets', event.nativeEvent.layout.y)}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Paid Tickets</Text>
           <Text style={styles.sectionHint}>{checkedTicketCount} checked / {paidTicketCount} paid</Text>
@@ -1762,6 +1893,9 @@ export default function HostessScreen() {
               : hasTicketLinkedTable
                 ? 'Table linked'
                 : 'No table yet'
+            const isClientExpanded = Boolean(
+              expandedClientIds[client.payment_id],
+            )
 
             return (
               <View key={client.payment_id}>
@@ -1800,8 +1934,24 @@ export default function HostessScreen() {
                         {client.ticket_label} - Paid at {formatValidatedAt(client.payment_date)}
                       </Text>
                       {client.event_name ? <Text style={styles.guestEvent}>{client.event_name}</Text> : null}
-                      <Text style={styles.guestNote}>{client.note}</Text>
                     </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.cardToggleButton,
+                        isClientExpanded && styles.cardToggleButtonActive,
+                      ]}
+                      activeOpacity={0.82}
+                      onPress={() => toggleClientExpanded(client.payment_id)}
+                    >
+                      <Text
+                        style={[
+                          styles.cardToggleButtonText,
+                          isClientExpanded && styles.cardToggleButtonTextActive,
+                        ]}
+                      >
+                        {isClientExpanded ? 'Collapse' : '...'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   <View style={styles.badgesRow}>
@@ -1823,7 +1973,26 @@ export default function HostessScreen() {
                     </View>
                   </View>
 
-                  <View style={styles.actionsRow}>
+                  <View style={styles.cardPreviewRow}>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>Quantity</Text>
+                      <Text style={styles.cardPreviewValue}>{client.quantity}</Text>
+                    </View>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>Amount</Text>
+                      <Text style={styles.cardPreviewValue}>{formatAmount(client.amount)}</Text>
+                    </View>
+                    <View style={styles.cardPreviewPill}>
+                      <Text style={styles.cardPreviewLabel}>Status</Text>
+                      <Text style={styles.cardPreviewValue}>{isTicketFinalised ? 'Closed' : isChecked ? 'Checked' : 'Pending'}</Text>
+                    </View>
+                  </View>
+
+                  {isClientExpanded ? (
+                    <View style={styles.cardExpandedContent}>
+                      <Text style={styles.guestNote}>{client.note}</Text>
+
+                      <View style={styles.actionsRow}>
                     <TouchableOpacity
                       style={[styles.secondaryButton, hasTicketLinkedTable && styles.secondaryButtonAssigned]}
                       activeOpacity={0.82}
@@ -2016,7 +2185,9 @@ export default function HostessScreen() {
                     <Text style={styles.ticketFinalisationNote}>
                       After the table saves without errors, confirm in the sheet to finish the card. Clearing or changing the table reopens this step. Confirmation is kept on-device for this shift and drops if refresh no longer sees a matching table.
                     </Text>
-                  </View>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
                 </View>
                 {index < clients.length - 1 && <View style={styles.divider} />}
@@ -2035,6 +2206,7 @@ export default function HostessScreen() {
               </TouchableOpacity>
             </View>
           )}
+        </View>
         </View>
       </ScrollView>
 
@@ -2379,6 +2551,102 @@ const styles = StyleSheet.create({
   heroTitle: { color: COLORS.white, fontSize: FONT.lg, fontWeight: '800' },
   heroText: { color: COLORS.muted, fontSize: FONT.sm, lineHeight: 19, marginTop: 5 },
   metricsRow: { flexDirection: 'row', gap: SPACING.sm },
+  flowPanel: {
+    gap: SPACING.sm,
+    padding: SPACING.md,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.xl,
+  },
+  flowPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  flowPanelEyebrow: {
+    color: COLORS.mutedDark,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  flowPanelTitle: {
+    color: COLORS.white,
+    fontSize: FONT.base,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  flowPanelBadge: {
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 7,
+    backgroundColor: COLORS.bgInput,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  flowPanelBadgeText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  flowPanelActions: {
+    gap: SPACING.sm,
+  },
+  flowJumpButton: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    borderWidth: 1,
+  },
+  flowJumpButtonCustomer: {
+    backgroundColor: YELLOW,
+    borderColor: 'rgba(245,197,24,0.3)',
+  },
+  flowJumpButtonTickets: {
+    backgroundColor: COLORS.bgCard2,
+    borderColor: 'rgba(236,72,153,0.24)',
+  },
+  flowJumpIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(5,5,5,0.12)',
+  },
+  flowJumpIconTickets: {
+    backgroundColor: 'rgba(236,72,153,0.18)',
+  },
+  flowJumpCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  flowJumpLabel: {
+    color: '#050505',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  flowJumpHint: {
+    color: 'rgba(5,5,5,0.7)',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  flowJumpLabelAlt: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  flowJumpHintAlt: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   metricCard: {
     flex: 1,
     minHeight: 92,
@@ -2478,6 +2746,30 @@ const styles = StyleSheet.create({
   guestMeta: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
   guestEvent: { color: COLORS.white, fontSize: 12, fontWeight: '700', marginTop: 4 },
   guestNote: { color: COLORS.mutedDark, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  cardToggleButton: {
+    minWidth: 54,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: COLORS.bgInput,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cardToggleButtonActive: {
+    backgroundColor: 'rgba(236,72,153,0.1)',
+    borderColor: 'rgba(236,72,153,0.24)',
+  },
+  cardToggleButtonText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  cardToggleButtonTextActive: {
+    color: COLORS.pink,
+  },
   badgesRow: {
     flexDirection: 'row',
     gap: SPACING.xs,
@@ -2515,6 +2807,37 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(236,72,153,0.2)',
   },
   amountText: { color: COLORS.pink, fontSize: 11, fontWeight: '800' },
+  cardPreviewRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+  },
+  cardPreviewPill: {
+    minWidth: 92,
+    flex: 1,
+    backgroundColor: COLORS.bgInput,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  cardPreviewLabel: {
+    color: COLORS.mutedDark,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.35,
+  },
+  cardPreviewValue: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  cardExpandedContent: {
+    gap: SPACING.sm,
+  },
   actionsRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
