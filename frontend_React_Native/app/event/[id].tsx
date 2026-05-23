@@ -533,7 +533,10 @@ export default function EventDetailScreen() {
                 </TouchableOpacity>
               </View>
             ) : (
-              <ScrollView contentContainerStyle={{ padding: SPACING.md, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                contentContainerStyle={styles.catScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
                 <Text style={styles.catHint}>
                   Tap a category to reserve. A table will be assigned from that section.
                 </Text>
@@ -553,13 +556,18 @@ export default function EventDetailScreen() {
                       disabled={fullyBooked}
                       activeOpacity={0.82}
                     >
+                      {/* Icon */}
                       <View style={[styles.catIconWrap, { backgroundColor: isSelected ? COLORS.purple : COLORS.bgCard2 }]}>
                         <Ionicons name={tableTypeIcon(cat.type)} size={24} color={isSelected ? '#fff' : COLORS.purple} />
                       </View>
 
+                      {/* Body */}
                       <View style={styles.catBody}>
+                        {/* Title row */}
                         <View style={styles.catTitleRow}>
-                          <Text style={[styles.catTitle, fullyBooked && styles.catTitleMuted]}>{cat.type}</Text>
+                          <Text style={[styles.catTitle, fullyBooked && styles.catTitleMuted]} numberOfLines={1}>
+                            {cat.type}
+                          </Text>
                           {!fullyBooked && hasCapacity && (
                             <View style={styles.catFitsBadge}>
                               <Ionicons name="checkmark" size={10} color={COLORS.green} />
@@ -568,28 +576,37 @@ export default function EventDetailScreen() {
                           )}
                         </View>
 
+                        {/* Meta pills */}
                         <View style={styles.catMeta}>
                           {cat.maxCapacity != null && (
                             <View style={styles.catMetaItem}>
-                              <Ionicons name="people-outline" size={13} color={COLORS.muted} />
-                              <Text style={styles.catMetaText}>Up to {cat.maxCapacity} guests</Text>
+                              <Ionicons name="people-outline" size={12} color={COLORS.muted} />
+                              <Text style={styles.catMetaText}>Up to {cat.maxCapacity}</Text>
                             </View>
                           )}
                           {cat.minSpend != null && (
                             <View style={styles.catMetaItem}>
-                              <Ionicons name="cash-outline" size={13} color={COLORS.muted} />
+                              <Ionicons name="cash-outline" size={12} color={COLORS.muted} />
                               <Text style={styles.catMetaText}>Min €{cat.minSpend}</Text>
                             </View>
                           )}
                         </View>
 
+                        {/* Availability */}
                         <Text style={[styles.catAvailText, fullyBooked && { color: COLORS.red }]}>
-                          {fullyBooked ? 'Fully booked' : `${cat.available.length} of ${cat.total} available`}
+                          {fullyBooked
+                            ? 'Fully booked'
+                            : `${cat.available.length} of ${cat.total} available`}
                         </Text>
                       </View>
 
+                      {/* Arrow */}
                       {!fullyBooked && (
-                        <Ionicons name="chevron-forward" size={18} color={isSelected ? COLORS.purple : COLORS.mutedDark} />
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={isSelected ? COLORS.purple : COLORS.mutedDark}
+                        />
                       )}
                     </TouchableOpacity>
                   )
@@ -757,38 +774,45 @@ const styles = StyleSheet.create({
 
   // Large-group notice (step 1)
   largeGroupNotice: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
+    flexDirection: 'row', alignItems: 'flex-start',
     backgroundColor: 'rgba(244,114,182,0.10)', borderWidth: 1, borderColor: 'rgba(244,114,182,0.25)',
     borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.lg,
   },
-  largeGroupText: { color: '#f472b6', fontSize: FONT.sm, flex: 1, lineHeight: FONT.sm * 1.5 },
+  largeGroupText: { color: '#f472b6', fontSize: FONT.sm, flex: 1, lineHeight: FONT.sm * 1.5, marginLeft: SPACING.sm },
 
   // Category cards (step 2)
+  catScrollContent: { padding: SPACING.md, paddingBottom: 40 },
   catHint: { color: COLORS.muted, fontSize: FONT.sm, marginBottom: SPACING.md, textAlign: 'center' },
   catCard: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
-    backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: SPACING.md, marginBottom: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    backgroundColor: COLORS.bgCard2,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
   },
-  catCardSelected: { borderColor: COLORS.purple, backgroundColor: 'rgba(167,139,250,0.08)' },
+  catCardSelected: { borderColor: COLORS.purple, backgroundColor: 'rgba(167,139,250,0.12)' },
   catCardBooked: { opacity: 0.45 },
   catIconWrap: {
-    width: 48, height: 48, borderRadius: RADIUS.sm,
+    width: 52, height: 52, borderRadius: RADIUS.md,
     alignItems: 'center', justifyContent: 'center',
+    marginRight: SPACING.md, flexShrink: 0,
   },
-  catBody: { flex: 1 },
-  catTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginBottom: 4 },
-  catTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
+  catBody: { flex: 1, marginRight: SPACING.sm },
+  catTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' },
+  catTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700', marginRight: SPACING.xs },
   catTitleMuted: { color: COLORS.muted },
   catFitsBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: COLORS.green + '18', borderRadius: RADIUS.pill,
-    paddingHorizontal: 7, paddingVertical: 2,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.15)', borderRadius: RADIUS.pill,
+    paddingHorizontal: 7, paddingVertical: 2, marginLeft: 4,
   },
-  catFitsText: { color: COLORS.green, fontSize: 10, fontWeight: '700' },
-  catMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: 4 },
-  catMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  catMetaText: { color: COLORS.muted, fontSize: FONT.sm },
+  catFitsText: { color: COLORS.green, fontSize: 10, fontWeight: '700', marginLeft: 3 },
+  catMeta: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 5 },
+  catMetaItem: { flexDirection: 'row', alignItems: 'center', marginRight: SPACING.md, marginBottom: 2 },
+  catMetaText: { color: COLORS.muted, fontSize: FONT.sm, marginLeft: 4 },
   catAvailText: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '600' },
 })
