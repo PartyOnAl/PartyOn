@@ -33,7 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      // Invalid / expired refresh token — wipe the stale session so the user
+      // lands on the login screen instead of seeing a red error in the console.
+      if (error && (error.message?.toLowerCase().includes('refresh token') || error.message?.toLowerCase().includes('invalid'))) {
+        supabase.auth.signOut()
+        setLoading(false)
+        return
+      }
       setSession(data.session)
       setUser(data.session?.user ?? null)
       if (data.session?.user) {
@@ -43,7 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
+      // Supabase emits TOKEN_REFRESHED with null session when the refresh token
+      // is rejected — treat it the same as a sign-out so we clear state cleanly.
+      if (event === 'TOKEN_REFRESHED' && !s) {
+        supabase.auth.signOut()
+      }
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {

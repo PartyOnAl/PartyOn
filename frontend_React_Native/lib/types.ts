@@ -104,6 +104,18 @@ export type VenueTable = {
 // DB table name alias
 export type ClubTable = VenueTable
 
+// Canonical Table type used in the reservation flow
+export type Table = {
+  id: string
+  club_id: string
+  table_number: string
+  type: string | null          // VIP, Standard, Lounge etc.
+  seating_capacity: number | null
+  minimum_spend: number | null
+  sector: string | null
+  is_available: boolean | null  // computed or stored
+}
+
 export type Reservation = {
   reservation_id: string
   user_id: string | null

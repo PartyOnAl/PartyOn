@@ -19,15 +19,20 @@ export default function PaymentScreen() {
   const params = useLocalSearchParams<{
     eventId: string; eventName: string; ticketTypeId: string
     ticketTypeName: string; price: string; isReservation: string; clubPhone: string
+    nrOfPeople: string
+    tableId: string; tableNumber: string; tableType: string; tableMinSpend: string; tableCapacity: string
   }>()
 
   const isReservation = params.isReservation === 'true'
   const clubPhone = params.clubPhone ?? ''
   const pricePerTicket = Number(params.price ?? 0)
+  const hasTable = isReservation && !!params.tableId
+  const tableMinSpend = params.tableMinSpend ? Number(params.tableMinSpend) : null
   const MAX_TICKETS = 5
   const MAX_GUESTS_ONLINE = 8
   const [quantity, setQuantity] = useState(1)
-  const [nrOfPeople, setNrOfPeople] = useState(2)
+  // Pre-fill from the guest count the user chose on the table picker
+  const [nrOfPeople, setNrOfPeople] = useState(params.nrOfPeople ? Number(params.nrOfPeople) : 2)
   const [updates, setUpdates] = useState(false)
 
   const buyerName = useMemo(() => {
@@ -83,6 +88,9 @@ export default function PaymentScreen() {
         total: String(grandTotal.toFixed(2)),
         isReservation: String(isReservation),
         attendees: JSON.stringify(finalNames),
+        tableId: params.tableId ?? '',
+        tableNumber: params.tableNumber ?? '',
+        tableType: params.tableType ?? '',
       },
     })
   }
@@ -117,6 +125,34 @@ export default function PaymentScreen() {
             <Text style={styles.ticketType}>{params.ticketTypeName}</Text>
           )}
         </View>
+
+        {/* Selected table info */}
+        {hasTable && (
+          <View style={styles.tableInfoCard}>
+            <View style={styles.tableInfoRow}>
+              <Ionicons name="grid-outline" size={16} color={COLORS.purple} />
+              <Text style={styles.tableInfoLabel}>Selected Table</Text>
+            </View>
+            <View style={styles.tableInfoDetails}>
+              <Text style={styles.tableInfoNumber}>Table {params.tableNumber}</Text>
+              {params.tableType ? (
+                <View style={styles.tableTypeBadge}>
+                  <Text style={styles.tableTypeBadgeText}>{params.tableType}</Text>
+                </View>
+              ) : null}
+            </View>
+            {tableMinSpend != null && tableMinSpend > 0 && (
+              <Text style={styles.tableMinSpendText}>
+                Minimum spend: €{tableMinSpend.toFixed(0)}
+              </Text>
+            )}
+            {params.tableCapacity ? (
+              <Text style={styles.tableCapacityText}>
+                Seats up to {params.tableCapacity} guests
+              </Text>
+            ) : null}
+          </View>
+        )}
 
         {/* Quantity / people */}
         <View style={styles.card}>
@@ -310,4 +346,22 @@ const styles = StyleSheet.create({
   attendeeLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
   attendeeInput: { backgroundColor: COLORS.bgInput, borderRadius: RADIUS.sm, borderWidth: 1, borderColor: COLORS.border, paddingVertical: SPACING.sm + 2, paddingHorizontal: SPACING.md, color: COLORS.white, fontSize: FONT.base },
   attendeeInputDisabled: { opacity: 0.6 },
+
+  // Table info card
+  tableInfoCard: {
+    backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md,
+    padding: SPACING.md, marginBottom: SPACING.md,
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.3)',
+  },
+  tableInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.sm },
+  tableInfoLabel: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  tableInfoDetails: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 4 },
+  tableInfoNumber: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  tableTypeBadge: {
+    backgroundColor: 'rgba(167,139,250,0.15)', borderRadius: RADIUS.pill,
+    paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: COLORS.purple,
+  },
+  tableTypeBadgeText: { color: COLORS.purple, fontSize: 11, fontWeight: '700' },
+  tableMinSpendText: { color: COLORS.muted, fontSize: FONT.sm, marginTop: 2 },
+  tableCapacityText: { color: COLORS.muted, fontSize: FONT.sm, marginTop: 2 },
 })
