@@ -21,6 +21,7 @@ type UserProfile = {
   birth_date: string | null
   phone_number: string | null
   club_id: string | null
+  avatar_url: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -63,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await client
       .from('profiles')
       .select(
-        'id, role, name, surname, username, email, birth_date, phone_number, club_id, created_at, updated_at',
+        'id, role, name, surname, username, email, birth_date, phone_number, club_id, avatar_url, created_at, updated_at',
       )
       .eq('id', nextUser.id)
       .single()

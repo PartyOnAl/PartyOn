@@ -1,7 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 .manager-dash {
-  --md-bg: #000000;
+  --md-bg: #0d0d0d;
+  --md-main-bg: #111111;
   --md-surface: #111111;
   --md-card: #161616;
   --md-card-border: #242424;
@@ -26,6 +27,31 @@
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
+  scrollbar-width: thin;
+  scrollbar-color: #333333 #0d0d0d;
+}
+
+.manager-dash ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.manager-dash ::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+.manager-dash ::-webkit-scrollbar-thumb {
+  background: #333333;
+  border: 2px solid #0d0d0d;
+  border-radius: 999px;
+}
+
+.manager-dash ::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
+
+.manager-dash ::-webkit-scrollbar-button {
+  display: none;
 }
 
 .manager-dash *,
@@ -61,16 +87,14 @@
   padding: 0 8px;
 }
 
-.manager-dash__brand-name {
+.manager-dash__brand-logo {
+  --logo-font-size: 2.05rem;
+  display: inline-flex;
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--md-text);
 }
 
 .manager-dash__brand-sub {
-  margin: 4px 0 0;
+  margin: 8px 0 0;
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--md-muted);
@@ -122,20 +146,31 @@
   margin-top: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   padding: 16px 10px 8px;
   border-top: 1px solid var(--md-card-border);
 }
 
-.manager-dash__sidebar-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #2a2a2a;
+.manager-dash__sidebar-user-link {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #b5b5b5;
+  gap: 12px;
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  transition: background 0.15s ease;
+}
+
+.manager-dash__sidebar-user-link:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.manager-dash__sidebar-user-meta {
+  flex: 1;
+  min-width: 0;
 }
 
 .manager-dash__sidebar-user-name {
@@ -145,25 +180,49 @@
   color: var(--md-text);
 }
 
-.manager-dash__sidebar-user-email {
-  margin: 2px 0 0;
-  font-size: 0.75rem;
-  color: var(--md-muted);
+.manager-dash__sidebar-logout {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin-left: 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a8a8a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.manager-dash__sidebar-logout svg {
+  width: 17px;
+  height: 17px;
+}
+
+.manager-dash__sidebar-logout:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Main */
 .manager-dash__main {
   flex: 1;
   min-width: 0;
-  padding: 20px 32px 40px;
-  background: var(--md-bg);
+  padding: 0 32px 40px;
+  background: var(--md-main-bg);
 }
 
 .manager-dash__topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 72px;
+  margin-inline: -32px;
+  padding: 0 24px 0 26px;
   margin-bottom: 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .manager-dash__club-name {
@@ -173,26 +232,181 @@
   letter-spacing: -0.01em;
 }
 
+.manager-dash__topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.manager-dash__topbar-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.manager-dash__bell-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #2f2f2f;
+  background: #141414;
+  color: #c4c4c4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.manager-dash__bell-btn:hover {
+  border-color: #3d3d3d;
+  background: #1a1a1a;
+  color: #f1f1f1;
+}
+
+.manager-dash__bell-dot {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 1px solid #111;
+}
+
 .manager-dash__avatar-btn {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: none;
+  border: 1px solid #363636;
   border-radius: 50%;
   cursor: pointer;
-  background: transparent;
-  display: flex;
+  background: #161616;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.manager-dash__avatar-ring {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3b3b45 0%, #1f1f24 100%);
-  border: 2px solid #333;
-  box-shadow: inset 0 0 0 2px var(--md-bg);
+.manager-dash__user-avatar {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(145deg, #2b2b2b 0%, #1b1b1b 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.manager-dash__user-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.manager-dash__user-avatar-fallback {
+  color: #f5f5f5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.manager-dash__profile-menu-wrap {
+  position: relative;
+}
+
+.manager-dash__profile-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(92vw, 290px);
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  z-index: 120;
+}
+
+.manager-dash__profile-menu-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 6px 8px;
+}
+
+.manager-dash__profile-menu-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.manager-dash__profile-menu-name {
+  margin: 0;
+  color: #f8f8f8;
+  font-size: 0.87rem;
+  font-weight: 600;
+}
+
+.manager-dash__profile-menu-role {
+  margin: 2px 0 0;
+  color: #b0b0b0;
+  font-size: 0.73rem;
+  font-weight: 500;
+}
+
+.manager-dash__profile-menu-email {
+  margin: 2px 0 0;
+  color: #8f8f8f;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manager-dash__profile-menu-line {
+  height: 1px;
+  background: #2a2a2a;
+  margin: 8px 0;
+}
+
+.manager-dash__menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: #d7d7d7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.manager-dash__menu-item:hover {
+  background: #1f1f1f;
+  color: #fff;
+}
+
+.manager-dash__menu-item-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.manager-dash__menu-item--danger {
+  color: #f87171;
+}
+
+.manager-dash__menu-item--danger:hover {
+  background: rgba(127, 29, 29, 0.24);
+  color: #fca5a5;
 }
 
 .manager-dash__page-head {
@@ -364,21 +578,29 @@
 .manager-dash__chart {
   display: flex;
   gap: 12px;
-  min-height: 220px;
+  min-height: 260px;
   padding-top: 4px;
 }
 
 .manager-dash__chart-y {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
   flex-shrink: 0;
   width: 32px;
   font-size: 0.6875rem;
   font-weight: 500;
   color: var(--md-muted);
   text-align: right;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-top: 12px;
   padding-bottom: 28px;
+}
+
+.manager-dash__chart-y-scale {
+  height: 182px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .manager-dash__chart-plot {
@@ -387,20 +609,63 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  padding-top: 12px;
+  overflow: visible;
 }
 
 .manager-dash__chart-grid {
   position: absolute;
-  inset: 0 0 28px 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent,
-    transparent calc(25% - 1px),
-    rgba(255, 255, 255, 0.06) calc(25% - 1px),
-    rgba(255, 255, 255, 0.06) 25%
-  );
+  left: 0;
+  right: 0;
+  top: 12px;
+  bottom: 28px;
+  height: auto;
   border-radius: 4px;
   pointer-events: none;
+}
+
+.manager-dash__card--chart {
+  overflow: visible;
+}
+
+.manager-dash__chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin: 0 0 12px 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #bcbcbc;
+}
+
+.manager-dash__chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.manager-dash__legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.manager-dash__legend-dot--tickets {
+  background: #a855f7;
+}
+
+.manager-dash__legend-dot--tables {
+  background: #34d399;
+}
+
+.manager-dash__legend-dot--reservations {
+  background: #d946ef;
+}
+
+.manager-dash__legend-dot--free-reservations {
+  background: #22d3ee;
 }
 
 .manager-dash__chart-bars {
@@ -410,7 +675,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 0 8px 0 4px;
-  min-height: 180px;
+  min-height: 210px;
   position: relative;
   z-index: 1;
 }
@@ -418,22 +683,112 @@
 .manager-dash__bar-col {
   flex: 1;
   min-width: 0;
-  max-width: 48px;
+  max-width: 56px;
   margin: 0 auto;
-  height: 180px;
+  height: 210px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
 }
 
-.manager-dash__bar {
+.manager-dash__bar-group {
+  position: relative;
   width: 100%;
-  max-width: 36px;
-  background: var(--md-bar);
-  border-radius: 4px 4px 2px 2px;
-  min-height: 4px;
+  height: 182px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+}
+
+.manager-dash__bar {
+  width: 14px;
+  border-radius: 7px 7px 2px 2px;
+  min-height: 0;
   transition: height 0.3s ease;
+}
+
+.manager-dash__bar--tickets {
+  background: linear-gradient(180deg, #c084fc 0%, #8b5cf6 100%);
+  box-shadow: 0 8px 22px rgba(139, 92, 246, 0.16);
+}
+
+.manager-dash__bar--tables {
+  background: linear-gradient(180deg, #5eead4 0%, #10b981 100%);
+  box-shadow: 0 8px 22px rgba(16, 185, 129, 0.14);
+}
+
+.manager-dash__bar--free-reservations {
+  background: linear-gradient(180deg, #67e8f9 0%, #22d3ee 45%, #0d9488 100%);
+  box-shadow: 0 8px 22px rgba(34, 211, 238, 0.16);
+}
+
+.manager-dash__bar--reservations {
+  width: 18px;
+  background: linear-gradient(180deg, #f472d0 0%, #c026d3 52%, #8b5cf6 100%);
+  box-shadow: 0 8px 24px rgba(217, 70, 239, 0.2);
+}
+
+.manager-dash__chart-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--activity-bar-height, var(--reservation-bar-height, 0%)) + 8px);
+  z-index: 5;
+  min-width: 180px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #101010;
+  border: 1px solid #2d2d2d;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.manager-dash__bar-group:hover .manager-dash__chart-tooltip,
+.manager-dash__bar-group:focus-within .manager-dash__chart-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.manager-dash__chart-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: #101010;
+  border-right: 1px solid #2d2d2d;
+  border-bottom: 1px solid #2d2d2d;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.manager-dash__chart-tooltip p {
+  margin: 4px 0 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 0.75rem;
+  color: #cfcfcf;
+}
+
+.manager-dash__chart-tooltip p:first-child {
+  margin-top: 0;
+}
+
+.manager-dash__chart-tooltip-day {
+  display: block !important;
+  font-size: 0.8125rem !important;
+  font-weight: 700;
+  color: #ffffff !important;
+}
+
+.manager-dash__chart-tooltip strong {
+  color: #ffffff;
 }
 
 .manager-dash__bar-label {
@@ -525,9 +880,32 @@
 }
 
 .manager-dash__event-row {
+  margin: -8px;
+}
+
+.manager-dash__event-link {
   display: flex;
   gap: 14px;
   align-items: flex-start;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.manager-dash__event-link:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.manager-dash__event-link:hover .manager-dash__event-title {
+  color: #ffffff;
+}
+
+.manager-dash__event-link:hover .manager-dash__event-arrow {
+  color: #ffffff;
+  transform: translateX(2px);
 }
 
 .manager-dash__event-thumb {
@@ -553,6 +931,15 @@
 .manager-dash__event-body {
   flex: 1;
   min-width: 0;
+}
+
+.manager-dash__event-arrow {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 16px;
+  color: var(--md-muted);
+  transition: color 0.15s ease, transform 0.15s ease;
 }
 
 .manager-dash__event-title {
@@ -701,6 +1088,13 @@
     border-top: none;
     padding-top: 0;
     width: 100%;
+  }
+
+  .manager-dash__topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-inline: -20px;
+    padding-inline: 20px;
   }
 
   .manager-dash__row--charts,

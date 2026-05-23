@@ -53,32 +53,26 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
     /** Custom touch + wheel + keyboard match Events carousel; avoids drag/click conflicts on cards. */
     watchDrag: false,
   })
-  const [canScrollPrev, setCanScrollPrev] = useState(false)
-  const [canScrollNext, setCanScrollNext] = useState(false)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const wheelLockUntilRef = useRef(0)
 
   const scrollPrev = useCallback(() => {
-    emblaApi?.scrollPrev()
+    if (!emblaApi) return
+    if (emblaApi.canScrollPrev()) {
+      emblaApi.scrollPrev()
+      return
+    }
+    const snapCount = emblaApi.scrollSnapList().length
+    if (snapCount > 1) emblaApi.scrollTo(snapCount - 1)
   }, [emblaApi])
 
   const scrollNext = useCallback(() => {
-    emblaApi?.scrollNext()
-  }, [emblaApi])
-
-  useEffect(() => {
     if (!emblaApi) return
-    const onSelect = () => {
-      setCanScrollPrev(emblaApi.canScrollPrev())
-      setCanScrollNext(emblaApi.canScrollNext())
+    if (emblaApi.canScrollNext()) {
+      emblaApi.scrollNext()
+      return
     }
-    onSelect()
-    emblaApi.on('select', onSelect)
-    emblaApi.on('reInit', onSelect)
-    return () => {
-      emblaApi.off('select', onSelect)
-      emblaApi.off('reInit', onSelect)
-    }
+    if (emblaApi.scrollSnapList().length > 1) emblaApi.scrollTo(0)
   }, [emblaApi])
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
@@ -136,7 +130,7 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
           </motion.div>
           <Link
             to="/promotions"
-            className="hidden md:inline-flex h-10 items-center justify-center rounded-full border border-border/50 px-6 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 hover:border-foreground/30"
+            className="section-more-link"
           >
             More offers
           </Link>
@@ -151,6 +145,25 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
           </p>
         ) : (
           <>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={scrollPrev}
+                disabled={promotions.length <= 1}
+                aria-label="Previous promotion"
+                className="absolute left-1 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70 sm:-left-5"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={scrollNext}
+                disabled={promotions.length <= 1}
+                aria-label="Next promotion"
+                className="absolute right-1 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70 sm:-right-5"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
             <div
               ref={emblaRef}
               className="overflow-hidden rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
@@ -219,24 +232,6 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                 ))}
               </div>
             </div>
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={scrollPrev}
-                disabled={!canScrollPrev}
-                className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 transition-all"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={scrollNext}
-                disabled={!canScrollNext}
-                className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 transition-all"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
             </div>
           </>
         )}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import './ManagerDashboard.css'
 import { MANAGER_NAV, ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useAuth } from '../contexts/AuthContext'
@@ -14,7 +14,16 @@ type DashboardStats = {
   tableReservations: number
   totalRevenue: number
   upcomingEvents: number
-  weeklyReservations: { date: string; count: number }[]
+  weeklyReservations: { date: string; dayName?: string; tickets?: number; tables?: number; count: number }[]
+  upcomingEventList?: {
+    event_id: string
+    event_name: string
+    event_starting_date: string
+    event_capacity: number | null
+    event_image: string | null
+    guest_count: number
+    is_paid_event: boolean
+  }[]
 }
 
 type EventRow = {
@@ -40,10 +49,32 @@ type RawReservation = {
   created_at: string | null
 }
 
+type TicketTypeRow = {
+  id: string
+  event_id: string | null
+}
+
+type TicketRow = {
+  id: string
+  event_id: string | null
+  ticket_type_id?: string | null
+  quantity: number | null
+  status: string | null
+  created_at?: string | null
+}
+
 type ClubEventPriceRow = {
+  event_id: string
   ticket_price: string | null
   final_ticket_price: string | null
   event_type: string | null
+}
+
+type WeeklyActivityBar = {
+  day: string
+  dayName: string
+  tickets: number
+  freeReservations: number
 }
 
 type RecentReservation = {
@@ -64,6 +95,41 @@ const TABLES_NAV_TARGET = MANAGER_NAV.find((item) => item.id === 'tables')?.to ?
 
 function formatCurrency(n: number) {
   return `€${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
+/** Y-axis top = highest whole-number count in the data (no padded 4 when max is 1). */
+function chartScaleMax(maxValue: number) {
+  const v = Math.max(0, Math.ceil(maxValue))
+  if (v <= 1) return 1
+  if (v <= 6) return v
+  return Math.ceil(v / 5) * 5
+}
+
+function chartYTicks(max: number): number[] {
+  if (max <= 1) return [1, 0]
+  if (max <= 6) return Array.from({ length: max + 1 }, (_, i) => max - i)
+  const steps = 5
+  return Array.from({ length: steps + 1 }, (_, i) =>
+    Math.round((max * (steps - i)) / steps),
+  )
+}
+
+/** One horizontal line per Y tick (0 … max), including the top value. */
+function chartGridBackground(max: number): string {
+  if (max <= 0) return 'transparent'
+  const line = 'rgba(255, 255, 255, 0.045)'
+  const stops: string[] = []
+  for (let value = 0; value <= max; value += 1) {
+    const pct = (value / max) * 100
+    stops.push(`${line} calc(${pct}% - 0.5px)`)
+    stops.push(`${line} calc(${pct}% + 0.5px)`)
+    if (value < max) {
+      const nextPct = ((value + 1) / max) * 100
+      stops.push(`transparent calc(${pct}% + 0.5px)`)
+      stops.push(`transparent calc(${nextPct}% - 0.5px)`)
+    }
+  }
+  return `linear-gradient(to bottom, ${stops.join(', ')})`
 }
 
 // ─── SVG Icons ───────────────────────────────────────────────────────────────
@@ -123,6 +189,13 @@ function IconExternal() {
   return (
     <svg className="manager-dash__qa-chev" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M14 3h7v7M10 14 21 3M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconChevronRight() {
+  return (
+    <svg className="manager-dash__event-arrow" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m9 18 6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -189,13 +262,16 @@ export default function ManagerDashboard() {
   const [stats, setStats]             = useState<DashboardStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
   const [statsError, setStatsError]   = useState<string | null>(null)
+  const [statsReloadKey, setStatsReloadKey] = useState(0)
 
   // ── Supplementary data still fetched from Supabase for the lists ──────────
   const [events,             setEvents]             = useState<EventRow[]>([])
   const [reservations,       setReservations]       = useState<RawReservation[]>([])
+  const [_tickets,           setTickets]            = useState<TicketRow[]>([])
   const [recentReservations, setRecentReservations] = useState<RecentReservation[]>([])
   const [listLoading,        setListLoading]        = useState(true)
   const [clubEventPricing, setClubEventPricing] = useState<ClubEventPriceRow[]>([])
+  const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityBar[]>([])
 
   // ── Fetch stats from backend ──────────────────────────────────────────────
   useEffect(() => {
@@ -221,17 +297,27 @@ export default function ManagerDashboard() {
 
         const data = (await res.json()) as DashboardStats
         setStats(data)
+        setWeeklyActivity(
+          data.weeklyReservations.map((row) => ({
+            day: row.date,
+            dayName: row.dayName ?? row.date,
+            tickets: row.tickets ?? 0,
+            freeReservations: row.tables ?? row.count ?? 0,
+          })),
+        )
       } catch (err) {
         setStatsError(err instanceof Error ? err.message : String(err))
       } finally {
         setStatsLoading(false)
       }
     })()
-  }, [user, session, authLoading])
+  }, [user, session, authLoading, statsReloadKey])
 
-  // ── Fetch supplementary list data from Supabase (upcoming events + recent) ─
-  useEffect(() => {
-    if (authLoading || !stats || !user) return
+  const fetchDashboardLists = useCallback(async () => {
+    if (authLoading || !stats || !user) {
+      setListLoading(false)
+      return
+    }
     if (!supabase || !isSupabaseConfigured) {
       setListLoading(false)
       setClubEventPricing([])
@@ -240,78 +326,207 @@ export default function ManagerDashboard() {
 
     setListLoading(true)
 
-    void (async () => {
-      try {
-        const currentUser = user
-        const { data: clubData, error: clubErr } = await supabase!
-          .from('clubs')
-          .select('club_id')
-          .eq('manager_id', currentUser.id)
-          .single()
+    try {
+      const currentUser = user
+      const { data: clubData, error: clubErr } = await supabase!
+        .from('clubs')
+        .select('club_id')
+        .eq('manager_id', currentUser.id)
+        .single()
 
-        if (clubErr || !clubData?.club_id) {
-          setEvents([])
-          setReservations([])
-          setRecentReservations([])
-          setClubEventPricing([])
-          return
-        }
-        const clubId = clubData.club_id
-
-        const { data: priceRows } = await supabase!
-          .from('events')
-          .select('ticket_price, final_ticket_price, event_type')
-          .eq('club_id', clubId)
-        setClubEventPricing((priceRows ?? []) as ClubEventPriceRow[])
-
-        const { data: evData } = await supabase!
-          .from('events')
-          .select(
-            'event_id, event_name, event_starting_date, event_capacity, event_image, event_type, ticket_price, final_ticket_price',
-          )
-          .eq('club_id', clubId)
-          .gt('event_starting_date', new Date().toISOString())
-          .order('event_starting_date', { ascending: true })
-          .limit(5)
-
-        const evs: EventRow[] = evData ?? []
-        setEvents(evs)
-
-        if (evs.length === 0) return
-
-        const eventIds = evs.map((e) => e.event_id)
-
-        const { data: resData } = await supabase!
-          .from('reservations')
-          .select(
-            'reservation_id, type, status, table_id, ticket_type_id, ' +
-            'nr_of_people, event_id, reservation_date, created_at',
-          )
-          .in('event_id', eventIds)
-          .order('created_at', { ascending: false })
-
-        const ress = (resData ?? []) as unknown as RawReservation[]
-        setReservations(ress)
-
-        if (ress.length === 0) return
-
-        const recentIds = ress.slice(0, 5).map((r) => r.reservation_id)
-        const { data: recentData } = await supabase!
-          .from('reservations')
-          .select('reservation_id, type, status, event_id, created_at, profiles(name, surname)')
-          .in('reservation_id', recentIds)
-          .order('created_at', { ascending: false })
-          .limit(5)
-
-        setRecentReservations((recentData ?? []) as unknown as RecentReservation[])
-      } finally {
-        setListLoading(false)
+      if (clubErr || !clubData?.club_id) {
+        setEvents([])
+        setReservations([])
+        setTickets([])
+        setRecentReservations([])
+        setClubEventPricing([])
+        setWeeklyActivity([])
+        return
       }
-    })()
-  }, [stats, authLoading, user])
+      const clubId = clubData.club_id
+
+      const { data: priceRows } = await supabase!
+        .from('events')
+        .select('event_id, ticket_price, final_ticket_price, event_type')
+        .eq('club_id', clubId)
+      const clubEvents = (priceRows ?? []) as ClubEventPriceRow[]
+      setClubEventPricing(clubEvents)
+
+      const { data: evData } = await supabase!
+        .from('events')
+        .select(
+          'event_id, event_name, event_starting_date, event_capacity, event_image, event_type, ticket_price, final_ticket_price',
+        )
+        .eq('club_id', clubId)
+        .gt('event_starting_date', new Date().toISOString())
+        .order('event_starting_date', { ascending: true })
+        .limit(5)
+
+      const evs: EventRow[] = evData ?? []
+      setEvents(evs)
+
+      const clubEventIds = clubEvents.map((event) => event.event_id).filter(Boolean)
+
+      if (clubEventIds.length === 0) {
+        setReservations([])
+        setTickets([])
+        setRecentReservations([])
+        setWeeklyActivity([])
+        return
+      }
+
+      const { data: ticketTypeData } = await supabase!
+        .from('ticket_types')
+        .select('id, event_id')
+        .in('event_id', clubEventIds)
+
+      const ticketTypes = (ticketTypeData ?? []) as TicketTypeRow[]
+      const ticketTypeEventById = new Map(
+        ticketTypes
+          .filter((ticketType) => ticketType.id && ticketType.event_id)
+          .map((ticketType) => [ticketType.id, ticketType.event_id!]),
+      )
+      const ticketTypeIds = ticketTypes.map((ticketType) => ticketType.id).filter(Boolean)
+
+      async function fetchReservationRows(column: 'event_id' | 'ticket_type_id', ids: string[]) {
+        if (ids.length === 0) return [] as RawReservation[]
+
+        const reservationSelect =
+          'reservation_id, type, status, table_id, ticket_type_id, ' +
+          'nr_of_people, event_id, reservation_date, created_at'
+
+        const first = await supabase!
+          .from('reservations')
+          .select(reservationSelect)
+          .in(column, ids)
+          .order('created_at', { ascending: false })
+
+        if (!first.error) return (first.data ?? []) as unknown as RawReservation[]
+
+        const retry = await supabase!
+          .from('reservations')
+          .select(reservationSelect)
+          .in(column, ids)
+          .order('created_at', { ascending: false })
+
+        return (retry.data ?? []) as unknown as RawReservation[]
+      }
+
+      const [eventReservationResult, ticketTypeReservationResult, eventTicketRowsResult, ticketTypeTicketRowsResult] = await Promise.all([
+        fetchReservationRows('event_id', clubEventIds),
+        fetchReservationRows('ticket_type_id', ticketTypeIds),
+        supabase!
+          .from('tickets')
+          .select('id, event_id, ticket_type_id, quantity, status, created_at')
+          .in('event_id', clubEventIds),
+        ticketTypeIds.length > 0
+          ? supabase!
+              .from('tickets')
+              .select('id, event_id, ticket_type_id, quantity, status, created_at')
+              .in('ticket_type_id', ticketTypeIds)
+          : Promise.resolve({ data: [] as TicketRow[], error: null }),
+      ])
+
+      const reservationRows = [
+        ...eventReservationResult,
+        ...ticketTypeReservationResult,
+      ]
+      const reservationById = new Map<string, RawReservation>()
+      for (const reservation of reservationRows) {
+        const resolvedEventId =
+          reservation.event_id ??
+          (reservation.ticket_type_id ? ticketTypeEventById.get(reservation.ticket_type_id) ?? null : null)
+        reservationById.set(reservation.reservation_id, {
+          ...reservation,
+          event_id: resolvedEventId,
+        })
+      }
+
+      const ress = [...reservationById.values()]
+        .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+      setReservations(ress)
+      const ticketRows = [
+        ...(eventTicketRowsResult.error ? [] : ((eventTicketRowsResult.data ?? []) as unknown as TicketRow[])),
+        ...(ticketTypeTicketRowsResult.error ? [] : ((ticketTypeTicketRowsResult.data ?? []) as unknown as TicketRow[])),
+      ]
+      const ticketById = new Map<string, TicketRow>()
+      for (const ticket of ticketRows) {
+        ticketById.set(ticket.id, {
+          ...ticket,
+          event_id:
+            ticket.event_id ??
+            (ticket.ticket_type_id ? ticketTypeEventById.get(ticket.ticket_type_id) ?? null : null),
+        })
+      }
+      const resolvedTickets = [...ticketById.values()]
+      setTickets(resolvedTickets)
+
+      if (ress.length === 0) {
+        setRecentReservations([])
+        return
+      }
+
+      const recentIds = ress.slice(0, 5).map((r) => r.reservation_id)
+      const { data: recentData } = await supabase!
+        .from('reservations')
+        .select('reservation_id, type, status, event_id, created_at, profiles(name, surname)')
+        .in('reservation_id', recentIds)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      setRecentReservations((recentData ?? []) as unknown as RecentReservation[])
+    } finally {
+      setListLoading(false)
+    }
+  }, [authLoading, stats, user])
+
+  useEffect(() => {
+    void fetchDashboardLists()
+  }, [fetchDashboardLists])
+
+  useEffect(() => {
+    function refreshOnFocus() {
+      setStatsReloadKey((key) => key + 1)
+      void fetchDashboardLists()
+    }
+
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnFocus)
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
+    }
+  }, [fetchDashboardLists])
+
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+
+    const channel = supabase
+      .channel('manager-dashboard-upcoming-events')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+        setStatsReloadKey((key) => key + 1)
+        void fetchDashboardLists()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+        setStatsReloadKey((key) => key + 1)
+        void fetchDashboardLists()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+        setStatsReloadKey((key) => key + 1)
+        void fetchDashboardLists()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_types' }, () => {
+        setStatsReloadKey((key) => key + 1)
+        void fetchDashboardLists()
+      })
+      .subscribe()
+
+    return () => {
+      void supabase?.removeChannel(channel)
+    }
+  }, [fetchDashboardLists])
 
   // ── Derived data for the lists ────────────────────────────────────────────
-  const now = new Date()
 
   const eventById = useMemo(
     () => Object.fromEntries(events.map((e) => [e.event_id, e])),
@@ -329,14 +544,21 @@ export default function ManagerDashboard() {
     return { tickets, tables: 'Table Reservations' }
   }, [clubEventPricing])
 
-  const upcomingList = useMemo(
-    () => events.filter((e) => new Date(e.event_starting_date) > now).slice(0, 5),
-    [events],
-  )
-
-  // Chart data from API (convert { date, count } → { day, value })
-  const weekBars = stats?.weeklyReservations.map((w) => ({ day: w.date, value: w.count })) ?? []
-  const chartMax = Math.max(...weekBars.map((b) => b.value), 1)
+  const emptyWeekBars = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date()
+        date.setHours(0, 0, 0, 0)
+        date.setDate(date.getDate() - (6 - index))
+        return {
+          day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+          dayName: date.toLocaleDateString('en-US', { weekday: 'long' }),
+          tickets: 0,
+          freeReservations: 0,
+        }
+      })
+  const weekBars = weeklyActivity.length > 0 ? weeklyActivity : emptyWeekBars
+  const chartMax = chartScaleMax(Math.max(...weekBars.flatMap((b) => [b.tickets, b.freeReservations]), 0))
+  const chartTicks = chartYTicks(chartMax)
+  const chartGridBackgroundStyle = chartGridBackground(chartMax)
 
   // Payments lookup for recent reservations amount display
   const [payments, setPayments] = useState<{ payment_id: string; amount: string; status: string | null; reservation_id: string }[]>([])
@@ -421,12 +643,12 @@ export default function ManagerDashboard() {
             <div className="manager-dash__card manager-dash__card--chart">
               <div className="manager-dash__card-head">
                 <div>
-                  <h2 className="manager-dash__card-title">Weekly Reservations</h2>
-                  <p className="manager-dash__card-sub">Bookings per day (last 7 days).</p>
+                  <h2 className="manager-dash__card-title">Weekly Activity</h2>
+                  <p className="manager-dash__card-sub">Reservations per day (last 7 days).</p>
                 </div>
               </div>
 
-              {statsLoading ? (
+              {statsLoading || listLoading ? (
                 <div
                   style={{
                     height: 160,
@@ -438,30 +660,57 @@ export default function ManagerDashboard() {
               ) : (
                 <div className="manager-dash__chart">
                   <div className="manager-dash__chart-y" aria-hidden>
-                    {[
-                      chartMax,
-                      Math.round(chartMax * 0.75),
-                      Math.round(chartMax * 0.5),
-                      Math.round(chartMax * 0.25),
-                      0,
-                    ].map((v) => (
-                      <span key={v}>{v}</span>
-                    ))}
+                    <div className="manager-dash__chart-y-scale">
+                      {chartTicks.map((v, index) => (
+                        <span key={`${v}-${index}`}>{v}</span>
+                      ))}
+                    </div>
                   </div>
                   <div className="manager-dash__chart-plot">
-                    <div className="manager-dash__chart-grid" aria-hidden />
+                    <div
+                      className="manager-dash__chart-grid"
+                      aria-hidden
+                      style={{ background: chartGridBackgroundStyle }}
+                    />
+                    <div className="manager-dash__chart-legend" aria-label="Chart legend">
+                      <span><i className="manager-dash__legend-dot manager-dash__legend-dot--tickets" />Tickets Sold</span>
+                      <span><i className="manager-dash__legend-dot manager-dash__legend-dot--free-reservations" />Free Reservations</span>
+                    </div>
                     <div className="manager-dash__chart-bars">
-                      {weekBars.map((b) => (
-                        <div key={b.day} className="manager-dash__bar-col">
-                          <div
-                            className="manager-dash__bar"
-                            style={{
-                              height: `${chartMax > 0 ? (b.value / chartMax) * 100 : 0}%`,
-                            }}
-                          />
-                          <span className="manager-dash__bar-label">{b.day}</span>
-                        </div>
-                      ))}
+                      {weekBars.map((b) => {
+                        const ticketHeight = chartMax > 0 ? (b.tickets / chartMax) * 100 : 0
+                        const freeReservationHeight = chartMax > 0 ? (b.freeReservations / chartMax) * 100 : 0
+                        const tooltipHeight = Math.max(ticketHeight, freeReservationHeight)
+                        return (
+                          <div key={b.day} className="manager-dash__bar-col">
+                            <div
+                              className="manager-dash__bar-group"
+                              style={{ '--activity-bar-height': `${tooltipHeight}%` } as React.CSSProperties}
+                            >
+                              <div
+                                className="manager-dash__bar manager-dash__bar--tickets"
+                                style={{
+                                  height: `${ticketHeight}%`,
+                                  minHeight: b.tickets > 0 ? 3 : 0,
+                                }}
+                              />
+                              <div
+                                className="manager-dash__bar manager-dash__bar--free-reservations"
+                                style={{
+                                  height: `${freeReservationHeight}%`,
+                                  minHeight: b.freeReservations > 0 ? 3 : 0,
+                                }}
+                              />
+                              <div className="manager-dash__chart-tooltip" role="tooltip">
+                                <p className="manager-dash__chart-tooltip-day">{b.dayName}</p>
+                                <p><span>Tickets Sold:</span> <strong>{b.tickets}</strong></p>
+                                <p><span>Free Reservations:</span> <strong>{b.freeReservations}</strong></p>
+                              </div>
+                            </div>
+                            <span className="manager-dash__bar-label">{b.day}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
@@ -523,41 +772,48 @@ export default function ManagerDashboard() {
                     />
                   ))}
                 </div>
-              ) : upcomingList.length === 0 ? (
+              ) : (stats?.upcomingEventList ?? []).length === 0 ? (
                 <p style={{ color: '#8a8a8a', fontSize: '0.875rem' }}>No upcoming events.</p>
               ) : (
                 <ul className="manager-dash__event-list">
-                  {upcomingList.map((ev, i) => {
-                    const sold = reservations.filter((r) => r.event_id === ev.event_id).length
+                  {(stats?.upcomingEventList ?? []).map((ev, i) => {
+                    const sold = ev.guest_count
                     const cap  = ev.event_capacity ?? 0
                     const pct  = cap > 0 ? Math.min(100, (sold / cap) * 100) : 0
                     return (
                       <li key={ev.event_id} className="manager-dash__event-row">
-                        <div
-                          className={`manager-dash__event-thumb manager-dash__event-thumb--${THUMB_COLORS[i % 3]}`}
-                          aria-hidden
-                        />
-                        <div className="manager-dash__event-body">
-                          <p className="manager-dash__event-title">{ev.event_name}</p>
-                          <p className="manager-dash__event-meta">
-                            {new Date(ev.event_starting_date).toLocaleDateString('en-US', {
-                              month: 'short', day: 'numeric', year: 'numeric',
-                            })}
-                          </p>
-                          {cap > 0 && (
-                            <>
-                              <div className="manager-dash__progress">
-                                <div
-                                  className="manager-dash__progress-fill"
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <p className="manager-dash__progress-label">
-                                {sold} / {cap} {isPaidTicketEvent(ev) ? 'tickets' : 'reservations'}
-                              </p>
-                            </>
-                          )}
-                        </div>
+                        <Link
+                          className="manager-dash__event-link"
+                          to={`/manager/events?event=${encodeURIComponent(ev.event_id)}`}
+                          aria-label={`Open ${ev.event_name} event details`}
+                        >
+                          <div
+                            className={`manager-dash__event-thumb manager-dash__event-thumb--${THUMB_COLORS[i % 3]}`}
+                            aria-hidden
+                          />
+                          <div className="manager-dash__event-body">
+                            <p className="manager-dash__event-title">{ev.event_name}</p>
+                            <p className="manager-dash__event-meta">
+                              {new Date(ev.event_starting_date).toLocaleDateString('en-US', {
+                                month: 'short', day: 'numeric', year: 'numeric',
+                              })}
+                            </p>
+                            {cap > 0 && (
+                              <>
+                                <div className="manager-dash__progress">
+                                  <div
+                                    className="manager-dash__progress-fill"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <p className="manager-dash__progress-label">
+                                  {sold} / {cap} {ev.is_paid_event ? 'tickets' : 'reservations'}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                          <IconChevronRight />
+                        </Link>
                       </li>
                     )
                   })}

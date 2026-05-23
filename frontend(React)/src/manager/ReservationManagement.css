@@ -94,7 +94,7 @@
 .res-mgmt__field--check input[type='checkbox'] {
   width: 18px;
   height: 18px;
-  accent-color: #7c3aed;
+  accent-color: hsl(var(--primary));
 }
 
 .res-mgmt__stats {
@@ -555,7 +555,7 @@
 }
 
 .res-mgmt__floor-token:focus-visible {
-  outline: 2px solid #a78bfa;
+  outline: 2px solid hsl(var(--primary) / 0.65);
   outline-offset: 3px;
 }
 
@@ -594,9 +594,9 @@
 
 .res-mgmt__floor-token--selected {
   box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.85),
-    0 0 0 4px rgba(167, 139, 250, 0.35),
-    0 0 28px rgba(167, 139, 250, 0.2);
+    0 0 0 2px hsl(var(--primary) / 0.75),
+    0 0 0 4px hsl(var(--primary) / 0.28),
+    0 0 28px hsl(var(--primary) / 0.18);
 }
 
 .res-mgmt__floor-vip-badge {
@@ -858,8 +858,8 @@
 }
 
 .res-mgmt__mini-dot[data-status='reserved'] {
-  background: #f59e0b;
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.8);
 }
 
 .res-mgmt__mini-dot[data-status='occupied'] {
@@ -1178,8 +1178,8 @@
 .res-mgmt__input:focus,
 .res-mgmt__textarea:focus {
   outline: none;
-  border-color: #7c3aed;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
 }
 
 .res-mgmt__textarea {
@@ -1788,9 +1788,9 @@
 }
 
 .res-mgmt__floor-dd-token--selected:not(.res-mgmt__floor-dd-token--vip) {
-  border-color: #ffffff;
+  border-color: hsl(var(--primary));
   box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.5),
+    0 0 0 2px hsl(var(--primary) / 0.5),
     0 6px 20px rgba(0, 0, 0, 0.45);
 }
 

@@ -139,8 +139,8 @@
 }
 
 .input:focus {
-  border-color: #444444;
-  box-shadow: 0 0 0 2px rgba(224, 64, 251, 0.15);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
 }
 
 .passwordInputWrap {
@@ -175,7 +175,7 @@
 }
 
 .togglePassword:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.45);
+  outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 1px;
 }
 
@@ -202,8 +202,8 @@
 }
 
 .customDateButton:focus-visible {
-  border-color: #444444;
-  box-shadow: 0 0 0 2px rgba(224, 64, 251, 0.15);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
   outline: none;
 }
 
@@ -430,8 +430,8 @@
 }
 
 .countryButton:focus-visible {
-  border-color: #444444;
-  box-shadow: 0 0 0 2px rgba(224, 64, 251, 0.15);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
   outline: none;
 }
 
@@ -571,7 +571,7 @@
 }
 
 .togglePassword:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.45);
+  outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 1px;
 }
 
@@ -590,12 +590,12 @@
   border-radius: 4px;
   border: 1px solid #444444;
   background: #2a2a2a;
-  accent-color: #e040fb;
+  accent-color: hsl(var(--primary));
   cursor: pointer;
 }
 
 .checkbox:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.45);
+  outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 2px;
 }
 
@@ -633,7 +633,7 @@
 }
 
 .termsLink:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.55);
+  outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -853,7 +853,7 @@
 }
 
 .modalClose:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.55);
+  outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 2px;
 }
 
@@ -960,6 +960,6 @@
 }
 
 .modalUnderstand:focus-visible {
-  outline: 2px solid rgba(224, 64, 251, 0.65);
+  outline: 2px solid hsl(var(--primary) / 0.65);
   outline-offset: 3px;
 }

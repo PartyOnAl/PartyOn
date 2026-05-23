@@ -7,7 +7,7 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
-import { isPaidTicketEvent } from './eventPaidEntry'
+import { isPaidTicketEvent, reservationGuestCount, totalGuestCount } from './eventPaidEntry'
 
 type FilterTab = 'all' | 'tickets' | 'tables'
 type FloorStatus = 'available' | 'reserved' | 'occupied'
@@ -424,13 +424,18 @@ function matchesFilter(row: ReservationRow, tab: FilterTab) {
 }
 
 function resolvedAmount(payments: PaymentRow[]) {
-  const paid = payments.filter((p) => p.status === 'paid')
+  const paid = payments.filter((p) => paymentIsCompleted(p.status))
   if (paid.length === 0) return null
   return paid.reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
 }
 
 function resolvedPaymentStatus(payments: PaymentRow[]): 'paid' | 'pending' {
-  return payments.some((p) => p.status === 'paid') ? 'paid' : 'pending'
+  return payments.some((p) => paymentIsCompleted(p.status)) ? 'paid' : 'pending'
+}
+
+function paymentIsCompleted(status: string | null) {
+  const s = (status ?? '').trim().toLowerCase()
+  return s === 'paid' || s === 'completed' || s === 'succeeded'
 }
 
 /** Free entry using same rules as Event Management / dashboard. Missing event pricing → treat as paid path. */
@@ -438,6 +443,13 @@ function reservationEventIsFree(row: ReservationRow): boolean {
   const ev = row.events
   if (!ev) return false
   return !isPaidTicketEvent(ev)
+}
+
+function reservationTicketPrice(row: ReservationRow): number {
+  const raw = row.events?.final_ticket_price ?? row.events?.ticket_price
+  if (raw === null || raw === undefined) return 0
+  const n = parseFloat(String(raw).trim().replace(',', '.'))
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 function IconUser() {
@@ -754,20 +766,19 @@ export default function ReservationManagement() {
     [reservations],
   )
 
-  const confirmed = reservations.filter((r) => r.status === 'confirmed').length
-  const pending = reservations.filter((r) => r.status === 'pending').length
+  const confirmed = totalGuestCount(reservations.filter((r) => r.status === 'confirmed'))
+  const pending = totalGuestCount(reservations.filter((r) => r.status === 'pending'))
   const totalRevenue = useMemo(() => {
     const allFree =
       reservations.length > 0 && reservations.every((r) => reservationEventIsFree(r))
     if (allFree) return 0
     return reservations
-      .flatMap((r) => r.payments)
-      .filter((p) => p.status === 'paid')
-      .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
+      .filter((r) => isPaidTicketEvent(r.events ?? {}) && r.payments.some((p) => paymentIsCompleted(p.status)))
+      .reduce((sum, row) => sum + reservationGuestCount(row) * reservationTicketPrice(row), 0)
   }, [reservations])
 
   const reservationStats = [
-    { label: 'Total Reservations', value: String(reservations.length) },
+    { label: 'Total Reservations', value: String(totalGuestCount(reservations)) },
     { label: 'Confirmed', value: String(confirmed) },
     { label: 'Pending', value: String(pending) },
     { label: 'Total Revenue', value: `€${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0 })}` },
@@ -1307,7 +1318,7 @@ export default function ReservationManagement() {
 
   function statusPillClass(status: FloorStatus) {
     if (status === 'available') return 'res-mgmt__floor-pill--ok'
-    if (status === 'reserved') return 'res-mgmt__floor-pill--amber'
+    if (status === 'reserved') return 'res-mgmt__floor-pill--red'
     return 'res-mgmt__floor-pill--red'
   }
 
@@ -1357,7 +1368,7 @@ export default function ReservationManagement() {
                   <td>
                     <span className="res-mgmt__guests">
                       <IconUser />
-                      {row.nr_of_people ?? 1}
+                      {reservationGuestCount(row)}
                     </span>
                   </td>
                   <td className="res-mgmt__cell-amount">
@@ -1926,7 +1937,7 @@ export default function ReservationManagement() {
               </div>
               <div>
                 <dt>Guests</dt>
-                <dd>{detailRow.nr_of_people ?? 1}</dd>
+                <dd>{reservationGuestCount(detailRow)}</dd>
               </div>
               <div>
                 <dt>Amount</dt>

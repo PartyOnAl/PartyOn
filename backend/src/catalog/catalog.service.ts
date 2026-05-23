@@ -313,6 +313,18 @@ const CLUB_IMAGE_SOURCE_KEYS = [
   'logo_url',
 ] as const;
 
+const CLUB_IMAGE_LIST_SOURCE_KEYS = [
+  'coverImages',
+  'cover_images',
+  'clubImages',
+  'club_images',
+  'galleryImages',
+  'gallery_images',
+  'imageUrls',
+  'image_urls',
+  'photos',
+] as const;
+
 /** Raw value from DB (before URL resolution). Used to rank clubs with real assets first. */
 function rawClubImageFromRow(row: Record<string, unknown>): string {
   return pickString(row, [...CLUB_IMAGE_SOURCE_KEYS]).trim();
@@ -484,6 +496,7 @@ export class CatalogService {
         undefined,
       doorsOpen:
         pickString(row, [
+          'event_hours',
           'doors_open',
           'doors_time',
           'door_time',
@@ -525,14 +538,27 @@ export class CatalogService {
           'address',
           'location_address',
         ]) || undefined,
-      ticketRequired: pickOptionalBoolean(row, [
-        'ticket_required',
-        'requires_ticket',
-        'needs_ticket',
-      ]),
+      reservationOnly: row.reservation_only === true,
+      ticketRequired:
+        row.reservation_only === true
+          ? false
+          : pickOptionalBoolean(row, [
+              'ticket_required',
+              'requires_ticket',
+              'needs_ticket',
+            ]),
       clubId:
         row.club_id != null && String(row.club_id).trim() !== ''
           ? String(row.club_id)
+          : undefined,
+      isFeatured:
+        row.is_featured === true &&
+        row.featured_request_status === 'approved'
+          ? true
+          : undefined,
+      rawDate:
+        row.event_starting_date != null
+          ? new Date(String(row.event_starting_date)).toISOString()
           : undefined,
     };
   }
@@ -594,6 +620,16 @@ export class CatalogService {
     const validUntil =
       validUntilRaw != null && String(validUntilRaw).trim() !== ''
         ? String(validUntilRaw)
+        : undefined;
+    const validFromRaw = row.valid_from;
+    const validFrom =
+      validFromRaw != null && String(validFromRaw).trim() !== ''
+        ? String(validFromRaw)
+        : undefined;
+    const createdAtRaw = row.created_at;
+    const createdAt =
+      createdAtRaw != null && String(createdAtRaw).trim() !== ''
+        ? String(createdAtRaw)
         : undefined;
 
     const shortDesc = pickString(row, [
@@ -723,6 +759,8 @@ export class CatalogService {
       promoPrice,
       showNumericPricing,
       validUntil,
+      validFrom,
+      createdAt,
       subtitle: subtitle || undefined,
       longDescription,
       eventDate,
@@ -746,6 +784,10 @@ export class CatalogService {
     if (!raw) {
       return DEFAULT_CLUB_IMAGE;
     }
+    return this.resolveClubImageValue(raw);
+  }
+
+  private resolveClubImageValue(raw: string): string {
     if (/^https?:\/\//i.test(raw)) {
       return raw;
     }
@@ -757,6 +799,17 @@ export class CatalogService {
       return `${base}/storage/v1/object/public/${bucket}/${path}`;
     }
     return DEFAULT_CLUB_IMAGE;
+  }
+
+  private resolveClubImageUrls(row: Record<string, unknown>): string[] | undefined {
+    const rawImages = pickStringList(row, [...CLUB_IMAGE_LIST_SOURCE_KEYS]) ?? [];
+    const primaryImage = rawClubImageFromRow(row);
+    const images = [...rawImages, primaryImage]
+      .map((image) => image.trim())
+      .filter(Boolean)
+      .map((image) => this.resolveClubImageValue(image));
+    const uniqueImages = [...new Set(images)];
+    return uniqueImages.length > 0 ? uniqueImages : undefined;
   }
 
   private mapClubRow(row: Record<string, unknown>): CatalogClubDto {
@@ -852,6 +905,7 @@ export class CatalogService {
       id: rowId(row) || name || Math.random().toString(36).slice(2),
       name: name || 'Venue',
       imageUrl: this.resolveClubImageUrl(row),
+      coverImages: this.resolveClubImageUrls(row),
       city: city || undefined,
       address: address || undefined,
       club_lat: lat,
@@ -920,7 +974,7 @@ export class CatalogService {
   private async getClubPagePg(
     clubId: string,
   ): Promise<CatalogClubPageDto | null> {
-    const club = await this.clubsRepo.findOne({ where: { clubId } });
+    const club = await this.clubsRepo.findOne({ where: { clubId }, relations: ['photos'] });
     if (!club) {
       return null;
     }
@@ -971,14 +1025,17 @@ export class CatalogService {
 
     let promoEntities: Promotions[] = [];
     try {
+      const now = new Date();
       promoEntities = await this.promotionsRepo
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.club', 'c')
         .where('p.status = :st', { st: 'active' })
         .andWhere('(p.valid_until IS NULL OR p.valid_until >= :now)', {
-          now: new Date(),
+          now,
         })
         .andWhere('p.club_id IN (:...cids)', { cids: candidates })
+        .orderBy('p.valid_until', 'ASC', 'NULLS LAST')
+        .addOrderBy('p.promotion_id', 'ASC')
         .getMany();
     } catch {
       promoEntities = [];
@@ -1028,6 +1085,92 @@ export class CatalogService {
     );
   }
 
+  async getFilters(): Promise<import('./catalog.types').CatalogFiltersDto> {
+    let cities: string[] = [];
+    let musicTypes: string[] = [];
+    try {
+      const clubRows = await this.clubsRepo
+        .createQueryBuilder('c')
+        .select('c.club_address', 'club_address')
+        .where("c.club_status = 'approved'")
+        .andWhere('c.club_address IS NOT NULL')
+        .getRawMany<{ club_address: string }>();
+
+      const citySet = new Set<string>();
+      for (const row of clubRows) {
+        const city = inferCityFromClubAddress(row.club_address);
+        if (!city) continue;
+        // Normalize ASCII variant to the accented canonical form
+        const normalized = city.trim() === 'Tirana' ? 'Tiranë' : city.trim();
+        citySet.add(normalized);
+      }
+      cities = Array.from(citySet).sort((a, b) => a.localeCompare(b));
+    } catch {
+      cities = [];
+    }
+    try {
+      const typeRows = await this.eventsRepo
+        .createQueryBuilder('e')
+        .select('DISTINCT e.event_type', 'event_type')
+        .where("e.event_status = 'published'")
+        .andWhere('e.event_type IS NOT NULL')
+        .orderBy('e.event_type', 'ASC')
+        .getRawMany<{ event_type: string }>();
+
+      musicTypes = typeRows
+        .map((r) => r.event_type?.trim())
+        .filter((t): t is string => Boolean(t));
+    } catch {
+      musicTypes = [];
+    }
+    return { cities, musicTypes };
+  }
+
+  async getEventDetail(
+    eventId: string,
+  ): Promise<import('./catalog.types').CatalogEventDetailDto | null> {
+    const eventEntity = await this.eventsRepo.findOne({
+      where: { eventId },
+      relations: ['club', 'ticketTypes'],
+    });
+    if (!eventEntity) return null;
+
+    const clubRow = eventEntity.club
+      ? clubEntityToRow(eventEntity.club)
+      : undefined;
+    const clubByIdForMerge = new Map<string, Record<string, unknown>>();
+    if (clubRow) {
+      const cid = clubRow.club_id;
+      if (cid != null) clubByIdForMerge.set(String(cid), clubRow);
+    }
+
+    const baseDto = this.mapEventRow(
+      this.mergeEventRowWithClub(eventEntityToRow(eventEntity), clubByIdForMerge),
+    );
+
+    const ticketTypes: import('./catalog.types').CatalogTicketTypeDto[] = (
+      eventEntity.ticketTypes ?? []
+    )
+      .sort((a, b) => Number(a.price) - Number(b.price))
+      .map((tt) => ({
+        id: tt.id,
+        name: tt.name,
+        description: tt.description ?? undefined,
+        price: Number(tt.price),
+        totalQuantity: tt.totalQuantity,
+        soldQuantity: tt.soldQuantity ?? 0,
+        available: tt.totalQuantity - (tt.soldQuantity ?? 0),
+      }));
+
+    return {
+      ...baseDto,
+      ticketTypes,
+      clubPhone: eventEntity.club?.clubPhoneNumber ?? undefined,
+      clubFullAddress: eventEntity.club?.clubAddress ?? undefined,
+      reservationOnly: eventEntity.reservationOnly ?? false,
+    };
+  }
+
   async getCatalog(): Promise<CatalogBundleDto> {
     return this.getCatalogFromPostgres();
   }
@@ -1069,6 +1212,7 @@ export class CatalogService {
 
     let eventEntities: Events[] = [];
     try {
+      const now = new Date();
       eventEntities = await this.eventsRepo
         .createQueryBuilder('e')
         .leftJoinAndSelect('e.club', 'c')
@@ -1079,28 +1223,34 @@ export class CatalogService {
             );
           }),
         )
-        .orderBy('e.event_starting_date', 'DESC', 'NULLS LAST')
-        .addOrderBy('e.event_id', 'DESC')
+        .andWhere('e.event_starting_date >= :now', { now })
+        .orderBy('e.event_starting_date', 'ASC', 'NULLS LAST')
+        .addOrderBy('e.event_id', 'ASC')
         .getMany();
     } catch {
       eventEntities = [];
     }
 
-    const events = eventEntities.map((ev) =>
-      this.mapEventRow(
-        this.mergeEventRowWithClub(eventEntityToRow(ev), clubByIdRaw),
-      ),
-    );
+    const events = eventEntities
+      .map((ev) =>
+        this.mapEventRow(
+          this.mergeEventRowWithClub(eventEntityToRow(ev), clubByIdRaw),
+        ),
+      )
+      .sort((a, b) => Number(!!b.isFeatured) - Number(!!a.isFeatured));
 
     let promotions: CatalogPromotionDto[] = [];
     try {
+      const now = new Date();
       const promoEntities = await this.promotionsRepo
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.club', 'c')
         .where('p.status = :st', { st: 'active' })
         .andWhere('(p.valid_until IS NULL OR p.valid_until >= :now)', {
-          now: new Date(),
+          now,
         })
+        .orderBy('p.valid_until', 'ASC', 'NULLS LAST')
+        .addOrderBy('p.promotion_id', 'ASC')
         .getMany();
       const clubDtoById = new Map(clubs.map((c) => [c.id, c]));
       promotions = promoEntities.map((p) => {
@@ -1115,6 +1265,38 @@ export class CatalogService {
       promotions = [];
     }
 
-    return { events, clubs, promotions };
+    let terms: string | undefined;
+    let termsUpdatedAt: string | undefined;
+    try {
+      const rows = await this.eventsRepo.manager.query<
+        Array<{ value: string | null; updated_at: string | null }>
+      >(
+        `SELECT value, updated_at FROM public.global_settings WHERE key = 'terms_and_conditions' LIMIT 1`,
+      );
+      if (rows.length > 0) {
+        terms = rows[0].value ?? undefined;
+        termsUpdatedAt = rows[0].updated_at ?? undefined;
+      }
+    } catch {
+      /* table may not exist on dev setups */
+    }
+
+    return { events, clubs, promotions, terms, termsUpdatedAt };
+  }
+
+  async getTerms(): Promise<{ terms: string | null; updatedAt: string | null }> {
+    try {
+      const rows = await this.eventsRepo.manager.query<
+        Array<{ value: string | null; updated_at: string | null }>
+      >(
+        `SELECT value, updated_at FROM public.global_settings WHERE key = 'terms_and_conditions' LIMIT 1`,
+      );
+      if (rows.length > 0) {
+        return { terms: rows[0].value ?? null, updatedAt: rows[0].updated_at ?? null };
+      }
+    } catch {
+      /* table may not exist on dev setups */
+    }
+    return { terms: null, updatedAt: null };
   }
 }

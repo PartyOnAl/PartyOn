@@ -1,20 +1,13 @@
 import { motion } from 'framer-motion'
 import { Search, MapPin, Music } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 
 type HeroSectionProps = {
-  onExplore: () => void
   onBrowseClubs?: () => void
 }
 
-export function HeroSection({ onExplore, onBrowseClubs }: HeroSectionProps) {
-  const location = useLocation()
-  const eventsSectionTo =
-    location.pathname === '/home'
-      ? ({ pathname: '/home', hash: 'events' } as const)
-      : ({ pathname: '/', hash: 'events' } as const)
-
+export function HeroSection({ onBrowseClubs }: HeroSectionProps) {
   return (
     <section className="relative m-0 flex items-center justify-center overflow-hidden h-[100vh] h-[100svh] min-h-[600px] pt-16">
       <video
@@ -62,14 +55,7 @@ export function HeroSection({ onExplore, onBrowseClubs }: HeroSectionProps) {
               className="gradient-primary text-primary-foreground px-8 font-semibold shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow max-[480px]:w-[90%]"
               asChild
             >
-              <Link
-                to={eventsSectionTo}
-                replace
-                onClick={(e) => {
-                  e.preventDefault()
-                  onExplore()
-                }}
-              >
+              <Link to="/events">
                 <Search className="h-4 w-4 mr-2" />
                 Explore Events
               </Link>

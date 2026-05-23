@@ -1,7 +1,7 @@
 import type { Event } from '@/types'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Bookmark, MapPin } from 'lucide-react'
+import { Bookmark, MapPin, Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSavedEvents } from '@/contexts/SavedEventsContext'
@@ -65,6 +65,12 @@ export function EventCard({ event, index = 0 }: EventCardProps) {
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
           </Link>
+          {event.isFeatured ? (
+            <div className="absolute left-2 top-2 z-[50] flex items-center gap-1 rounded-full bg-primary/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
+              <Star className="h-2.5 w-2.5 fill-current" />
+              Featured
+            </div>
+          ) : null}
           {user ? (
             <button
               type="button"

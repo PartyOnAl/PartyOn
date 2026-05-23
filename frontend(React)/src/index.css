@@ -81,6 +81,80 @@
   .po-container {
     @apply mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10 xl:px-14;
   }
+
+  .section-more-link {
+    position: relative;
+    display: none;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 999px;
+    color: hsl(var(--foreground));
+    padding: 0 1.5rem;
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition:
+      border-color 0.22s ease,
+      background 0.22s ease,
+      box-shadow 0.22s ease,
+      color 0.22s ease;
+  }
+
+  .section-more-link::before,
+  .section-more-link::after {
+    content: '';
+    position: absolute;
+    width: 0.78rem;
+    height: 0.78rem;
+    opacity: 1;
+    pointer-events: none;
+    transition:
+      opacity 0.22s ease,
+      transform 0.22s ease;
+  }
+
+  .section-more-link::before {
+    top: -1px;
+    left: -1px;
+    border-top: 2px solid hsl(var(--primary));
+    border-left: 2px solid hsl(var(--primary));
+    border-top-left-radius: 999px;
+    transform: translate(0, 0);
+  }
+
+  .section-more-link::after {
+    right: -1px;
+    bottom: -1px;
+    border-right: 2px solid hsl(var(--primary));
+    border-bottom: 2px solid hsl(var(--primary));
+    border-bottom-right-radius: 999px;
+    transform: translate(0, 0);
+  }
+
+  .section-more-link:hover,
+  .section-more-link:focus-visible {
+    border-color: hsl(var(--primary) / 0.42);
+    background: hsl(var(--primary) / 0.08);
+    color: hsl(var(--foreground));
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.12);
+  }
+
+  .section-more-link:hover::before,
+  .section-more-link:hover::after,
+  .section-more-link:focus-visible::before,
+  .section-more-link:focus-visible::after {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  @media (min-width: 768px) {
+    .section-more-link {
+      display: inline-flex;
+    }
+  }
 }
 
 @layer base {
@@ -91,6 +165,26 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     margin: 0;
+  }
+
+  input:focus,
+  input:focus-visible,
+  select:focus,
+  select:focus-visible,
+  textarea:focus,
+  textarea:focus-visible {
+    outline: none;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+  }
+
+  select option:checked {
+    background: linear-gradient(
+      0deg,
+      hsl(var(--primary) / 0.18) 0%,
+      hsl(var(--primary) / 0.18) 100%
+    );
+    color: hsl(var(--primary));
   }
 
   #root {

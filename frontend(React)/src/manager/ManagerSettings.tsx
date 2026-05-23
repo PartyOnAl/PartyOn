@@ -5,6 +5,7 @@ import './ManagerSettings.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
+import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 
 type NotificationKey = 'newReservations' | 'staffRequests' | 'eventReminders'
 type Toast = { message: string; variant: 'default' | 'info' }
@@ -68,6 +69,21 @@ function IconLogout() {
   )
 }
 
+function IconFile() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function formatUpdatedAt(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 export default function ManagerSettings() {
   const { club } = useManagerClub()
   const { signOut } = useAuth()
@@ -80,6 +96,45 @@ export default function ManagerSettings() {
   })
 
   const [toast, setToast] = useState<Toast | null>(null)
+
+  // Terms & Conditions state
+  const [tcText, setTcText] = useState<string>('')
+  const [tcUpdatedAt, setTcUpdatedAt] = useState<string | null>(null)
+  const [tcDraft, setTcDraft] = useState<string>('')
+  const [tcEditing, setTcEditing] = useState(false)
+  const [tcSaving, setTcSaving] = useState(false)
+
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+    supabase
+      .from('global_settings')
+      .select('value, updated_at')
+      .eq('key', 'terms_and_conditions')
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setTcText((data as { value: string; updated_at: string }).value ?? '')
+          setTcUpdatedAt((data as { value: string; updated_at: string }).updated_at ?? null)
+        }
+      })
+  }, [])
+
+  async function saveTc() {
+    if (!supabase || !isSupabaseConfigured) return
+    setTcSaving(true)
+    const { error } = await supabase
+      .from('global_settings')
+      .upsert({ key: 'terms_and_conditions', value: tcDraft, updated_at: new Date().toISOString() })
+    setTcSaving(false)
+    if (error) {
+      setToast({ variant: 'default', message: `Failed to save: ${error.message}` })
+    } else {
+      setTcText(tcDraft)
+      setTcUpdatedAt(new Date().toISOString())
+      setTcEditing(false)
+      setToast({ variant: 'default', message: 'Terms & Conditions saved.' })
+    }
+  }
 
   useEffect(() => {
     if (!toast) return
@@ -248,6 +303,74 @@ export default function ManagerSettings() {
                   Update Payment Method
                 </button>
               </div>
+            </section>
+
+            {/* Terms & Conditions */}
+            <section className="manager-settings__card" aria-labelledby="settings-tc-title">
+              <header className="manager-settings__card-head">
+                <span className="manager-settings__card-icon" aria-hidden>
+                  <IconFile />
+                </span>
+                <div>
+                  <h2 id="settings-tc-title" className="manager-settings__card-title">
+                    Terms &amp; Conditions
+                  </h2>
+                  <p className="manager-settings__card-sub">
+                    Shown on every offer detail page
+                  </p>
+                </div>
+              </header>
+
+              {tcUpdatedAt ? (
+                <p className="manager-settings__tc-meta">
+                  Last updated: {formatUpdatedAt(tcUpdatedAt)}
+                </p>
+              ) : null}
+
+              {tcEditing ? (
+                <>
+                  <textarea
+                    className="manager-settings__tc-textarea"
+                    value={tcDraft}
+                    onChange={(e) => setTcDraft(e.target.value)}
+                    aria-label="Terms and conditions text"
+                    rows={10}
+                  />
+                  <div className="manager-settings__tc-actions">
+                    <button
+                      type="button"
+                      className="manager-settings__tc-save"
+                      disabled={tcSaving || tcDraft.trim() === tcText.trim()}
+                      onClick={() => void saveTc()}
+                    >
+                      {tcSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      className="manager-settings__tc-cancel"
+                      onClick={() => setTcEditing(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <pre className="manager-settings__tc-text">
+                    {tcText || 'No terms set yet.'}
+                  </pre>
+                  <button
+                    type="button"
+                    className="manager-settings__tc-edit"
+                    onClick={() => {
+                      setTcDraft(tcText)
+                      setTcEditing(true)
+                    }}
+                  >
+                    Edit
+                  </button>
+                </>
+              )}
             </section>
 
             {/* Logout */}

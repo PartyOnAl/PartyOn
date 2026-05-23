@@ -37,3 +37,17 @@ export function reservationIsConfirmed(r: ReservationStatusFields): boolean {
   const s = (r.status ?? '').trim().toLowerCase()
   return s === 'confirmed'
 }
+
+export type ReservationGuestFields = {
+  nr_of_people?: number | null
+}
+
+/** Guest headcount for a single reservation row. Returns 0 when nr_of_people is null/unset. */
+export function reservationGuestCount(r: ReservationGuestFields): number {
+  return r.nr_of_people || 0
+}
+
+/** Sum of guest headcounts across many reservation rows. */
+export function totalGuestCount(rows: ReservationGuestFields[]): number {
+  return rows.reduce((sum, r) => sum + reservationGuestCount(r), 0)
+}

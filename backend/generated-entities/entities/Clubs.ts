@@ -10,6 +10,7 @@ import { Profiles } from "./Profiles";
 import { Events } from "./Events";
 import { Promotions } from "./Promotions";
 import { Tables } from "./Tables";
+import { ClubPhotos } from "./ClubPhotos";
 
 @Index("clubs_pkey", ["clubId"], { unique: true })
 @Entity("clubs", { schema: "public" })
@@ -105,4 +106,7 @@ export class Clubs {
 
   @OneToMany(() => Tables, (tables) => tables.club)
   tables: Tables[];
+
+  @OneToMany(() => ClubPhotos, (photo) => photo.club)
+  photos?: ClubPhotos[];
 }

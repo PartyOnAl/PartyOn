@@ -47,7 +47,20 @@
 }
 
 .partyon-logo__ball-glow {
-  display: none;
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.18) 20%,
+    rgba(255, 255, 255, 0.06) 40%,
+    transparent 60%
+  );
+  animation: partyon-glow-sweep 4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .partyon-logo__ball-shell {
@@ -56,7 +69,7 @@
   display: grid;
   place-items: center;
   transform-style: preserve-3d;
-  animation: partyon-axis-rotate 4.2s ease-in-out infinite;
+  animation: partyon-disco-spin 4s linear infinite;
 }
 
 .partyon-logo__ball-image {
@@ -65,12 +78,13 @@
   height: 100%;
   border-radius: 50%;
   box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.55),
-    0 0 20px rgba(167, 85, 247, 0.42),
-    0 0 36px rgba(59, 130, 246, 0.16);
+    0 2px 14px rgba(0, 0, 0, 0.6),
+    0 0 22px rgba(167, 85, 247, 0.45),
+    0 0 40px rgba(59, 130, 246, 0.18);
   object-fit: cover;
   object-position: center;
-  filter: saturate(1.18) contrast(1.04);
+  filter: saturate(1.2) contrast(1.05) brightness(1.04);
+  z-index: 0;
 }
 
 .partyon-logo__text {
@@ -99,27 +113,25 @@
   color: transparent;
 }
 
-@keyframes partyon-axis-rotate {
-  0% {
-    transform: rotateX(11deg) rotateY(-20deg);
+/* Continuous disco-ball spin — full 360° rotation around Y-axis with a slight X tilt */
+@keyframes partyon-disco-spin {
+  from {
+    transform: rotateX(14deg) rotateY(0deg);
   }
-  50% {
-    transform: rotateX(11deg) rotateY(20deg);
-  }
-  100% {
-    transform: rotateX(11deg) rotateY(-20deg);
+  to {
+    transform: rotateX(14deg) rotateY(360deg);
   }
 }
 
-@keyframes partyon-pulse {
-  0%,
-  100% {
-    transform: scale(0.96);
-    opacity: 0.74;
+/* Light-sweep highlight that follows the spin */
+@keyframes partyon-glow-sweep {
+  from {
+    transform: rotate(0deg);
+    opacity: 0.9;
   }
-  50% {
-    transform: scale(1.04);
-    opacity: 0.95;
+  to {
+    transform: rotate(360deg);
+    opacity: 0.9;
   }
 }
 

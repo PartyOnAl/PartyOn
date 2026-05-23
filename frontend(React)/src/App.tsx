@@ -16,7 +16,7 @@ import Home from './Home'
 import LoginPage from './LoginPage'
 import ResetPasswordPage from './ResetPasswordPage'
 import Payment from './Payment'
-import PaymentMethod from './PaymentMethod'
+import Events from './Events'
 import Promotions from './Promotions'
 import PromotionOfferDetailPage from './PromotionOfferDetailPage'
 import PurchasedTicket from './PurchasedTicket'
@@ -30,6 +30,7 @@ import ClubDetail from './ClubDetail'
 import DjDetail from './DjDetail'
 import SignupPage from './SignupPage'
 import MyProfile from './MyProfile'
+import UserSettings from './UserSettings'
 import TopClubs from './TopClubs'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
@@ -54,6 +55,9 @@ import UserManagement from './admin/UserManagement'
 import RevenueAndPayments from './admin/RevenueAndPayments'
 import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
 import StaffMobileOnlyPage from './StaffMobileOnlyPage'
+import TermsOfService from './TermsOfService'
+import PrivacyPolicy from './PrivacyPolicy'
+import HelpCenter from './HelpCenter'
 import { userMustChangePassword } from './lib/mustChangePassword'
 import { getStaffRoleFromUser, isMobileOnlyStaffRole } from './lib/staffRoles'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
@@ -166,6 +170,7 @@ function App() {
               <Route path="/home" element={<Home />} />
               <Route path="/profile" element={<MyProfile />} />
               <Route path="/my-profile" element={<MyProfile />} />
+              <Route path="/settings" element={<UserSettings />} />
               {/* <Route path="/search" element={<Search />} /> */}
               <Route
                 path="/search"
@@ -179,7 +184,6 @@ function App() {
               <Route path="/payment" element={<Navigate to="/" replace />} />
               <Route path="/payment/:id" element={<Payment />} />
               <Route path="/reserve/:id" element={<ReservationFlow />} />
-              <Route path="/payment-method" element={<PaymentMethod />} />
               <Route path="/promotions" element={<Promotions />} />
               <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
               <Route path="/my-bookings" element={<MyBookings />} />
@@ -192,6 +196,7 @@ function App() {
               <Route path="/top-clubs" element={<TopClubs />} />
               <Route path="/nearby-clubs" element={<TopClubs />} />
               <Route path="/event/:id" element={<EventClicked />} />
+              <Route path="/events" element={<Events />} />
               <Route path="/events/:eventId" element={<EventClicked />} />
               <Route path="/event" element={<EventClicked />} />
               <Route path="/events-api" element={<EventPage />} />
@@ -256,6 +261,10 @@ function App() {
                 element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
               />
 
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/help" element={<HelpCenter />} />
+
               <Route path="/header" element={<Header />} />
               <Route path="/footer" element={<Footer />} />
               <Route path="/get-the-app" element={<GetTheApp />} />
@@ -264,7 +273,6 @@ function App() {
               <Route path="/eventClicked" element={<EventClicked />} />
               <Route path="/topclubs" element={<TopClubs />} />
               <Route path="/purchasedticket" element={<PurchasedTicket />} />
-              <Route path="/paymentmethod" element={<PaymentMethod />} />
             </Routes>
           </SavedEventsProvider>
         </CatalogProvider>

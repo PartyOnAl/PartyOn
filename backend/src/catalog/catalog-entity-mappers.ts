@@ -16,11 +16,15 @@ export function eventEntityToRow(e: Events): Record<string, unknown> {
     event_name: e.eventName,
     event_description: e.eventDescription,
     event_type: e.eventType,
+    event_hours: e.eventHours,
     event_starting_date: e.eventStartingDate,
     event_ending_date: e.eventEndingDate,
     event_image: e.eventImage,
     event_status: e.eventStatus,
     event_capacity: e.eventCapacity,
+    is_featured: e.isFeatured,
+    featured_request_status: e.featuredRequestStatus,
+    reservation_only: e.reservationOnly,
     final_ticket_price: num(e.finalTicketPrice),
     ticket_price: num(e.ticketPrice),
     ticket_discount: num(e.ticketDiscount),
@@ -35,6 +39,14 @@ export function eventEntityToRow(e: Events): Record<string, unknown> {
 }
 
 export function clubEntityToRow(c: Clubs): Record<string, unknown> {
+  const photos =
+    Array.isArray(c.photos) && c.photos.length > 0
+      ? c.photos
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((p) => p.photoUrl)
+          .filter(Boolean)
+      : undefined;
   return {
     club_id: c.clubId,
     id: c.clubId,
@@ -51,6 +63,7 @@ export function clubEntityToRow(c: Clubs): Record<string, unknown> {
     club_status: c.clubStatus,
     created_at: c.createdAt,
     updated_at: c.updatedAt,
+    photos,
   };
 }
 
@@ -70,6 +83,7 @@ export function promotionEntityToRow(p: Promotions): Record<string, unknown> {
     valid_until: p.validUntil,
     status: p.status,
     image_url: p.imageUrl,
+    included_items: p.includedItems,
     club_id: clubId,
     created_at: p.createdAt,
   };

@@ -6,6 +6,7 @@ import {
   type TouchEvent,
   type WheelEvent,
 } from 'react'
+import { Link } from 'react-router-dom'
 import type { Event } from '@/types'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -172,12 +173,15 @@ export function EventsSection({
             viewport={{ once: true }}
           >
             <p className="text-sm font-medium text-primary uppercase tracking-widest mb-2">
-              What&apos;s Coming
+              Handpicked
             </p>
             <h2 className="font-display text-3xl md:text-4xl font-bold uppercase tracking-wider">
-              Upcoming Events
+              Featured Events
             </h2>
           </motion.div>
+          <Link to="/events" className="section-more-link events-more-link">
+            All Events
+          </Link>
         </div>
 
         <div
@@ -233,7 +237,10 @@ export function EventsSection({
 
         {!catalogLoading && events.length === 0 ? (
           <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-muted-foreground">
-            No events match your filters.
+            No featured events right now.{' '}
+            <Link to="/events" className="text-primary hover:underline">
+              Browse all events
+            </Link>
           </div>
         ) : null}
 

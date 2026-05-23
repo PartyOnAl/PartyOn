@@ -473,11 +473,14 @@ export default function ManagerPromotions() {
     if (!clubId || !supabase || !isSupabaseConfigured) { setLoading(false); return }
     setLoading(true)
     setError(null)
+    const now = new Date().toISOString()
     void supabase
       .from('promotions')
       .select('promotion_id, title, description, category, discount_value, original_price, valid_from, valid_until, status, image_url, created_at')
       .eq('club_id', clubId)
-      .order('created_at', { ascending: false })
+      .or(`valid_until.is.null,valid_until.gte.${now}`)
+      .order('valid_until', { ascending: true, nullsFirst: false })
+      .order('promotion_id', { ascending: true })
       .then(({ data, error: err }) => {
         if (err) setError(err.message)
         else setPromotions((data ?? []) as PromotionRow[])

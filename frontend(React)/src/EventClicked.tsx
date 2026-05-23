@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  AlignLeft,
   ArrowLeft,
   Calendar,
-  ChevronDown,
   Clock,
   ExternalLink,
   Heart,
   MapPin,
   Music,
+  Phone,
   Share2,
-  User,
+  Star,
   Users,
 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -19,16 +20,31 @@ import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCatalog } from '@/contexts/CatalogContext'
 import { useSavedEvents } from '@/contexts/SavedEventsContext'
-import type { Event } from '@/types'
+import { getJson } from '@/api'
+import type { EventDetail, TicketType } from '@/types'
 import { cn } from '@/lib/utils'
 
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&q=80'
 
-function eventNeedsTicket(ev: Event): boolean {
-  if (ev.ticketRequired === false) return false
-  if (ev.ticketRequired === true) return true
-  return ev.price > 0
+function formatFullDate(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function formatTime(iso: string | undefined, hoursText?: string): string {
+  if (hoursText?.trim()) return hoursText.trim()
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
 function EventPageSkeleton() {
@@ -51,98 +67,90 @@ function EventPageSkeleton() {
 export default function EventClicked() {
   const { id, eventId } = useParams<{ id?: string; eventId?: string }>()
   const navigate = useNavigate()
-  const { events, loading } = useCatalog()
+  const { events, loading: catalogLoading } = useCatalog()
   const { user } = useAuth()
   const { isSaved, saveEvent, removeEvent } = useSavedEvents()
-  const [aboutExpanded, setAboutExpanded] = useState(false)
 
   const resolvedId = (id ?? eventId ?? '').trim()
-  const fromCatalog = useMemo(
-    () => (resolvedId ? events.find((e) => e.id === resolvedId) : undefined),
-    [events, resolvedId],
-  )
+
+  const [detail, setDetail] = useState<EventDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(true)
+  const [aboutExpanded, setAboutExpanded] = useState(false)
+
+  // Catalog entry for quick display while detail loads
+  const fromCatalog = resolvedId
+    ? events.find((e) => e.id === resolvedId)
+    : undefined
 
   useEffect(() => {
-    if (!id && !eventId) {
+    if (!resolvedId) {
       navigate('/', { replace: true })
-    }
-  }, [id, eventId, navigate])
-
-  const saved =
-    user && fromCatalog ? isSaved(fromCatalog.id) : false
-
-  async function toggleSave() {
-    if (!fromCatalog) return
-    if (!user) {
-      navigate('/login')
       return
     }
-    if (saved) await removeEvent(fromCatalog.id)
-    else await saveEvent(fromCatalog.id)
+    setDetailLoading(true)
+    getJson<EventDetail>(`/catalog/events/${resolvedId}`).then(({ data }) => {
+      if (data) setDetail(data)
+      setDetailLoading(false)
+    })
+  }, [resolvedId, navigate])
+
+  const ev = detail ?? (fromCatalog as EventDetail | undefined)
+  const loading = detailLoading && !ev && catalogLoading
+
+  const saved = user && ev ? isSaved(ev.id) : false
+
+  async function toggleSave() {
+    if (!ev) return
+    if (!user) { navigate('/login'); return }
+    if (saved) await removeEvent(ev.id)
+    else await saveEvent(ev.id)
   }
 
   async function share() {
     const url = window.location.href
     if (navigator.share) {
-      try {
-        await navigator.share({ title: fromCatalog?.title, url })
-      } catch {
-        /* dismissed */
-      }
+      try { await navigator.share({ title: ev?.title, url }) } catch { /* dismissed */ }
     } else {
       await navigator.clipboard.writeText(url).catch(() => {})
     }
   }
 
   function primaryAction() {
-    if (!fromCatalog) return
-    if (eventNeedsTicket(fromCatalog)) {
-      const eventId = fromCatalog.id?.trim()
-      if (!eventId || eventId === 'undefined') {
-        return
-      }
-      if (!user) {
-        navigate(
-          `/login?from=${encodeURIComponent(`/event/${fromCatalog.id}`)}`,
-        )
-        return
-      }
-      navigate(`/payment/${encodeURIComponent(eventId)}`, {
-        state: { event: fromCatalog },
-      })
+    if (!ev) return
+    const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+    const eid = ev.id?.trim()
+    if (!eid || eid === 'undefined') return
+    if (!user) {
+      navigate(`/login?from=${encodeURIComponent(`/event/${ev.id}`)}`)
+      return
+    }
+    if (isReservation) {
+      navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
     } else {
-      const eventId = fromCatalog.id?.trim()
-      if (!eventId || eventId === 'undefined') return
-      if (!user) {
-        navigate(
-          `/login?from=${encodeURIComponent(`/reserve/${eventId}`)}`,
-        )
-        return
-      }
-      navigate(`/reserve/${encodeURIComponent(eventId)}`, {
-        state: { event: fromCatalog },
+      navigate(`/payment/${encodeURIComponent(eid)}`, {
+        state: { event: ev, ticketTypes },
       })
     }
   }
 
   function openMaps(address: string) {
-    const q = encodeURIComponent(address)
-    window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank')
+    window.open(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+      '_blank',
+    )
   }
 
   if (!resolvedId) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
-        <div className="po-container py-20 text-center text-muted-foreground">
-          Redirecting…
-        </div>
+        <div className="po-container py-20 text-center text-muted-foreground">Redirecting…</div>
         <LovableFooter />
       </div>
     )
   }
 
-  if (loading && !fromCatalog) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
@@ -152,48 +160,49 @@ export default function EventClicked() {
     )
   }
 
-  if (!fromCatalog) {
+  if (!ev) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
         <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-20 text-center">
           <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
-          <Button variant="outline" onClick={() => navigate(-1)}>
-            Go back
-          </Button>
-          <Button variant="ghost" onClick={() => navigate('/')}>
-            Home
-          </Button>
+          <Button variant="outline" onClick={() => navigate(-1)}>Go back</Button>
+          <Button variant="ghost" onClick={() => navigate('/')}>Home</Button>
         </div>
         <LovableFooter />
       </div>
     )
   }
 
-  const ev = fromCatalog
-  const needsTicket = eventNeedsTicket(ev)
-  const venueLine = [ev.club && ev.club !== '—' ? ev.club : '', ev.city]
-    .filter(Boolean)
-    .join(' · ')
-  const venueAddress =
-    ev.address?.trim() ||
-    [ev.city, ev.club && ev.club !== '—' ? ev.club : ''].filter(Boolean).join(', ')
-  const musicLine =
-    ev.musicType && ev.musicType !== '—' ? ev.musicType : 'Live event'
-  const priceLabel =
-    ev.price > 0
-      ? `From ${ev.currency ?? '€'}${ev.price}`
+  const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+  const ticketTypes = detail?.ticketTypes ?? []
+  const lowestPrice = ticketTypes.length > 0
+    ? Math.min(...ticketTypes.map((t) => t.price))
+    : ev.price
+  const priceLabel = isReservation
+    ? 'Free reservation'
+    : lowestPrice > 0
+      ? `From ${ev.currency ?? '€'}${lowestPrice.toFixed(2)}`
       : 'Free entry'
-  const chipAge = ev.ageRestriction?.trim() || '—'
-  const chipHost = ev.organizer?.trim() || 'PartyOn'
-  const doorsText =
-    ev.doorsOpen != null && String(ev.doorsOpen).trim()
-      ? `Doors open: ${String(ev.doorsOpen).trim()}`
-      : null
-  const about =
-    ev.description?.trim() ||
-    'Details for this night will appear here when the organizer adds a full description.'
-  const aboutLong = about.length > 220
+  const ctaLabel = isReservation ? 'Reserve a table' : 'Buy ticket'
+
+  const rawDate = ev.rawDate ?? ev.date
+  const fullDate = formatFullDate(rawDate)
+  const timeStr = formatTime(ev.rawDate, ev.doorsOpen)
+
+  const venueAddress = detail?.clubFullAddress ?? ev.address ?? ev.city ?? ''
+  const venueName = ev.club && ev.club !== '—' ? ev.club : 'Venue'
+  const clubPhone = detail?.clubPhone
+
+  const specialGuests =
+    Array.isArray(ev.specialGuests) && ev.specialGuests.length > 0
+      ? ev.specialGuests.join(', ')
+      : typeof ev.specialGuests === 'string' && (ev.specialGuests as string).trim()
+        ? (ev.specialGuests as string).trim()
+        : null
+
+  const about = ev.description?.trim() || null
+  const aboutLong = (about?.length ?? 0) > 220
   const imgSrc = ev.imageUrl?.trim() || FALLBACK_IMG
 
   return (
@@ -221,31 +230,26 @@ export default function EventClicked() {
                   src={imgSrc}
                   alt=""
                   className="h-full w-full object-cover"
-                  onError={(e) => {
-                    ;(e.currentTarget as HTMLImageElement).src = FALLBACK_IMG
-                  }}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = FALLBACK_IMG }}
                 />
               </div>
-              <div
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
-                aria-hidden
-              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" aria-hidden />
+              {ev.isFeatured ? (
+                <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
+                  <Star className="h-3 w-3 fill-current" />
+                  Featured
+                </div>
+              ) : null}
               <div className="absolute right-3 top-3 flex gap-2">
                 <Button
                   type="button"
                   size="icon"
                   variant="secondary"
-                  className={cn(
-                    'h-10 w-10 rounded-full border-0 bg-black/50 text-white backdrop-blur-md hover:bg-black/65',
-                    saved && 'text-pink-400',
-                  )}
+                  className={cn('h-10 w-10 rounded-full border-0 bg-black/50 text-white backdrop-blur-md hover:bg-black/65', saved && 'text-pink-400')}
                   aria-label={saved ? 'Remove from saved' : 'Save event'}
                   onClick={() => void toggleSave()}
                 >
-                  <Heart
-                    className={cn('h-4 w-4', saved && 'fill-current')}
-                    strokeWidth={1.75}
-                  />
+                  <Heart className={cn('h-4 w-4', saved && 'fill-current')} strokeWidth={1.75} />
                 </Button>
                 <Button
                   type="button"
@@ -261,120 +265,136 @@ export default function EventClicked() {
             </div>
 
             {/* Details */}
-            <div className="flex min-w-0 flex-col gap-8">
+            <div className="flex min-w-0 flex-col gap-6">
               <div>
                 <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
                   {ev.title}
                 </h1>
-                <ul className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground md:text-base">
-                  <li className="flex gap-3">
-                    <Calendar className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
-                    <span className="text-foreground/90">{ev.date}</span>
-                  </li>
-                  {venueLine ? (
-                    <li className="flex gap-3">
-                      <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
-                      <span className="text-foreground/90">{venueLine}</span>
+                {isReservation && (
+                  <span className="mt-2 inline-block rounded-full border border-primary/40 bg-primary/10 px-3 py-0.5 text-xs font-semibold text-primary">
+                    Reservation only
+                  </span>
+                )}
+              </div>
+
+              {/* Info block */}
+              <div className="rounded-xl border border-border/50 bg-card/40 p-4 md:p-5">
+                <ul className="flex flex-col gap-3 text-sm text-muted-foreground">
+                  {fullDate ? (
+                    <li className="flex items-start gap-3">
+                      <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{fullDate}</span>
                     </li>
                   ) : null}
-                  <li className="flex gap-3">
-                    <Music className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
-                    <span className="text-foreground/90">{musicLine}</span>
-                  </li>
+                  {timeStr ? (
+                    <li className="flex items-start gap-3">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{timeStr}</span>
+                    </li>
+                  ) : null}
+                  {venueAddress || venueName ? (
+                    <li className="flex items-start gap-3">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">
+                        {venueName !== 'Venue' ? `${venueName}` : ''}
+                        {venueName !== 'Venue' && venueAddress ? ' · ' : ''}
+                        {venueAddress}
+                      </span>
+                    </li>
+                  ) : null}
+                  {ev.musicType && ev.musicType !== '—' ? (
+                    <li className="flex items-start gap-3">
+                      <Music className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{ev.musicType}</span>
+                    </li>
+                  ) : null}
+                  {ev.capacity ? (
+                    <li className="flex items-start gap-3">
+                      <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">Capacity: {ev.capacity.toLocaleString()}</span>
+                    </li>
+                  ) : null}
+                  {specialGuests ? (
+                    <li className="flex items-start gap-3">
+                      <Star className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">Special guests: {specialGuests}</span>
+                    </li>
+                  ) : null}
                 </ul>
               </div>
 
+
+              {/* Price + CTA */}
               <div className="rounded-2xl border border-border/50 bg-card/40 p-5 shadow-sm backdrop-blur-sm md:p-6">
-                <p className="text-lg font-bold text-foreground md:text-xl">
-                  {priceLabel}
-                </p>
+                <p className="text-lg font-bold text-foreground md:text-xl">{priceLabel}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {needsTicket
-                    ? 'No hidden fees. Final price shown upfront.'
-                    : 'No ticket purchase on PartyOn for this event — reserve with the venue.'}
+                  {isReservation
+                    ? 'No payment required — reserve your spot with the venue.'
+                    : 'No hidden fees. Final price shown upfront.'}
                 </p>
                 <Button
                   type="button"
                   className="mt-5 w-full rounded-full gradient-primary py-6 text-base font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95"
                   onClick={primaryAction}
                 >
-                  {needsTicket ? 'Buy now' : 'Reserve a table'}
+                  {ctaLabel}
                 </Button>
               </div>
 
-              <section>
-                <h2 className="text-lg font-semibold text-foreground">About</h2>
-                <p
-                  className={cn(
-                    'mt-3 text-sm leading-relaxed text-muted-foreground md:text-base',
-                    !aboutExpanded && aboutLong && 'line-clamp-3',
-                  )}
-                >
-                  {about}
-                </p>
-                {aboutLong ? (
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                    onClick={() => setAboutExpanded((o) => !o)}
+              {/* About */}
+              {about ? (
+                <section className="rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
+                  <h2 className="flex items-center gap-2 text-lg font-bold text-foreground md:text-xl">
+                    <AlignLeft className="h-4 w-4 shrink-0 text-primary/80" />
+                    About
+                  </h2>
+                  <p
+                    className={cn(
+                      'mt-3 text-base leading-relaxed text-muted-foreground',
+                      !aboutExpanded && aboutLong && 'line-clamp-3',
+                    )}
                   >
-                    {aboutExpanded ? 'Show less' : 'Read more'}
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 transition-transform',
-                        aboutExpanded && 'rotate-180',
-                      )}
-                    />
-                  </button>
-                ) : null}
-
-                <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-border/40 bg-muted/30 px-4 py-4 text-center">
-                    <User className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-                    <p className="text-sm font-semibold text-foreground">{chipAge}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/40 bg-muted/30 px-4 py-4 text-center">
-                    <Music className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-                    <p className="text-sm font-semibold text-foreground">{musicLine}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/40 bg-muted/30 px-4 py-4 text-center">
-                    <Users className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-                    <p className="text-sm font-semibold text-foreground">{chipHost}</p>
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <h2 className="text-lg font-semibold text-foreground">Venue</h2>
-                <div className="mt-4 rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
-                  <h3 className="text-base font-bold text-foreground">
-                    {ev.club && ev.club !== '—' ? ev.club : 'Venue'}
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {venueAddress || 'Address coming soon.'}
+                    {about}
                   </p>
-                  {venueAddress ? (
-                    <Button
+                  {aboutLong ? (
+                    <button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-4 gap-2 rounded-full border-border/60"
-                      onClick={() => openMaps(venueAddress)}
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                      onClick={() => setAboutExpanded((o) => !o)}
                     >
-                      Open in Maps
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Button>
+                      {aboutExpanded ? 'Show less' : 'Read more'}
+                    </button>
                   ) : null}
-                  {doorsText ? (
-                    <>
-                      <hr className="my-4 border-border/40" />
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="h-4 w-4 shrink-0" />
-                        <span>{doorsText}</span>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
+                </section>
+              ) : null}
+
+              {/* Venue */}
+              <section className="rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
+                <h2 className="flex items-center gap-2 text-lg font-bold text-foreground md:text-xl">
+                  <MapPin className="h-4 w-4 shrink-0 text-primary/80" />
+                  Venue Information
+                </h2>
+                <h3 className="mt-3 text-lg font-bold text-foreground">{venueName}</h3>
+                {venueAddress ? (
+                  <p className="mt-1.5 text-[15px] text-muted-foreground">{venueAddress}</p>
+                ) : null}
+                {clubPhone ? (
+                  <div className="mt-2 flex items-center gap-2 text-[15px] text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                    <span>{clubPhone}</span>
+                  </div>
+                ) : null}
+                {venueAddress ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-4 gap-2 rounded-full gradient-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95"
+                    onClick={() => openMaps(venueAddress)}
+                  >
+                    Open in Maps
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
               </section>
             </div>
           </div>

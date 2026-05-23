@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { Promotions } from 'generated-entities/entities/Promotions';
 
 export type PromotionsListItem = {
@@ -22,10 +22,19 @@ export class PromotionsService {
   ) {}
 
   async findAll(): Promise<PromotionsListItem[]> {
-  
-    const promotions = await this.promotionsRepository.find({
-        relations: ['club'],
-    });
+    const promotions = await this.promotionsRepository
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.club', 'club')
+      .where(
+        new Brackets((qb) => {
+          qb.where('p.valid_until IS NULL').orWhere('p.valid_until >= :now', {
+            now: new Date(),
+          });
+        }),
+      )
+      .orderBy('p.valid_until', 'ASC', 'NULLS LAST')
+      .addOrderBy('p.promotion_id', 'ASC')
+      .getMany();
   
     return promotions.map((promotions) => this.toListItem(promotions));
   }
@@ -42,8 +51,8 @@ export class PromotionsService {
         category: promotions.category,
         rating: promotions.rating,
         image_url: promotions.imageUrl,
-        club_address: promotions.club.clubAddress,
-        club: promotions.club.clubName,
+        club_address: promotions.club?.clubAddress ?? null,
+        club: promotions.club?.clubName ?? null,
     };
   }
 }

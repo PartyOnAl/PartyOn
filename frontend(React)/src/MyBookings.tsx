@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, MapPin, ReceiptText, Ticket } from 'lucide-react'
+import { CalendarDays, ChevronRight, MapPin, ReceiptText, Ticket, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -93,7 +93,7 @@ function formatDateLine(value: string | null): string {
 function normalizeStatus(status: string | null): 'confirmed' | 'pending' | 'cancelled' {
   const s = String(status ?? '').toLowerCase()
   if (s.includes('cancel')) return 'cancelled'
-  if (s.includes('confirm') || s.includes('paid') || s.includes('success')) return 'confirmed'
+  if (s.includes('confirm') || s.includes('paid') || s.includes('success') || s.includes('complet')) return 'confirmed'
   return 'pending'
 }
 
@@ -108,6 +108,60 @@ export default function MyBookings() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterKind>('upcoming')
   const [bookings, setBookings] = useState<BookingItem[]>([])
+  const [clearing, setClearing] = useState<string | null>(null)
+  const [clearingAll, setClearingAll] = useState(false)
+
+  async function deleteBookingFromDb(booking: BookingItem) {
+    if (!supabase || !isSupabaseConfigured) return
+    if (booking.kind === 'ticket') {
+      await supabase.from('tickets').delete().eq('id', booking.bookingId)
+    } else {
+      const { error: modernErr } = await supabase.from('reservations').delete().eq('id', booking.bookingId)
+      if (modernErr) {
+        await supabase.from('reservations').delete().eq('reservation_id', booking.bookingId)
+      }
+    }
+  }
+
+  async function clearBooking(booking: BookingItem, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (clearing || clearingAll) return
+    setClearing(booking.bookingId)
+    try {
+      await deleteBookingFromDb(booking)
+    } finally {
+      setClearing(null)
+      setBookings((prev) => prev.filter((b) => b.bookingId !== booking.bookingId))
+    }
+  }
+
+  async function clearAllPast(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (clearingAll || clearing) return
+    setClearingAll(true)
+    const now = new Date()
+    const pastIds = bookings
+      .filter((b) => {
+        const d = b.eventDate ? new Date(b.eventDate) : null
+        return d && !Number.isNaN(d.getTime()) && d < now
+      })
+      .map((b) => b.bookingId)
+    try {
+      const pastBookings = bookings.filter((b) => pastIds.includes(b.bookingId))
+      for (const booking of pastBookings) {
+        await deleteBookingFromDb(booking)
+      }
+    } finally {
+      setClearingAll(false)
+      setBookings((prev) => {
+        const now2 = new Date()
+        return prev.filter((b) => {
+          const d = b.eventDate ? new Date(b.eventDate) : null
+          return !d || Number.isNaN(d.getTime()) || d >= now2
+        })
+      })
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -277,31 +331,44 @@ export default function MyBookings() {
               Your tickets and reservations in one place
             </p>
 
-            <div className="mt-5 flex gap-6 border-b border-white/10">
-              <button
-                type="button"
-                onClick={() => setFilter('upcoming')}
-                className={`relative pb-3 text-sm font-semibold transition-colors ${
-                  filter === 'upcoming' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Upcoming
-                {filter === 'upcoming' ? (
-                  <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilter('past')}
-                className={`relative pb-3 text-sm font-semibold transition-colors ${
-                  filter === 'past' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Past
-                {filter === 'past' ? (
-                  <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
-                ) : null}
-              </button>
+            <div className="mt-5 flex items-end justify-between border-b border-white/10">
+              <div className="flex gap-6">
+                <button
+                  type="button"
+                  onClick={() => setFilter('upcoming')}
+                  className={`relative pb-3 text-sm font-semibold transition-colors ${
+                    filter === 'upcoming' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Upcoming
+                  {filter === 'upcoming' ? (
+                    <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilter('past')}
+                  className={`relative pb-3 text-sm font-semibold transition-colors ${
+                    filter === 'past' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Past
+                  {filter === 'past' ? (
+                    <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
+                  ) : null}
+                </button>
+              </div>
+              {filter === 'past' && filteredBookings.length > 0 && (
+                <button
+                  type="button"
+                  disabled={clearingAll || !!clearing}
+                  onClick={(e) => void clearAllPast(e)}
+                  className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs font-medium text-white/45 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-30"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {clearingAll ? 'Clearing…' : 'Clear all'}
+                </button>
+              )}
             </div>
           </header>
 
@@ -353,10 +420,11 @@ export default function MyBookings() {
                 return (
                   <article
                     key={booking.bookingId}
-                    className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(236,72,153,0.22)] md:grid-cols-[112px_1fr_auto] md:items-center"
+                    className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(236,72,153,0.22)] md:grid-cols-[96px_1fr_auto] md:items-center"
                     onClick={() => navigate(`/my-bookings/${booking.bookingId}`)}
                   >
-                    <div className="h-24 w-28 overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                    {/* Thumbnail */}
+                    <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-black/30">
                       {booking.eventImage ? (
                         <img
                           src={booking.eventImage}
@@ -370,34 +438,49 @@ export default function MyBookings() {
                       )}
                     </div>
 
+                    {/* Content */}
                     <div className="min-w-0">
-                      <h3 className="truncate text-lg font-bold text-white">{booking.eventName}</h3>
-                      <p className="mt-1 inline-flex items-center gap-2 text-sm text-muted-foreground">
-                        <CalendarDays className="h-4 w-4 text-primary" />
+                      <h3 className="truncate text-base font-bold text-white">{booking.eventName}</h3>
+                      <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-primary" />
                         {formatDateLine(booking.eventDate)}
                       </p>
-                      <p className="mt-1 inline-flex items-center gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4 text-primary" />
-                        <span className="ml-1">{booking.venue || 'Venue not set'}</span>
+                      <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        {booking.venue || 'Venue not set'}
                       </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {booking.ticketTypeName || (booking.kind === 'reservation' ? 'Reservation' : 'General Admission')}
-                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${typeClass}`}>
+                          {booking.kind === 'reservation' ? 'TABLE' : 'TICKET'}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {booking.ticketTypeName || (booking.kind === 'reservation' ? 'Reservation' : 'General Admission')}
+                          {booking.quantity > 1 ? ` × ${booking.quantity}` : ''}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex flex-col items-start gap-2 md:items-end">
+                    {/* Right: status + action */}
+                    <div className="flex flex-col items-end justify-between gap-3 self-stretch py-0.5">
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}>
                         {status[0].toUpperCase() + status.slice(1)}
                       </span>
-                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${typeClass}`}>
-                        {booking.kind === 'reservation' ? 'RESERVATION' : 'TICKET'}
-                      </span>
-                      <button
-                        type="button"
-                        className="rounded-full border border-primary/45 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/10"
-                      >
-                        View Details
-                      </button>
+                      {filter === 'past' ? (
+                        <button
+                          type="button"
+                          title="Remove booking"
+                          disabled={clearing === booking.bookingId || clearingAll}
+                          onClick={(e) => void clearBooking(booking, e)}
+                          className="group flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/30 transition-all duration-150 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-400 disabled:opacity-30"
+                        >
+                          {clearing === booking.bookingId
+                            ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+                            : <Trash2 className="h-3.5 w-3.5" />
+                          }
+                        </button>
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-white/25" />
+                      )}
                     </div>
                   </article>
                 )

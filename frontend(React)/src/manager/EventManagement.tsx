@@ -1,4 +1,5 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import './ManagerDashboard.css'
 import './EventManagement.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
@@ -8,12 +9,14 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   isPaidTicketEvent,
   reservationIsConfirmed,
+  totalGuestCount,
 } from './eventPaidEntry'
 
 type ReservationMini = {
   reservation_id: string
   type: string | null
   status: string | null
+  nr_of_people: number | null
 }
 
 type EventRow = {
@@ -33,8 +36,25 @@ type EventRow = {
 }
 
 /** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
-function confirmedReservationCountForEvent(ev: EventRow): number {
-  return ev.reservations.filter(reservationIsConfirmed).length
+function confirmedGuestsForEvent(ev: EventRow): number {
+  return totalGuestCount(ev.reservations.filter(reservationIsConfirmed))
+}
+
+function getEventStatusBadgeClass(status: string | null): string {
+  const normalized = status?.toLowerCase() ?? 'upcoming'
+  const variant =
+    normalized === 'draft' ||
+    normalized === 'pending' ||
+    normalized === 'cancelled' ||
+    normalized === 'archived'
+      ? normalized
+      : 'published'
+
+  return `event-mgmt__badge event-mgmt__badge--status event-mgmt__badge--status-${variant}`
+}
+
+function eventIsPast(event: Pick<EventRow, 'event_ending_date'>, todayStart: Date): boolean {
+  return Boolean(event.event_ending_date && new Date(event.event_ending_date) < todayStart)
 }
 
 type EventFormState = {
@@ -45,6 +65,7 @@ type EventFormState = {
   event_ending_date: string
   event_capacity: string   
   ticket_price: string
+  discount_percent: string
   final_ticket_price: string
   event_image: string
   event_status: 'draft' | 'published'
@@ -56,6 +77,8 @@ type ToastState = {
   type: 'success' | 'error'
   message: string
 } | null
+
+type EventFilter = 'all' | 'published' | 'draft' | 'upcoming' | 'past'
 
 const MONTH_NAMES = [
   'January',
@@ -74,6 +97,14 @@ const MONTH_NAMES = [
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
 const HOUR_SELECT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const
 const MINUTE_SELECT_OPTIONS = ['00', '30'] as const
+const EVENT_TYPE_OPTIONS = ['Club Night', 'Live Music', 'Special Event', 'Private Party', 'Other'] as const
+const EVENT_FILTERS: Array<{ id: EventFilter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'published', label: 'Published' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'past', label: 'Past' },
+]
 
 function datePart(dateTime: string) {
   return dateTime ? dateTime.slice(0, 10) : ''
@@ -109,6 +140,114 @@ function formatTimeLabel(value: string) {
 function buildDateTime(date: string, time: string) {
   if (!date) return ''
   return `${date}T${time || '00:00'}`
+}
+
+function parseNumLoose(s: string): number | null {
+  const t = String(s).trim().replace(',', '.')
+  if (t === '') return null
+  const n = parseFloat(t)
+  return Number.isFinite(n) ? n : null
+}
+
+/** finalPrice = ticketPrice - (ticketPrice * discount / 100). Empty discount → final = ticket. */
+function computeFinalTicketPrice(ticketPriceStr: string, discountPercentStr: string): string {
+  const t = parseNumLoose(ticketPriceStr)
+  if (t === null || t < 0) return ''
+  const dRaw = String(discountPercentStr).trim()
+  const dParsed = dRaw === '' ? 0 : parseNumLoose(discountPercentStr)
+  const discount = dParsed === null || !Number.isFinite(dParsed) ? 0 : Math.min(100, Math.max(0, dParsed))
+  if (discount === 0) return String(Math.round(t * 100) / 100)
+  const final = t - (t * discount) / 100
+  return String(Math.round(final * 100) / 100)
+}
+
+/** When loading an event for edit, infer discount % from stored ticket vs final price. */
+function inferDiscountPercent(ticketStr: string, finalStr: string): string {
+  const t = parseNumLoose(ticketStr)
+  const f = parseNumLoose(finalStr)
+  if (t === null || t <= 0) return ''
+  if (f === null) return ''
+  if (Math.abs(f - t) < 0.0001) return ''
+  const pct = ((t - f) / t) * 100
+  if (pct <= 0 || pct > 100) return ''
+  return String(Math.round(pct * 100) / 100)
+}
+
+function EventTypeField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (eventType: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const label = value || 'Select event type'
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      const el = e.target as HTMLElement
+      if (el.closest('.event-mgmt__type-select')) return
+      setIsOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen])
+
+  return (
+    <div className="event-mgmt__field event-mgmt__field--full event-mgmt__type-select">
+      <label>Event Type</label>
+      <button
+        type="button"
+        className="event-mgmt__input event-mgmt__select event-mgmt__type-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <span>{label}</span>
+        <span className="event-mgmt__select-icon" aria-hidden="true">v</span>
+      </button>
+      {isOpen && (
+        <div className="event-mgmt__type-menu" role="listbox" aria-label="Event type">
+          <button
+            type="button"
+            role="option"
+            aria-selected={value === ''}
+            className={
+              value === ''
+                ? 'event-mgmt__type-option event-mgmt__type-option--selected'
+                : 'event-mgmt__type-option'
+            }
+            onClick={() => {
+              onChange('')
+              setIsOpen(false)
+            }}
+          >
+            Select event type
+          </button>
+          {EVENT_TYPE_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              aria-selected={value === option}
+              className={
+                value === option
+                  ? 'event-mgmt__type-option event-mgmt__type-option--selected'
+                  : 'event-mgmt__type-option'
+              }
+              onClick={() => {
+                onChange(option)
+                setIsOpen(false)
+              }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function DatePickerField({
@@ -389,6 +528,14 @@ function IconPlus() {
     </svg>
   )
 }
+function IconSearch() {
+  return (
+    <svg className="event-mgmt__search-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m16.5 16.5 4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
 function IconCalendar() {
   return (
     <svg className="event-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -426,6 +573,21 @@ function IconPencil() {
     </svg>
   )
 }
+function IconCheck() {
+  return (
+    <svg className="event-mgmt__action-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 12.5 9.5 17 19 7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconCopy() {
+  return (
+    <svg className="event-mgmt__action-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="8" y="8" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
 function IconTrash({ compact }: { compact?: boolean }) {
   return (
     <svg
@@ -438,19 +600,32 @@ function IconTrash({ compact }: { compact?: boolean }) {
     </svg>
   )
 }
+function IconUpload() {
+  return (
+    <svg className="event-mgmt__upload-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 16V4M7 9l5-5 5 5M5 20h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 function EventCard({
   ev,
   onView,
   onEdit,
+  onDuplicate,
+  onPublish,
   onDelete,
+  todayStart,
 }: {
   ev: EventRow
   onView: (event: EventRow) => void
   onEdit: (event: EventRow) => void
+  onDuplicate: (event: EventRow) => void
+  onPublish: (event: EventRow) => void
   onDelete: (event: EventRow) => void
+  todayStart: Date
 }) {
-  const booked = confirmedReservationCountForEvent(ev)
+  const booked = confirmedGuestsForEvent(ev)
   const cap = ev.event_capacity ?? 0
   const capacityPct = cap > 0 ? Math.round(Math.min(100, (booked / cap) * 100)) : 0
   const paidEntry = isPaidTicketEvent(ev)
@@ -469,6 +644,8 @@ function EventCard({
   })
   const timeStr = ev.event_hours ?? eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
   const dateLine = `${dateStr} • ${timeStr}`
+  const isDraft = ev.event_status === 'draft'
+  const isPast = eventIsPast(ev, todayStart)
 
   const imgVariants = ['violet', 'cyan', 'placeholder'] as const
   const imgKey = Math.abs([...ev.event_id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)) % 3
@@ -484,7 +661,7 @@ function EventCard({
       <div className="event-mgmt__card-body">
         <h2 className="event-mgmt__card-title">{ev.event_name}</h2>
         <div className="event-mgmt__badges">
-          <span className="event-mgmt__badge event-mgmt__badge--status">
+          <span className={getEventStatusBadgeClass(ev.event_status)}>
             {ev.event_status ?? 'upcoming'}
           </span>
           {ev.event_type && (
@@ -523,6 +700,16 @@ function EventCard({
               <IconEye />
               View
             </button>
+            {isPast && (
+              <button
+                type="button"
+                className="event-mgmt__action event-mgmt__action--secondary event-mgmt__action--split"
+                onClick={() => onDuplicate(ev)}
+              >
+                <IconCopy />
+                Duplicate
+              </button>
+            )}
             <button
               type="button"
               className="event-mgmt__action event-mgmt__action--secondary event-mgmt__action--split"
@@ -531,6 +718,16 @@ function EventCard({
               <IconPencil />
               Edit
             </button>
+            {isDraft && !isPast && (
+              <button
+                type="button"
+                className="event-mgmt__action event-mgmt__action--publish event-mgmt__action--split"
+                onClick={() => onPublish(ev)}
+              >
+                <IconCheck />
+                Publish
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -549,17 +746,23 @@ function EventCard({
 export default function EventManagement() {
   const { user } = useAuth()
   const { club, clubId } = useManagerClub()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [events, setEvents] = useState<EventRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
+  const [isDuplicatingEvent, setIsDuplicatingEvent] = useState(false)
   const [viewingEvent, setViewingEvent] = useState<EventRow | null>(null)
   const [deletingEvent, setDeletingEvent] = useState<EventRow | null>(null)
+  const [confirmDeletePast, setConfirmDeletePast] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formErrors, setFormErrors] = useState<FormErrors>({})
   const [toast, setToast] = useState<ToastState>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [eventSearch, setEventSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<EventFilter>('all')
+  const selectedEventId = searchParams.get('event')
   const [form, setForm] = useState<EventFormState>({
     event_name: '',
     event_description: '',
@@ -568,6 +771,7 @@ export default function EventManagement() {
     event_ending_date: '',
     event_capacity: '',
     ticket_price: '',
+    discount_percent: '',
     final_ticket_price: '',
     event_image: '',
     event_status: 'published',
@@ -582,26 +786,34 @@ export default function EventManagement() {
       event_ending_date: '',
       event_capacity: '',
       ticket_price: '',
+      discount_percent: '',
       final_ticket_price: '',
       event_image: '',
       event_status: 'published',
     })
     setFormErrors({})
+    setIsDuplicatingEvent(false)
   }
 
   function closeCreateModal() {
     setShowCreateForm(false)
     setEditingEventId(null)
+    setIsDuplicatingEvent(false)
     setFormErrors({})
   }
 
   function openCreateModal() {
     resetForm()
     setEditingEventId(null)
+    setIsDuplicatingEvent(false)
     setShowCreateForm(true)
   }
 
   function openEditModal(ev: EventRow) {
+    setIsDuplicatingEvent(false)
+    const tp = ev.ticket_price != null ? String(ev.ticket_price) : ''
+    const fp = ev.final_ticket_price != null ? String(ev.final_ticket_price) : ''
+    const discount = inferDiscountPercent(tp, fp)
     setForm({
       event_name: ev.event_name,
       event_description: ev.event_description ?? '',
@@ -609,14 +821,46 @@ export default function EventManagement() {
       event_starting_date: ev.event_starting_date,
       event_ending_date: ev.event_ending_date ?? '',
       event_capacity: ev.event_capacity === null ? '' : String(ev.event_capacity),
-      ticket_price: ev.ticket_price ?? '',
-      final_ticket_price: ev.final_ticket_price ?? '',
+      ticket_price: tp,
+      discount_percent: discount,
+      final_ticket_price: computeFinalTicketPrice(tp, discount),
       event_image: ev.event_image ?? '',
       event_status: ev.event_status === 'draft' ? 'draft' : 'published',
     })
     setFormErrors({})
     setEditingEventId(ev.event_id)
     setShowCreateForm(true)
+  }
+
+  function openDuplicateModal(ev: EventRow) {
+    const tp = ev.ticket_price != null ? String(ev.ticket_price) : ''
+    const fp = ev.final_ticket_price != null ? String(ev.final_ticket_price) : ''
+    const discount = inferDiscountPercent(tp, fp)
+    setForm({
+      event_name: ev.event_name,
+      event_description: ev.event_description ?? '',
+      event_type: ev.event_type ?? '',
+      event_starting_date: '',
+      event_ending_date: '',
+      event_capacity: ev.event_capacity === null ? '' : String(ev.event_capacity),
+      ticket_price: tp,
+      discount_percent: discount,
+      final_ticket_price: computeFinalTicketPrice(tp, discount),
+      event_image: ev.event_image ?? '',
+      event_status: 'draft',
+    })
+    setFormErrors({})
+    setEditingEventId(null)
+    setIsDuplicatingEvent(true)
+    setShowCreateForm(true)
+  }
+
+  function closeViewingEvent() {
+    setViewingEvent(null)
+    if (!selectedEventId) return
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('event')
+    setSearchParams(nextParams, { replace: true })
   }
 
   useEffect(() => {
@@ -630,7 +874,7 @@ export default function EventManagement() {
         event_id, event_name, event_description, event_type, event_starting_date,
         event_ending_date, event_hours,
         event_capacity, ticket_price, final_ticket_price, event_image, event_status,
-        reservations(reservation_id, type, status)
+        reservations(reservation_id, type, status, nr_of_people)
       `)
       .eq('club_id', clubId)
       .order('event_starting_date', { ascending: false })
@@ -641,7 +885,14 @@ export default function EventManagement() {
       })
   }, [clubId, refreshKey])
 
+  useEffect(() => {
+    if (!selectedEventId || events.length === 0) return
+    const eventToView = events.find((event) => event.event_id === selectedEventId)
+    if (eventToView) setViewingEvent(eventToView)
+  }, [events, selectedEventId])
+
   const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const allReservations = events.flatMap((e) => e.reservations)
   const confirmedReservations = allReservations.filter(reservationIsConfirmed)
 
@@ -650,12 +901,32 @@ export default function EventManagement() {
     { label: 'Upcoming', value: String(events.filter((e) => new Date(e.event_starting_date) > now).length) },
     {
       label: 'Total Tickets / Reservations',
-      value: String(
-        allReservations.filter((r) => r.type === 'ticket' && reservationIsConfirmed(r)).length,
-      ),
+      value: String(totalGuestCount(allReservations)),
     },
-    { label: 'Confirmed Reservations', value: String(confirmedReservations.length) },
+    { label: 'Confirmed Reservations', value: String(totalGuestCount(confirmedReservations)) },
+    {
+      label: 'Past Events',
+      value: String(events.filter((e) => eventIsPast(e, todayStart)).length),
+    },
+    { label: 'Draft Events', value: String(events.filter((e) => e.event_status === 'draft').length) },
   ]
+
+  const normalizedSearch = eventSearch.trim().toLowerCase()
+  const filteredEvents = events.filter((event) => {
+    const status = event.event_status?.toLowerCase() ?? ''
+    const isUpcoming = new Date(event.event_starting_date) > now
+    const isPast = eventIsPast(event, todayStart)
+    const matchesFilter =
+      activeFilter === 'all' ||
+      (activeFilter === 'published' && status === 'published') ||
+      (activeFilter === 'draft' && status === 'draft') ||
+      (activeFilter === 'upcoming' && isUpcoming) ||
+      (activeFilter === 'past' && isPast)
+    const matchesSearch = normalizedSearch === '' || event.event_name.toLowerCase().includes(normalizedSearch)
+
+    return matchesFilter && matchesSearch
+  })
+  const pastEventIds = events.filter((event) => eventIsPast(event, todayStart)).map((event) => event.event_id)
 
   async function handleCreateEventSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -696,7 +967,8 @@ export default function EventManagement() {
     setToast(null)
 
     try {
-      const nextStatus = form.event_status
+      const nextStatus = isDuplicatingEvent ? 'draft' : form.event_status
+      const finalTicketPrice = computeFinalTicketPrice(form.ticket_price, form.discount_percent)
       const eventPayload = {
         club_id: clubId,
         event_name: form.event_name.trim(),
@@ -706,8 +978,8 @@ export default function EventManagement() {
         event_ending_date: form.event_ending_date || null,
         event_capacity: form.event_capacity ? Number(form.event_capacity) : null,
         ticket_price: form.ticket_price ? Number(form.ticket_price) : null,
-        final_ticket_price: form.final_ticket_price
-          ? Number(form.final_ticket_price)
+        final_ticket_price: finalTicketPrice
+          ? Number(finalTicketPrice)
           : (form.ticket_price ? Number(form.ticket_price) : null),
         event_status: nextStatus,
         event_image: form.event_image.trim() || null,
@@ -747,6 +1019,49 @@ export default function EventManagement() {
     }
   }
 
+  function handleEventImageUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('image/')) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setForm((f) => ({ ...f, event_image: reader.result as string }))
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function handlePublishEvent(ev: EventRow) {
+    if (!supabase || !isSupabaseConfigured) {
+      setToast({ type: 'error', message: 'Supabase is not configured.' })
+      return
+    }
+    if (!clubId) {
+      setToast({ type: 'error', message: 'No club found for your account.' })
+      return
+    }
+
+    setToast(null)
+    const { error: updateErr } = await supabase
+      .from('events')
+      .update({ event_status: 'published' })
+      .eq('event_id', ev.event_id)
+      .eq('club_id', clubId)
+
+    if (updateErr) {
+      setToast({ type: 'error', message: updateErr.message })
+      return
+    }
+
+    setEvents((current) =>
+      current.map((event) =>
+        event.event_id === ev.event_id ? { ...event, event_status: 'published' } : event,
+      ),
+    )
+    setToast({ type: 'success', message: 'Event published successfully' })
+  }
+
   async function handleDeleteEvent(ev: EventRow) {
     setDeletingEvent(ev)
   }
@@ -775,11 +1090,45 @@ export default function EventManagement() {
     }
 
     if (viewingEvent?.event_id === deletingEvent.event_id) {
-      setViewingEvent(null)
+      closeViewingEvent()
     }
     setDeletingEvent(null)
     setToast({ type: 'success', message: 'Event deleted successfully.' })
     setRefreshKey((k) => k + 1)
+  }
+
+  async function confirmDeleteAllPastEvents() {
+    if (pastEventIds.length === 0) {
+      setConfirmDeletePast(false)
+      return
+    }
+    if (!supabase || !isSupabaseConfigured) {
+      setToast({ type: 'error', message: 'Supabase is not configured.' })
+      return
+    }
+    if (!clubId) {
+      setToast({ type: 'error', message: 'No club found for your account.' })
+      return
+    }
+
+    setToast(null)
+    const { error: deleteErr } = await supabase
+      .from('events')
+      .delete()
+      .eq('club_id', clubId)
+      .in('event_id', pastEventIds)
+
+    if (deleteErr) {
+      setToast({ type: 'error', message: deleteErr.message })
+      return
+    }
+
+    if (viewingEvent && pastEventIds.includes(viewingEvent.event_id)) {
+      closeViewingEvent()
+    }
+    setConfirmDeletePast(false)
+    setEvents((current) => current.filter((event) => !pastEventIds.includes(event.event_id)))
+    setToast({ type: 'success', message: 'All past events deleted' })
   }
 
   if (loading) {
@@ -807,6 +1156,8 @@ export default function EventManagement() {
       </div>
     )
   }
+
+  const createModalTitle = isDuplicatingEvent ? 'Duplicate Event' : editingEventId ? 'Edit Event' : 'Create Event'
 
   return (
     <div className="manager-dash">
@@ -878,8 +1229,46 @@ export default function EventManagement() {
               </div>
             )}
 
+            {confirmDeletePast && (
+              <div className="event-mgmt__modal-overlay event-mgmt__modal-overlay--blur" onClick={() => setConfirmDeletePast(false)} role="presentation">
+                <aside
+                  className="event-mgmt__delete-modal"
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Confirm delete all past events"
+                >
+                  <div className="event-mgmt__delete-icon" aria-hidden>
+                    <IconTrash compact />
+                  </div>
+                  <div className="event-mgmt__delete-copy">
+                    <h2>Delete All Past Events?</h2>
+                    <p className="event-mgmt__delete-subtitle">
+                      Are you sure you want to delete all past events? This cannot be undone.
+                    </p>
+                  </div>
+                  <div className="event-mgmt__delete-actions">
+                    <button
+                      type="button"
+                      className="event-mgmt__delete-btn event-mgmt__delete-btn--cancel"
+                      onClick={() => setConfirmDeletePast(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="event-mgmt__delete-btn event-mgmt__delete-btn--danger"
+                      onClick={() => void confirmDeleteAllPastEvents()}
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            )}
+
             {viewingEvent && (
-              <div className="event-mgmt__modal-overlay" onClick={() => setViewingEvent(null)} role="presentation">
+              <div className="event-mgmt__modal-overlay" onClick={closeViewingEvent} role="presentation">
                 <aside
                   className="event-mgmt__modal"
                   onClick={(e) => e.stopPropagation()}
@@ -892,7 +1281,7 @@ export default function EventManagement() {
                     <button
                       type="button"
                       className="event-mgmt__modal-close"
-                      onClick={() => setViewingEvent(null)}
+                      onClick={closeViewingEvent}
                       aria-label="Close event details modal"
                     >
                       ×
@@ -920,7 +1309,7 @@ export default function EventManagement() {
                         </div>
                         <div className="event-mgmt__field">
                           <label>Status</label>
-                          <span className="event-mgmt__badge event-mgmt__badge--status" style={{ width: 'fit-content' }}>
+                          <span className={getEventStatusBadgeClass(viewingEvent.event_status)} style={{ width: 'fit-content' }}>
                             {viewingEvent.event_status ?? 'upcoming'}
                           </span>
                         </div>
@@ -951,7 +1340,7 @@ export default function EventManagement() {
                         <div className="event-mgmt__field">
                           <label>Capacity</label>
                           <p className="event-mgmt__meta-row" style={{ margin: 0 }}>
-                            {confirmedReservationCountForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
+                            {confirmedGuestsForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
                             {isPaidTicketEvent(viewingEvent) ? 'tickets sold' : 'reservations'}
                           </p>
                         </div>
@@ -978,7 +1367,7 @@ export default function EventManagement() {
                       <button
                         type="button"
                         className="event-mgmt__modal-btn event-mgmt__modal-btn--cancel"
-                        onClick={() => setViewingEvent(null)}
+                        onClick={closeViewingEvent}
                       >
                         Close
                       </button>
@@ -987,7 +1376,7 @@ export default function EventManagement() {
                         className="event-mgmt__modal-btn event-mgmt__modal-btn--create"
                         onClick={() => {
                           const eventToEdit = viewingEvent
-                          setViewingEvent(null)
+                          closeViewingEvent()
                           openEditModal(eventToEdit)
                         }}
                       >
@@ -1002,19 +1391,20 @@ export default function EventManagement() {
             {showCreateForm && (
               <div className="event-mgmt__modal-overlay" onClick={closeCreateModal} role="presentation">
                 <aside
-                  className="event-mgmt__modal"
+                  className="event-mgmt__modal event-mgmt__modal--create"
                   onClick={(e) => e.stopPropagation()}
                   role="dialog"
                   aria-modal="true"
-                  aria-label={editingEventId ? 'Edit Event' : 'Create Event'}
+                  aria-label={createModalTitle}
                 >
+                  <div className="event-mgmt__modal-shell">
                   <div className="event-mgmt__modal-header">
-                    <h2>{editingEventId ? 'Edit Event' : 'Create Event'}</h2>
+                    <h2>{createModalTitle}</h2>
                     <button
                       type="button"
                       className="event-mgmt__modal-close"
                       onClick={closeCreateModal}
-                      aria-label={editingEventId ? 'Close edit event modal' : 'Close create event modal'}
+                      aria-label={`Close ${createModalTitle.toLowerCase()} modal`}
                     >
                       ×
                     </button>
@@ -1034,21 +1424,10 @@ export default function EventManagement() {
                         {formErrors.event_name && <p className="event-mgmt__field-error">{formErrors.event_name}</p>}
                       </div>
 
-                      <div className="event-mgmt__field event-mgmt__field--full">
-                        <label>Event Type</label>
-                        <select
-                          className="event-mgmt__input event-mgmt__select"
-                          value={form.event_type}
-                          onChange={(e) => setForm((f) => ({ ...f, event_type: e.target.value }))}
-                        >
-                          <option value="">Select event type</option>
-                          <option value="Club Night">Club Night</option>
-                          <option value="Live Music">Live Music</option>
-                          <option value="Special Event">Special Event</option>
-                          <option value="Private Party">Private Party</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
+                      <EventTypeField
+                        value={form.event_type}
+                        onChange={(event_type) => setForm((f) => ({ ...f, event_type }))}
+                      />
 
                       <div className="event-mgmt__field-grid">
                         <DatePickerField
@@ -1124,45 +1503,82 @@ export default function EventManagement() {
                             step="0.01"
                             placeholder="0.00"
                             value={form.ticket_price}
-                            onChange={(e) => setForm((f) => ({ ...f, ticket_price: e.target.value }))}
+                            onChange={(e) => {
+                              const ticket_price = e.target.value
+                              setForm((f) => ({
+                                ...f,
+                                ticket_price,
+                                final_ticket_price: computeFinalTicketPrice(ticket_price, f.discount_percent),
+                              }))
+                            }}
                           />
                         </div>
                       </div>
 
                       <div className="event-mgmt__field-grid">
                         <div className="event-mgmt__field">
-                          <label>Final Ticket Price €</label>
+                          <label>Discount %</label>
                           <input
                             className="event-mgmt__input"
                             type="number"
                             min="0"
+                            max="100"
                             step="0.01"
-                            placeholder="0.00"
-                            value={form.final_ticket_price}
-                            onChange={(e) => setForm((f) => ({ ...f, final_ticket_price: e.target.value }))}
+                            placeholder="0"
+                            value={form.discount_percent}
+                            onChange={(e) => {
+                              const discount_percent = e.target.value
+                              setForm((f) => ({
+                                ...f,
+                                discount_percent,
+                                final_ticket_price: computeFinalTicketPrice(f.ticket_price, discount_percent),
+                              }))
+                            }}
                           />
                         </div>
                         <div className="event-mgmt__field">
-                          <label>Event Image URL</label>
+                          <label>Final Ticket Price €</label>
                           <input
-                            className="event-mgmt__input"
-                            type="text"
-                            placeholder="https://..."
-                            value={form.event_image}
-                            onChange={(e) => setForm((f) => ({ ...f, event_image: e.target.value }))}
+                            className="event-mgmt__input event-mgmt__input--readonly"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            readOnly
+                            disabled
+                            aria-readonly="true"
+                            title="Calculated from ticket price and discount"
+                            value={form.final_ticket_price}
                           />
                         </div>
                       </div>
-                      {form.event_image.trim() && (
-                        <img
-                          src={form.event_image}
-                          alt="Event preview"
-                          className="event-mgmt__image-preview"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none'
-                          }}
-                        />
-                      )}
+
+                      <div className="event-mgmt__field event-mgmt__field--full">
+                        <label>Event Image</label>
+                        <label className="event-mgmt__image-upload">
+                          <input
+                            className="event-mgmt__image-upload-input"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleEventImageUpload}
+                          />
+                          {form.event_image.trim() ? (
+                            <img
+                              src={form.event_image}
+                              alt="Event preview"
+                              className="event-mgmt__image-upload-preview"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none'
+                              }}
+                            />
+                          ) : (
+                            <span className="event-mgmt__image-upload-prompt">
+                              <IconUpload />
+                              <span>Click to upload image</span>
+                            </span>
+                          )}
+                        </label>
+                      </div>
 
                       <div className="event-mgmt__field event-mgmt__field--full">
                         <label>Description</label>
@@ -1215,10 +1631,11 @@ export default function EventManagement() {
                             <span className="event-mgmt__spinner" />
                             Saving...
                           </span>
-                        ) : editingEventId ? 'Save Changes' : 'Create Event'}
+                        ) : editingEventId ? 'Save Changes' : isDuplicatingEvent ? 'Duplicate Event' : 'Create Event'}
                       </button>
                     </div>
                   </form>
+                  </div>
                 </aside>
               </div>
             )}
@@ -1232,19 +1649,64 @@ export default function EventManagement() {
               ))}
             </section>
 
+            <section className="event-mgmt__controls" aria-label="Search and filter events">
+              <label className="event-mgmt__search">
+                <IconSearch />
+                <input
+                  type="search"
+                  placeholder="Search events..."
+                  value={eventSearch}
+                  onChange={(e) => setEventSearch(e.target.value)}
+                />
+              </label>
+              <div className="event-mgmt__filters" role="group" aria-label="Filter events">
+                {EVENT_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    className={
+                      activeFilter === filter.id
+                        ? 'event-mgmt__filter-btn event-mgmt__filter-btn--active'
+                        : 'event-mgmt__filter-btn'
+                    }
+                    onClick={() => setActiveFilter(filter.id)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {activeFilter === 'past' && pastEventIds.length > 0 && (
+              <div className="event-mgmt__grid-toolbar">
+                <button
+                  type="button"
+                  className="event-mgmt__delete-past-btn"
+                  onClick={() => setConfirmDeletePast(true)}
+                >
+                  Delete All Past Events
+                </button>
+              </div>
+            )}
+
             {events.length === 0 ? (
               <p style={{ color: '#8a8a8a', fontSize: '0.9375rem', paddingTop: '8px' }}>
                 No events yet. Create your first event!
               </p>
+            ) : filteredEvents.length === 0 ? (
+              <p className="event-mgmt__empty-filter">No events found</p>
             ) : (
               <section className="event-mgmt__grid" aria-label="Events list">
-                {events.map((ev) => (
+                {filteredEvents.map((ev) => (
                   <EventCard
                     key={ev.event_id}
                     ev={ev}
                     onView={setViewingEvent}
                     onEdit={openEditModal}
+                    onDuplicate={openDuplicateModal}
+                    onPublish={handlePublishEvent}
                     onDelete={handleDeleteEvent}
+                    todayStart={todayStart}
                   />
                 ))}
               </section>

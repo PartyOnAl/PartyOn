@@ -3,8 +3,7 @@ import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Bookmark,
-  Check,
-  CheckCircle,
+  Gift,
   MapPin,
   Share2,
   Shield,
@@ -26,6 +25,9 @@ import { cn } from '@/lib/utils'
 
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=1200&q=80'
+
+const FALLBACK_TERMS =
+  'Offer subject to availability, venue rules, and age restrictions. Non-transferable unless stated.\n\nPartyOn acts as a marketing and booking platform only. The venue is solely responsible for fulfilment, service quality, and compliance with local laws.\n\nCancellations follow the venue\'s policy. Abuse, resale, or fraudulent redemption may void the offer without refund.'
 
 /** Clears fixed `Navbar` (h-16). */
 const MAIN_TOP = 'pt-16'
@@ -53,7 +55,7 @@ export default function PromotionOfferDetailPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-  const { promotions, loading } = useCatalog()
+  const { promotions, terms: globalTerms, loading } = useCatalog()
   const [saved, setSaved] = useState(false)
 
   const resolvedId = (offerId ?? '').trim()
@@ -285,72 +287,49 @@ export default function PromotionOfferDetailPage() {
                   </p>
                 </motion.div>
 
-                {offer.whyWorthItBulletLines.length > 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 }}
-                    className="space-y-4 rounded-2xl border border-border/30 bg-card p-6"
-                  >
-                    <h2 className="flex items-center gap-2 font-display text-xl font-bold text-foreground">
-                      <CheckCircle className="h-5 w-5 text-primary" aria-hidden />
-                      Why This Offer Is Worth It
-                    </h2>
-                    <ul className="space-y-3">
-                      {offer.whyWorthItBulletLines.map((item, i) => (
-                        <li key={i} className="flex items-start gap-3 text-muted-foreground">
-                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                    {offer.worthCardIncludedItems != null ? (
-                      <div className="border-t border-border/30 pt-5">
-                        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          What&apos;s Included
-                        </p>
-                        <ul className="space-y-2.5">
-                          {offer.worthCardIncludedItems.map((item, i) => (
-                            <li
-                              key={i}
-                              className="flex items-start gap-2.5 text-sm leading-snug text-muted-foreground"
-                            >
-                              <Check
-                                className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500"
-                                strokeWidth={2.5}
-                                aria-hidden
-                              />
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </motion.div>
-                ) : null}
-
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+                  className="flex flex-col gap-4 sm:flex-row sm:items-stretch"
                 >
-                  <div className="flex items-center gap-4 rounded-2xl border border-border/30 bg-card p-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                      <Tag className="h-5 w-5 text-primary" aria-hidden />
+                  {/* What's Included */}
+                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                      <Gift className="h-5 w-5 text-primary" aria-hidden />
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Valid Until</p>
-                      <p className="font-semibold text-foreground">{offer.validUntilShort}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-muted-foreground">What&apos;s Included</p>
+                      <ul className="mt-2 space-y-2 text-sm font-semibold leading-6 text-foreground">
+                        {offer.included.map((item, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 rounded-2xl border border-border/30 bg-card p-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
-                      <MapPin className="h-5 w-5 text-accent" aria-hidden />
+
+                  {/* Valid Until */}
+                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                      <Tag className="h-5 w-5 text-primary" aria-hidden />
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Location</p>
-                      <p className="font-semibold text-foreground">{offer.address}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-muted-foreground">Valid Until</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-foreground">{offer.validUntilShort}</p>
+                    </div>
+                  </div>
+
+                  {/* Location */}
+                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                      <MapPin className="h-5 w-5 text-primary" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-muted-foreground">Location</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-foreground">{offer.address}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -366,15 +345,19 @@ export default function PromotionOfferDetailPage() {
                     Terms &amp; Conditions
                   </h2>
                   <ul className="space-y-2">
-                    {offer.termsBullets.map((term, i) => (
-                      <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span
-                          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50"
-                          aria-hidden
-                        />
-                        {term}
-                      </li>
-                    ))}
+                    {(globalTerms ?? FALLBACK_TERMS)
+                      .split(/\n+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .map((term, i) => (
+                        <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
+                          <span
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+                            aria-hidden
+                          />
+                          {term}
+                        </li>
+                      ))}
                   </ul>
                 </motion.div>
               </div>

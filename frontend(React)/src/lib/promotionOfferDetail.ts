@@ -46,14 +46,6 @@ function defaultRedemptionSteps(promo: Promotion): string[] {
   ]
 }
 
-function defaultIncluded(promo: Promotion): string[] {
-  return [
-    `Offer as described: ${promo.description}`,
-    'PartyOn booking reference and redemption instructions',
-    `Valid only at ${promo.venue}${promo.city ? ` (${promo.city})` : ''} for the published window`,
-  ]
-}
-
 function defaultExcluded(): string[] {
   return [
     'Transport, accommodation, and personal expenses',
@@ -103,6 +95,12 @@ function splitPipeDelimitedParts(parts: string[] | null | undefined): string[] {
         .map((s) => s.trim())
         .filter(Boolean),
     )
+}
+
+function promotionIncludedItems(promo: Promotion): string[] {
+  const raw = promo.included ?? promo.included_items ?? promo.includedItems
+  if (raw == null) return []
+  return splitPipeDelimitedParts(Array.isArray(raw) ? raw : [raw])
 }
 
 function taglineFromPromo(promo: Promotion): string {
@@ -288,11 +286,7 @@ export function buildPromotionOfferDetail(
       (promo.redemptionSteps && promo.redemptionSteps.length > 0
         ? promo.redemptionSteps
         : defaultRedemptionSteps(promo)),
-    included:
-      patch.included ??
-      (promo.included && promo.included.length > 0
-        ? promo.included
-        : defaultIncluded(promo)),
+    included: promotionIncludedItems(promo),
     excluded:
       patch.excluded ??
       (promo.excluded && promo.excluded.length > 0
