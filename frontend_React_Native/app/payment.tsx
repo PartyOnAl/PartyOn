@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Linking,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -18,11 +18,14 @@ export default function PaymentScreen() {
 
   const params = useLocalSearchParams<{
     eventId: string; eventName: string; ticketTypeId: string
-    ticketTypeName: string; price: string; isReservation: string
+    ticketTypeName: string; price: string; isReservation: string; clubPhone: string
   }>()
 
   const isReservation = params.isReservation === 'true'
+  const clubPhone = params.clubPhone ?? ''
   const pricePerTicket = Number(params.price ?? 0)
+  const MAX_TICKETS = 5
+  const MAX_GUESTS_ONLINE = 8
   const [quantity, setQuantity] = useState(1)
   const [nrOfPeople, setNrOfPeople] = useState(2)
   const [updates, setUpdates] = useState(false)
@@ -129,12 +132,27 @@ export default function PaymentScreen() {
             </TouchableOpacity>
             <Text style={styles.qtyValue}>{isReservation ? nrOfPeople : quantity}</Text>
             <TouchableOpacity
-              style={styles.qtyBtn}
-              onPress={() => isReservation ? setNrOfPeople((n) => n + 1) : setQuantity((q) => q + 1)}
+              style={[styles.qtyBtn, (!isReservation && quantity >= MAX_TICKETS) && styles.qtyBtnDisabled]}
+              disabled={!isReservation && quantity >= MAX_TICKETS}
+              onPress={() => isReservation ? setNrOfPeople((n) => n + 1) : setQuantity((q) => Math.min(q + 1, MAX_TICKETS))}
             >
               <Ionicons name="add" size={20} color={COLORS.white} />
             </TouchableOpacity>
           </View>
+          {!isReservation && quantity >= MAX_TICKETS && (
+            <View style={styles.limitNotice}>
+              <Ionicons name="information-circle-outline" size={15} color={COLORS.muted} />
+              <Text style={styles.limitNoticeText}>Maximum {MAX_TICKETS} tickets per order</Text>
+            </View>
+          )}
+          {isReservation && nrOfPeople > MAX_GUESTS_ONLINE && (
+            <View style={styles.largeGroupNotice}>
+              <Ionicons name="people-outline" size={16} color="#f472b6" />
+              <Text style={styles.largeGroupText}>
+                For groups larger than {MAX_GUESTS_ONLINE}, please contact the venue directly to arrange your reservation.
+              </Text>
+            </View>
+          )}
 
           {!isReservation && (
             <>
@@ -222,10 +240,28 @@ export default function PaymentScreen() {
 
       {/* Bottom CTA */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
-        <TouchableOpacity style={styles.cta} onPress={handleContinue} activeOpacity={0.85}>
-          <Text style={styles.ctaText}>{isReservation ? 'Confirm Reservation' : 'Continue to Payment'}</Text>
-          <Ionicons name="arrow-forward" size={18} color="#fff" />
-        </TouchableOpacity>
+        {isReservation && nrOfPeople > MAX_GUESTS_ONLINE ? (
+          clubPhone ? (
+            <TouchableOpacity
+              style={styles.ctaPhone}
+              onPress={() => Linking.openURL(`tel:${clubPhone}`)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="call-outline" size={18} color="#fff" />
+              <Text style={styles.ctaText}>Call venue to reserve</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.cta, { opacity: 0.4 }]}>
+              <Ionicons name="call-outline" size={18} color="#fff" />
+              <Text style={styles.ctaText}>Contact venue directly</Text>
+            </View>
+          )
+        ) : (
+          <TouchableOpacity style={styles.cta} onPress={handleContinue} activeOpacity={0.85}>
+            <Text style={styles.ctaText}>{isReservation ? 'Confirm Reservation' : 'Continue to Payment'}</Text>
+            <Ionicons name="arrow-forward" size={18} color="#fff" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
     </KeyboardAvoidingView>
@@ -261,7 +297,12 @@ const styles = StyleSheet.create({
   optinText: { color: COLORS.muted, fontSize: FONT.sm, flex: 1 },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.bgCard, borderTopWidth: 1, borderTopColor: COLORS.border, padding: SPACING.md, paddingTop: SPACING.sm },
   cta: { backgroundColor: COLORS.purple, borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
+  ctaPhone: { backgroundColor: '#16a34a', borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
   ctaText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
+  limitNotice: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SPACING.sm, justifyContent: 'center' },
+  limitNoticeText: { color: COLORS.muted, fontSize: FONT.sm },
+  largeGroupNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: SPACING.md, backgroundColor: 'rgba(244,114,182,0.08)', borderRadius: RADIUS.sm, padding: SPACING.sm, borderWidth: 1, borderColor: 'rgba(244,114,182,0.25)' },
+  largeGroupText: { color: '#f472b6', fontSize: FONT.sm, flex: 1, lineHeight: FONT.sm * 1.5 },
   attendeeHint: { color: COLORS.muted, fontSize: FONT.sm, marginTop: -SPACING.sm, marginBottom: SPACING.md, lineHeight: FONT.sm * 1.4 },
   attendeeField: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, marginBottom: SPACING.sm },
   attendeeBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(167,139,250,0.15)', borderWidth: 1, borderColor: COLORS.purple, alignItems: 'center', justifyContent: 'center', marginTop: 22 },

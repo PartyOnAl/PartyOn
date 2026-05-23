@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import type { Profile } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { getDisputesLastSeenAt } from '@/lib/disputesBadge'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RowItem = {
@@ -134,15 +135,27 @@ export default function AccountScreen() {
   const router = useRouter()
   const { user, signOut } = useAuth()
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [savedCount, setSavedCount] = useState(0)
+  const [disputeUpdateCount, setDisputeUpdateCount] = useState(0)
 
   useFocusEffect(
     useCallback(() => {
       if (!user) return
       supabase.from('profiles').select('*').eq('id', user.id).single()
         .then(({ data }) => setProfile(data as Profile))
-      supabase.from('saved_promotions').select('id', { count: 'exact', head: true }).eq('user_id', user.id)
-        .then(({ count }) => setSavedCount(count ?? 0))
+      supabase.from('disputes')
+        .select('id,manager_notes,status,updated_at')
+        .eq('user_id', user.id)
+        .is('manager_deleted_at', null)
+        .then(({ data }) => {
+          const lastSeen = getDisputesLastSeenAt()
+          const count = (data ?? []).filter((d: any) => {
+            const hasManagerActivity = d.manager_notes !== null || (d.status !== 'open' && d.status !== 'cancelled')
+            if (!hasManagerActivity) return false
+            if (lastSeen === 0) return true
+            return new Date(d.updated_at).getTime() > lastSeen
+          }).length
+          setDisputeUpdateCount(count)
+        })
     }, [user]),
   )
 
@@ -154,23 +167,6 @@ export default function AccountScreen() {
         onPress: async () => { await signOut(); router.replace('/(auth)/login') },
       },
     ])
-  }
-
-  async function handleDeleteAccount() {
-    Alert.alert(
-      'Delete account',
-      'This will permanently delete your account and all your data. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: () => {
-            // TODO: implement account deletion via backend
-            Alert.alert('Coming soon', 'Account deletion will be available in a future update.')
-          },
-        },
-      ],
-    )
   }
 
   // ── Not logged in ──
@@ -282,12 +278,12 @@ export default function AccountScreen() {
           icon: 'shield-half-outline',
           label: 'My Disputes',
           onPress: () => router.push('/my-disputes'),
+          badge: disputeUpdateCount,
         },
         {
           icon: 'bookmark-outline',
           label: 'Saved Promotions',
           onPress: () => router.push({ pathname: '/promotions', params: { filter: 'saved' } }),
-          badge: savedCount,
         },
         {
           icon: 'search-outline',
@@ -323,7 +319,7 @@ export default function AccountScreen() {
         {
           icon: 'document-text-outline',
           label: 'Terms and conditions',
-          onPress: () => {},
+          onPress: () => router.push('/terms'),
         },
         {
           icon: 'help-circle-outline',
@@ -374,22 +370,6 @@ export default function AccountScreen() {
               iconBg: '#1c1c1e',
               label: 'Log out',
               onPress: handleSignOut,
-            }}
-            isLast
-          />
-        </View>
-
-        <View style={{ height: SPACING.sm }} />
-
-        {/* Delete account — standalone card, danger */}
-        <View style={s.standaloneCard}>
-          <SettingsRow
-            item={{
-              icon: 'trash-outline',
-              iconBg: 'rgba(239,68,68,0.15)',
-              label: 'Delete account',
-              danger: true,
-              onPress: handleDeleteAccount,
             }}
             isLast
           />

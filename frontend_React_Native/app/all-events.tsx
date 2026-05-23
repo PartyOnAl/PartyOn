@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, Image, Modal, Pressable,
@@ -7,9 +7,27 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
-import type { Event } from '@/lib/types'
+import type { Club, Event } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { isEventUpcomingOrLive } from '@/lib/eventDates'
+
+// ── City helpers ─────────────────────────────────────────────────────────────
+const CITY_PATTERNS: { city: string; match: string }[] = [
+  { city: 'Tirana',  match: 'tiran'   },
+  { city: 'Durrës',  match: 'durr'    },
+  { city: 'Vlorë',   match: 'vlor'    },
+  { city: 'Sarandë', match: 'saran'   },
+  { city: 'Shkodër', match: 'shkod'   },
+  { city: 'Elbasan', match: 'elbasan' },
+  { city: 'Fier',    match: 'fier'    },
+  { city: 'Korçë',   match: 'korc'    },
+  { city: 'Berat',   match: 'berat'   },
+]
+function addressToCity(address: string | null): string | null {
+  if (!address) return null
+  const lower = address.toLowerCase()
+  return CITY_PATTERNS.find(p => lower.includes(p.match))?.city ?? null
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
@@ -324,10 +342,29 @@ export default function AllEventsScreen() {
   const [dateFrom, setDateFrom] = useState<Date | null>(null)
   const [dateTo,   setDateTo]   = useState<Date | null>(null)
   const [calOpen,  setCalOpen]  = useState(false)
+  const [allClubs, setAllClubs] = useState<Club[]>([])
+  const [selectedCity, setSelectedCity] = useState<string | null>(null)
+  const [cityDropOpen, setCityDropOpen] = useState(false)
 
   const hasCustomRange = dateFrom !== null
 
-  const fetchEvents = useCallback(async (from: Date | null, to: Date | null) => {
+  useEffect(() => {
+    supabase.from('clubs').select('club_id,club_name,club_address').eq('club_status', 'approved')
+      .then(({ data }) => setAllClubs((data as Club[]) ?? []))
+  }, [])
+
+  const availableCities = useMemo(() => {
+    const seen = new Set<string>()
+    allClubs.forEach(c => { const city = addressToCity(c.club_address); if (city) seen.add(city) })
+    return Array.from(seen).sort()
+  }, [allClubs])
+
+  const cityClubIds = useMemo(() => {
+    if (!selectedCity) return null
+    return allClubs.filter(c => addressToCity(c.club_address) === selectedCity).map(c => c.club_id)
+  }, [allClubs, selectedCity])
+
+  const fetchEvents = useCallback(async (from: Date | null, to: Date | null, clubIds?: string[] | null) => {
     setLoading(true)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -343,6 +380,7 @@ export default function AllEventsScreen() {
       const end = new Date(to); end.setHours(23, 59, 59, 999)
       q = q.lte('event_starting_date', end.toISOString())
     }
+    if (clubIds && clubIds.length > 0) q = q.in('club_id', clubIds)
 
     const { data } = await q
     const rows = (data as Event[]) ?? []
@@ -353,20 +391,27 @@ export default function AllEventsScreen() {
   // Initial load
   useEffect(() => { fetchEvents(null, null) }, [])
 
+  // Re-fetch when city filter changes
+  useEffect(() => {
+    if (allClubs.length === 0) return
+    const range = activePreset !== 'all' ? presetRange(activePreset) : null
+    fetchEvents(dateFrom ?? range?.from ?? null, dateTo ?? range?.to ?? null, cityClubIds)
+  }, [cityClubIds])
+
   function applyPreset(key: Preset) {
     setActivePreset(key)
     setDateFrom(null)
     setDateTo(null)
     const range = presetRange(key)
-    fetchEvents(range?.from ?? null, range?.to ?? null)
+    fetchEvents(range?.from ?? null, range?.to ?? null, cityClubIds)
   }
 
   function applyCustomRange(from: Date | null, to: Date | null) {
     setCalOpen(false)
     setDateFrom(from)
     setDateTo(to)
-    setActivePreset('all') // clear preset highlight
-    fetchEvents(from, to)
+    setActivePreset('all')
+    fetchEvents(from, to, cityClubIds)
   }
 
   const filterLabel = hasCustomRange ? formatRangeLabel(dateFrom, dateTo) : 'Pick dates'
@@ -401,23 +446,36 @@ export default function AllEventsScreen() {
             </TouchableOpacity>
           )}
           ListFooterComponent={
-            <TouchableOpacity
-              style={[s.chip, s.chipCalendar, hasCustomRange && s.chipActive]}
-              onPress={() => setCalOpen(true)}
-            >
-              <Ionicons name="calendar-outline" size={14} color={hasCustomRange ? COLORS.white : COLORS.purple} />
-              <Text style={[s.chipText, s.chipTextCalendar, hasCustomRange && s.chipTextActive]}>
-                {filterLabel}
-              </Text>
-              {hasCustomRange && (
-                <TouchableOpacity
-                  hitSlop={6}
-                  onPress={() => { setDateFrom(null); setDateTo(null); applyPreset('all') }}
-                >
-                  <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.6)" />
-                </TouchableOpacity>
-              )}
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: SPACING.xs, paddingRight: SPACING.md }}>
+              <TouchableOpacity
+                style={[s.chip, s.chipCalendar, hasCustomRange && s.chipActive]}
+                onPress={() => setCalOpen(true)}
+              >
+                <Ionicons name="calendar-outline" size={14} color={hasCustomRange ? COLORS.white : COLORS.purple} />
+                <Text style={[s.chipText, s.chipTextCalendar, hasCustomRange && s.chipTextActive]}>
+                  {filterLabel}
+                </Text>
+                {hasCustomRange && (
+                  <TouchableOpacity hitSlop={6} onPress={() => { setDateFrom(null); setDateTo(null); applyPreset('all') }}>
+                    <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.6)" />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.chip, s.chipCalendar, !!selectedCity && s.chipActive]}
+                onPress={() => setCityDropOpen(true)}
+              >
+                <Ionicons name="location-outline" size={14} color={selectedCity ? COLORS.white : COLORS.purple} />
+                <Text style={[s.chipText, s.chipTextCalendar, !!selectedCity && s.chipTextActive]} numberOfLines={1}>
+                  {selectedCity ?? 'City'}
+                </Text>
+                {selectedCity && (
+                  <TouchableOpacity hitSlop={6} onPress={() => setSelectedCity(null)}>
+                    <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.6)" />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            </View>
           }
         />
       </View>
@@ -437,7 +495,7 @@ export default function AllEventsScreen() {
           <Text style={s.emptyIcon}>🎭</Text>
           <Text style={s.emptyTitle}>No events found</Text>
           <Text style={s.emptySubtitle}>Try a different date range or check back soon.</Text>
-          <TouchableOpacity style={s.emptyBtn} onPress={() => applyPreset('all')}>
+          <TouchableOpacity style={s.emptyBtn} onPress={() => { setSelectedCity(null); applyPreset('all') }}>
             <Text style={s.emptyBtnText}>Show all events</Text>
           </TouchableOpacity>
         </View>
@@ -459,6 +517,52 @@ export default function AllEventsScreen() {
         onApply={applyCustomRange}
         onClose={() => setCalOpen(false)}
       />
+
+      {/* City picker */}
+      <Modal visible={cityDropOpen} transparent animationType="slide" onRequestClose={() => setCityDropOpen(false)}>
+        <Pressable style={calS.overlay} onPress={() => setCityDropOpen(false)}>
+          <Pressable style={calS.sheet} onPress={() => {}}>
+            <View style={calS.handle} />
+            <Text style={calS.instruction}>Filter by city</Text>
+            {availableCities.length === 0 ? (
+              <Text style={s.locEmpty}>No cities found.</Text>
+            ) : (
+              <FlatList
+                data={availableCities}
+                keyExtractor={c => c}
+                style={s.locList}
+                showsVerticalScrollIndicator={false}
+                ItemSeparatorComponent={() => <View style={s.locSep} />}
+                renderItem={({ item: city }) => {
+                  const active = selectedCity === city
+                  const count = allClubs.filter(c => addressToCity(c.club_address) === city).length
+                  return (
+                    <TouchableOpacity
+                      style={[s.locRow, active && s.locRowActive]}
+                      onPress={() => { setSelectedCity(active ? null : city); setCityDropOpen(false) }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[s.locIcon, active && s.locIconActive]}>
+                        <Ionicons name="location-outline" size={16} color={active ? COLORS.purple : COLORS.muted} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.locName, active && { color: COLORS.purple }]}>{city}</Text>
+                        <Text style={s.locAddr}>{count} venue{count !== 1 ? 's' : ''}</Text>
+                      </View>
+                      {active && <Ionicons name="checkmark-circle" size={18} color={COLORS.purple} />}
+                    </TouchableOpacity>
+                  )
+                }}
+              />
+            )}
+            {selectedCity && (
+              <TouchableOpacity style={[calS.clearBtn, { marginTop: SPACING.sm }]} onPress={() => { setSelectedCity(null); setCityDropOpen(false) }}>
+                <Text style={calS.clearBtnText}>Clear city filter</Text>
+              </TouchableOpacity>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -502,4 +606,14 @@ const s = StyleSheet.create({
   emptySubtitle: { fontSize: FONT.sm, color: COLORS.muted, textAlign: 'center', lineHeight: 20 },
   emptyBtn: { marginTop: SPACING.xs, backgroundColor: COLORS.purpleDark, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm + 2, borderRadius: RADIUS.pill },
   emptyBtnText: { fontSize: FONT.base, fontWeight: '700', color: COLORS.white },
+
+  locList: { maxHeight: 340 },
+  locSep: { height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border, marginHorizontal: SPACING.md },
+  locEmpty: { color: COLORS.mutedDark, fontSize: FONT.sm, textAlign: 'center', paddingVertical: SPACING.xl },
+  locRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2 },
+  locRowActive: { backgroundColor: 'rgba(167,139,250,0.07)' },
+  locIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: COLORS.bgInput, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  locIconActive: { backgroundColor: 'rgba(167,139,250,0.15)' },
+  locName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '600' },
+  locAddr: { color: COLORS.mutedDark, fontSize: 12, marginTop: 1 },
 })

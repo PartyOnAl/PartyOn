@@ -16,7 +16,7 @@ import { MANAGER_DASHBOARD, replaceManagerRoute } from '@/lib/managerNavigation'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type PromoStatus = 'pending' | 'approved' | 'active' | 'expired'
-type StatusFilter = 'all' | 'active' | 'pending' | 'expired'
+type StatusFilter = 'all' | 'active' | 'pending' | 'expired' | 'archived'
 
 type Promotion = {
   promotion_id:     string
@@ -35,18 +35,20 @@ type Promotion = {
   status:           PromoStatus
   image_url:        string | null
   created_at:       string | null
+  deleted_at:       string | null
 }
 
 const CATEGORIES = ['General', 'Free Entry', 'VIP', 'Bottle Service', 'Happy Hour', 'Discount']
 
-const STATUS_META: Record<PromoStatus, { label: string; color: string }> = {
+const STATUS_META: Record<PromoStatus | 'archived', { label: string; color: string }> = {
   active:   { label: 'Active',   color: COLORS.green },
   approved: { label: 'Approved', color: COLORS.cta },
   pending:  { label: 'Pending',  color: COLORS.cta },
   expired:  { label: 'Expired',  color: COLORS.mutedDark },
+  archived: { label: 'Archived', color: COLORS.mutedDark },
 }
 
-const SELECT_COLS = 'promotion_id,club_id,title,description,category,discount_value,original_price,discounted_price,terms_conditions,included_items,why_worth_it,valid_from,valid_until,status,image_url,created_at'
+const SELECT_COLS = 'promotion_id,club_id,title,description,category,discount_value,original_price,discounted_price,terms_conditions,included_items,why_worth_it,valid_from,valid_until,status,image_url,created_at,deleted_at'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function displayToISO(s: string): string {
@@ -339,20 +341,43 @@ export default function ManagerPromotionsScreen() {
     await fetchPromotions(true)
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────
+  // ── Archive (soft delete) ─────────────────────────────────────────────────
   function handleDelete(p: Promotion) {
-    Alert.alert('Delete Promotion', `Delete "${p.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase
-            .from('promotions').delete().eq('promotion_id', p.promotion_id)
-          if (error) { Alert.alert('Error deleting', error.message); return }
-          await fetchPromotions(true)
+    const isArchived = !!p.deleted_at
+    if (isArchived) {
+      Alert.alert('Restore Promotion', `Restore "${p.title}" so users can see and claim it again?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore', onPress: async () => {
+            const { error } = await supabase
+              .from('promotions')
+              .update({ deleted_at: null, status: 'active' })
+              .eq('promotion_id', p.promotion_id)
+            if (error) { Alert.alert('Error', error.message); return }
+            await fetchPromotions(true)
+          },
         },
-      },
-    ])
+      ])
+      return
+    }
+    Alert.alert(
+      'Archive Promotion',
+      `Archive "${p.title}"?\n\nUsers who already claimed it can still see their code. New users won't be able to claim it.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive', style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('promotions')
+              .update({ deleted_at: new Date().toISOString(), status: 'expired' })
+              .eq('promotion_id', p.promotion_id)
+            if (error) { Alert.alert('Error archiving', error.message); return }
+            await fetchPromotions(true)
+          },
+        },
+      ],
+    )
   }
 
   // ── Toggle active/pending ─────────────────────────────────────────────────
@@ -366,16 +391,19 @@ export default function ManagerPromotionsScreen() {
 
   // ── Filtered / stats ──────────────────────────────────────────────────────
   const filtered = promotions.filter(p => {
-    if (statusFilter === 'all')     return true
-    if (statusFilter === 'active')  return p.status === 'active' || p.status === 'approved'
-    if (statusFilter === 'pending') return p.status === 'pending'
-    if (statusFilter === 'expired') return p.status === 'expired'
-    return true
+    if (statusFilter === 'archived') return !!p.deleted_at
+    if (statusFilter === 'all')      return !p.deleted_at
+    if (statusFilter === 'active')   return !p.deleted_at && (p.status === 'active' || p.status === 'approved')
+    if (statusFilter === 'pending')  return !p.deleted_at && p.status === 'pending'
+    if (statusFilter === 'expired')  return !p.deleted_at && p.status === 'expired'
+    return !p.deleted_at
   })
-  const total   = promotions.length
-  const active  = promotions.filter(p => p.status === 'active' || p.status === 'approved').length
-  const pending = promotions.filter(p => p.status === 'pending').length
-  const expired = promotions.filter(p => p.status === 'expired').length
+  const nonDeleted = promotions.filter(p => !p.deleted_at)
+  const total    = nonDeleted.length
+  const active   = nonDeleted.filter(p => p.status === 'active' || p.status === 'approved').length
+  const pending  = nonDeleted.filter(p => p.status === 'pending').length
+  const expired  = nonDeleted.filter(p => p.status === 'expired').length
+  const archived = promotions.filter(p => !!p.deleted_at).length
 
   if (loading) {
     return (
@@ -413,10 +441,11 @@ export default function ManagerPromotionsScreen() {
         {/* Stats */}
         <View style={s.statsRow}>
           {([
-            [String(total),   COLORS.white,     'Total'],
-            [String(active),  COLORS.green,     'Active'],
-            [String(pending), COLORS.cta,       'Pending'],
-            [String(expired), COLORS.mutedDark, 'Expired'],
+            [String(total),    COLORS.white,     'Total'],
+            [String(active),   COLORS.green,     'Active'],
+            [String(pending),  COLORS.cta,       'Pending'],
+            [String(expired),  COLORS.mutedDark, 'Expired'],
+            [String(archived), COLORS.mutedDark, 'Archived'],
           ] as [string, string, string][]).map(([num, color, label]) => (
             <View key={label} style={s.statItem}>
               <Text style={[s.statNum, { color }]}>{num}</Text>
@@ -426,19 +455,21 @@ export default function ManagerPromotionsScreen() {
         </View>
 
         {/* Filter tabs */}
-        <View style={s.filterRow}>
-          {(['all', 'active', 'pending', 'expired'] as StatusFilter[]).map(key => (
-            <TouchableOpacity
-              key={key}
-              style={[s.filterTab, statusFilter === key && s.filterTabActive]}
-              onPress={() => setStatusFilter(key)}
-            >
-              <Text style={[s.filterText, statusFilter === key && s.filterTextActive]}>
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACING.lg }}>
+          <View style={[s.filterRow, { paddingRight: SPACING.md }]}>
+            {(['all', 'active', 'pending', 'expired', 'archived'] as StatusFilter[]).map(key => (
+              <TouchableOpacity
+                key={key}
+                style={[s.filterTab, statusFilter === key && s.filterTabActive]}
+                onPress={() => setStatusFilter(key)}
+              >
+                <Text style={[s.filterText, statusFilter === key && s.filterTextActive]}>
+                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
 
         {/* Empty state */}
         {filtered.length === 0 ? (
@@ -455,15 +486,17 @@ export default function ManagerPromotionsScreen() {
           </View>
         ) : (
           filtered.map(p => {
-            const meta = STATUS_META[p.status] ?? STATUS_META.pending
-            const expiringSoon = p.valid_until && p.status === 'active' &&
+            const expiringSoon = !p.deleted_at && p.valid_until && p.status === 'active' &&
               new Date(p.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
+
+            const isArchived = !!p.deleted_at
+            const effectiveStatusKey: PromoStatus | 'archived' = isArchived ? 'archived' : p.status
 
             return (
               <TouchableOpacity
                 key={p.promotion_id}
-                style={s.card}
-                onPress={() => openEdit(p)}
+                style={[s.card, isArchived && { opacity: 0.65 }]}
+                onPress={() => !isArchived && openEdit(p)}
                 activeOpacity={0.84}
               >
                 {p.image_url ? (
@@ -490,8 +523,8 @@ export default function ManagerPromotionsScreen() {
                 <View style={s.cardBody}>
                   <View style={s.cardTitleRow}>
                     <Text style={s.cardTitle} numberOfLines={2}>{p.title}</Text>
-                    <View style={[s.statusBadge, { backgroundColor: meta.color + '22' }]}>
-                      <Text style={[s.statusText, { color: meta.color }]}>{meta.label}</Text>
+                    <View style={[s.statusBadge, { backgroundColor: STATUS_META[effectiveStatusKey].color + '22' }]}>
+                      <Text style={[s.statusText, { color: STATUS_META[effectiveStatusKey].color }]}>{STATUS_META[effectiveStatusKey].label}</Text>
                     </View>
                   </View>
 
@@ -529,30 +562,28 @@ export default function ManagerPromotionsScreen() {
                   ) : null}
 
                   <View style={s.cardActions}>
-                    {(p.status === 'active' || p.status === 'pending') && (
+                    {!isArchived && (p.status === 'active' || p.status === 'pending') && (
                       <TouchableOpacity
                         style={[s.toggleBtn, p.status === 'active' ? s.toggleBtnOn : s.toggleBtnOff]}
-                        onPress={(e) => {
-                          e.stopPropagation()
-                          toggleStatus(p)
-                        }}
+                        onPress={(e) => { e.stopPropagation(); toggleStatus(p) }}
                       >
-                        <Ionicons
-                          name={p.status === 'active' ? 'eye-outline' : 'eye-off-outline'}
-                          size={13}
-                          color={p.status === 'active' ? COLORS.green : COLORS.mutedDark}
-                        />
+                        <Ionicons name={p.status === 'active' ? 'eye-outline' : 'eye-off-outline'} size={13} color={p.status === 'active' ? COLORS.green : COLORS.mutedDark} />
                         <Text style={[s.toggleBtnText, { color: p.status === 'active' ? COLORS.green : COLORS.mutedDark }]}>
                           {p.status === 'active' ? 'Active' : 'Paused'}
                         </Text>
                       </TouchableOpacity>
                     )}
                     <View style={{ flexDirection: 'row', gap: SPACING.xs, marginLeft: 'auto' }}>
-                      <TouchableOpacity style={s.iconBtn} onPress={(e) => { e.stopPropagation(); openEdit(p) }}>
-                        <Ionicons name="pencil-outline" size={16} color={COLORS.muted} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[s.iconBtn, s.iconBtnRed]} onPress={(e) => { e.stopPropagation(); handleDelete(p) }}>
-                        <Ionicons name="trash-outline" size={16} color={COLORS.red} />
+                      {!isArchived && (
+                        <TouchableOpacity style={s.iconBtn} onPress={(e) => { e.stopPropagation(); openEdit(p) }}>
+                          <Ionicons name="pencil-outline" size={16} color={COLORS.muted} />
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[s.iconBtn, isArchived ? s.iconBtnGreen : s.iconBtnRed]}
+                        onPress={(e) => { e.stopPropagation(); handleDelete(p) }}
+                      >
+                        <Ionicons name={isArchived ? 'refresh-outline' : 'archive-outline'} size={16} color={isArchived ? COLORS.green : COLORS.red} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -839,6 +870,7 @@ const s = StyleSheet.create({
   toggleBtnText:{ fontSize: 12, fontWeight: '600' },
   iconBtn:      { width: 34, height: 34, borderRadius: RADIUS.sm, backgroundColor: COLORS.bgCard2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
   iconBtnRed:   { borderColor: COLORS.red + '44', backgroundColor: COLORS.red + '11' },
+  iconBtnGreen: { borderColor: COLORS.green + '44', backgroundColor: COLORS.green + '11' },
 
   addMoreBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.purple + '66' },
   addMoreText: { color: COLORS.purple, fontSize: FONT.base, fontWeight: '600' },

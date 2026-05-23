@@ -74,12 +74,16 @@ export default function TicketsScreen() {
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false) }, [])
 
   const now = new Date()
-  const upcoming = reservations.filter(r =>
-    new Date((r.events as any)?.event_starting_date) >= now && r.status !== 'cancelled'
-  )
-  const past = reservations.filter(r =>
-    new Date((r.events as any)?.event_starting_date) < now || r.status === 'cancelled'
-  )
+  const upcoming = reservations.filter(r => {
+    if (r.status === 'cancelled' || r.status === 'completed') return false
+    const d = new Date((r.events as any)?.event_starting_date)
+    return !isNaN(d.getTime()) && d >= now
+  })
+  const past = reservations.filter(r => {
+    if (r.status === 'cancelled' || r.status === 'completed') return true
+    const d = new Date((r.events as any)?.event_starting_date)
+    return isNaN(d.getTime()) || d < now
+  })
   const shown = tab === 'upcoming' ? upcoming : past
 
   return (

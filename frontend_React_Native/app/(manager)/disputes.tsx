@@ -1,18 +1,17 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, ActivityIndicator, Alert, Linking, TextInput, Modal, Pressable, Platform,
+  TouchableOpacity, ActivityIndicator, Alert, Linking, TextInput, Modal, Pressable, Platform, KeyboardAvoidingView,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
-import { useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { MANAGER_DASHBOARD, replaceManagerRoute } from '@/lib/managerNavigation'
 
-type DisputeStatus = 'open' | 'in_progress' | 'resolved' | 'rejected'
+type DisputeStatus = 'open' | 'in_progress' | 'resolved' | 'rejected' | 'cancelled'
 type DisputePriority = 'low' | 'medium' | 'high'
 
 type Dispute = {
@@ -23,6 +22,7 @@ type Dispute = {
   status: DisputeStatus
   manager_notes: string | null
   created_at: string
+  updated_at: string | null
   reservation_id: string | null
   event_name: string | null
   user_name: string | null
@@ -41,6 +41,7 @@ const STATUS_COLORS: Record<DisputeStatus, string> = {
   in_progress: '#f59e0b',
   resolved: COLORS.green,
   rejected: COLORS.mutedDark,
+  cancelled: COLORS.mutedDark,
 }
 
 const STATUS_LABELS: Record<DisputeStatus, string> = {
@@ -48,6 +49,15 @@ const STATUS_LABELS: Record<DisputeStatus, string> = {
   in_progress: 'In Progress',
   resolved: 'Resolved',
   rejected: 'Rejected',
+  cancelled: 'Cancelled',
+}
+
+const CUSTOMER_MESSAGE_BY_STATUS: Record<DisputeStatus, string> = {
+  open: 'Thanks for raising this. We have received your dispute and will review it shortly.',
+  in_progress: 'We are reviewing your dispute now. A manager will contact you soon if we need anything else.',
+  resolved: 'Your dispute has been reviewed and marked as resolved. Thank you for your patience.',
+  rejected: 'Your dispute has been reviewed and closed. The venue was not able to approve this claim.',
+  cancelled: 'This dispute was cancelled by the customer before review.',
 }
 
 function formatDate(iso: string) {
@@ -62,85 +72,125 @@ function NotesModal({
 }: {
   dispute: Dispute | null
   onClose: () => void
-  onSaved: (id: string, notes: string, status: DisputeStatus) => void
+  onSaved: (id: string, notes: string | null, status: DisputeStatus, updatedAt: string) => void
 }) {
   const [notes, setNotes] = useState(dispute?.manager_notes ?? '')
   const [status, setStatus] = useState<DisputeStatus>(dispute?.status ?? 'open')
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    setNotes(dispute?.manager_notes ?? '')
+    setStatus(dispute?.status ?? 'open')
+  }, [dispute?.id, dispute?.manager_notes, dispute?.status])
+
   if (!dispute) return null
   const d = dispute
 
-  const STATUSES: DisputeStatus[] = ['open', 'in_progress', 'resolved', 'rejected']
+  const STATUSES: DisputeStatus[] = ['open', 'in_progress', 'resolved', 'rejected', 'cancelled']
+  const suggestedMessage = CUSTOMER_MESSAGE_BY_STATUS[status]
 
   async function save() {
     setLoading(true)
+    const updatedAt = new Date().toISOString()
+    const newNotes = notes.trim() || null
+    const payload: Record<string, unknown> = { status, updated_at: updatedAt }
+    if (newNotes !== null) payload.manager_notes = newNotes
     const { error } = await supabase
       .from('disputes')
-      .update({ manager_notes: notes.trim() || null, status, updated_at: new Date().toISOString() })
+      .update(payload)
       .eq('id', d.id)
     setLoading(false)
     if (error) { Alert.alert('Error', error.message); return }
-    onSaved(d.id, notes.trim(), status)
+    onSaved(d.id, newNotes ?? d.manager_notes, status, updatedAt)
     onClose()
   }
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={s.overlay} onPress={onClose}>
-        <Pressable style={s.modal} onPress={() => {}}>
-          <View style={s.modalHandle} />
-          <TouchableOpacity style={s.modalClose} onPress={onClose}>
-            <Ionicons name="close" size={20} color={COLORS.muted} />
-          </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={s.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+      >
+        <Pressable style={s.overlay} onPress={onClose}>
+          <Pressable style={s.modal} onPress={() => {}}>
+            <View style={s.modalHandle} />
+            <TouchableOpacity style={s.modalClose} onPress={onClose}>
+              <Ionicons name="close" size={20} color={COLORS.muted} />
+            </TouchableOpacity>
 
-          <Text style={s.modalTitle}>Update Dispute</Text>
-          <Text style={s.modalSub} numberOfLines={1}>{dispute.subject}</Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={s.modalScrollContent}
+            >
+              <Text style={s.modalTitle}>Update Dispute</Text>
+              <Text style={s.modalSub} numberOfLines={1}>{dispute.subject}</Text>
 
-          <Text style={s.fieldLabel}>Status</Text>
-          <View style={s.statusRow}>
-            {STATUSES.map(st => (
-              <TouchableOpacity
-                key={st}
-                style={[
-                  s.statusChip,
-                  status === st && { backgroundColor: STATUS_COLORS[st] + '25', borderColor: STATUS_COLORS[st] },
-                ]}
-                onPress={() => setStatus(st)}
-              >
-                <Text style={[s.statusChipText, status === st && { color: STATUS_COLORS[st] }]}>
-                  {STATUS_LABELS[st]}
-                </Text>
+              <Text style={s.fieldLabel}>Status</Text>
+              <View style={s.statusRow}>
+                {STATUSES.map(st => (
+                  <TouchableOpacity
+                    key={st}
+                    style={[
+                      s.statusChip,
+                      status === st && { backgroundColor: STATUS_COLORS[st] + '25', borderColor: STATUS_COLORS[st] },
+                    ]}
+                    onPress={() => setStatus(st)}
+                  >
+                    <Text style={[s.statusChipText, status === st && { color: STATUS_COLORS[st] }]}>
+                      {STATUS_LABELS[st]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={[s.statusPreview, { borderColor: STATUS_COLORS[status] + '35', backgroundColor: STATUS_COLORS[status] + '10' }]}>
+                <Ionicons name="notifications-outline" size={15} color={STATUS_COLORS[status]} />
+                <Text style={s.statusPreviewText}>{suggestedMessage}</Text>
+              </View>
+
+              <Text style={s.fieldLabel}>Message to Customer</Text>
+              <TextInput
+                style={s.notesInput}
+                placeholder={suggestedMessage}
+                placeholderTextColor={COLORS.mutedDark}
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                numberOfLines={4}
+                selectionColor={COLORS.purple}
+              />
+              <View style={s.templateRow}>
+                <TouchableOpacity style={s.templateChip} onPress={() => setNotes(suggestedMessage)}>
+                  <Ionicons name="sparkles-outline" size={13} color={COLORS.purple} />
+                  <Text style={s.templateChipText}>Use suggested message</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.templateChip} onPress={() => setNotes('We are checking this with our venue team and will update you as soon as we have an answer.')}>
+                  <Ionicons name="time-outline" size={13} color={COLORS.purple} />
+                  <Text style={s.templateChipText}>Reviewing</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={s.notesHint}>This message is visible to the customer and triggers their dispute update notification.</Text>
+
+              <TouchableOpacity style={s.saveBtn} onPress={save} disabled={loading}>
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.saveBtnText}>Save Changes</Text>
+                }
               </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={s.fieldLabel}>Manager Notes</Text>
-          <TextInput
-            style={s.notesInput}
-            placeholder="Add notes for this dispute..."
-            placeholderTextColor={COLORS.mutedDark}
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={4}
-            selectionColor={COLORS.purple}
-          />
-
-          <TouchableOpacity style={s.saveBtn} onPress={save} disabled={loading}>
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={s.saveBtnText}>Save Changes</Text>
-            }
-          </TouchableOpacity>
+            </ScrollView>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-export default function DisputesScreen() {
+const STATUS_ORDER: Record<DisputeStatus, number> = { open: 0, in_progress: 1, resolved: 2, rejected: 3, cancelled: 4 }
+
+export default function DisputesScreen({ showBackButton = true }: { showBackButton?: boolean } = {}) {
   const router = useRouter()
   const { profile } = useAuth()
   const [disputes, setDisputes] = useState<Dispute[]>([])
@@ -148,25 +198,20 @@ export default function DisputesScreen() {
   const [selected, setSelected] = useState<Dispute | null>(null)
   const [filterStatus, setFilterStatus] = useState<DisputeStatus | 'all'>('all')
 
-  useFocusEffect(
-    useCallback(() => {
-      loadDisputes()
-    }, [profile?.club_id]),
-  )
-
-  async function loadDisputes() {
+  const loadDisputes = useCallback(async () => {
     if (!profile?.club_id) { setLoading(false); return }
     setLoading(true)
 
     const { data, error } = await supabase
       .from('disputes')
       .select(`
-        id, subject, description, priority, status, manager_notes, created_at, reservation_id,
+        id, subject, description, priority, status, manager_notes, created_at, updated_at, reservation_id,
         events:event_id ( event_name ),
         profiles:user_id ( name, surname, email, phone_number )
       `)
       .eq('club_id', profile.club_id)
-      .order('created_at', { ascending: false })
+      .is('manager_deleted_at', null)
+      .order('updated_at', { ascending: false })
 
     if (error) {
       Alert.alert('Error', error.message)
@@ -185,6 +230,7 @@ export default function DisputesScreen() {
         status: d.status,
         manager_notes: d.manager_notes,
         created_at: d.created_at,
+        updated_at: d.updated_at ?? d.created_at,
         reservation_id: d.reservation_id,
         event_name: ev?.event_name ?? null,
         user_name: [usr?.name, usr?.surname].filter(Boolean).join(' ') || null,
@@ -193,21 +239,33 @@ export default function DisputesScreen() {
       }
     })
 
+    items.sort((a, b) => {
+      const sd = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+      if (sd !== 0) return sd
+      return new Date(b.updated_at ?? b.created_at).getTime() - new Date(a.updated_at ?? a.created_at).getTime()
+    })
+
     setDisputes(items)
     setLoading(false)
-  }
+  }, [profile?.club_id])
 
-  function handleSaved(id: string, notes: string, status: DisputeStatus) {
-    setDisputes(prev => prev.map(d => d.id === id ? { ...d, manager_notes: notes, status } : d))
+  useFocusEffect(
+    useCallback(() => {
+      loadDisputes()
+    }, [loadDisputes]),
+  )
+
+  function handleSaved(id: string, notes: string | null, status: DisputeStatus, updatedAt: string) {
+    setDisputes(prev => prev.map(d => d.id === id ? { ...d, manager_notes: notes, status, updated_at: updatedAt } : d))
   }
 
   function handleDelete(dispute: Dispute) {
-    Alert.alert('Delete Dispute', `Delete "${dispute.subject}"? This cannot be undone.`, [
+    Alert.alert('Archive Dispute', `Archive "${dispute.subject}"? It will be hidden from your list.`, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Delete', style: 'destructive',
+        text: 'Archive', style: 'destructive',
         onPress: async () => {
-          const { error } = await supabase.from('disputes').delete().eq('id', dispute.id)
+          const { error } = await supabase.from('disputes').update({ manager_deleted_at: new Date().toISOString() }).eq('id', dispute.id)
           if (error) { Alert.alert('Error', error.message); return }
           setDisputes(prev => prev.filter(d => d.id !== dispute.id))
         },
@@ -221,15 +279,26 @@ export default function DisputesScreen() {
       {
         text: 'Resolve',
         onPress: async () => {
+          const updatedAt = new Date().toISOString()
           const { error } = await supabase
             .from('disputes')
-            .update({ status: 'resolved', updated_at: new Date().toISOString() })
+            .update({ status: 'resolved', updated_at: updatedAt })
             .eq('id', dispute.id)
           if (error) { Alert.alert('Error', error.message); return }
-          setDisputes(prev => prev.map(d => d.id === dispute.id ? { ...d, status: 'resolved' } : d))
+          setDisputes(prev => prev.map(d => d.id === dispute.id ? { ...d, status: 'resolved', updated_at: updatedAt } : d))
         },
       },
     ])
+  }
+
+  async function quickStartProgress(dispute: Dispute) {
+    const updatedAt = new Date().toISOString()
+    const { error } = await supabase
+      .from('disputes')
+      .update({ status: 'in_progress', updated_at: updatedAt })
+      .eq('id', dispute.id)
+    if (error) { Alert.alert('Error', error.message); return }
+    setDisputes(prev => prev.map(d => d.id === dispute.id ? { ...d, status: 'in_progress', updated_at: updatedAt } : d))
   }
 
   const counts = {
@@ -238,6 +307,7 @@ export default function DisputesScreen() {
     in_progress: disputes.filter(d => d.status === 'in_progress').length,
     resolved: disputes.filter(d => d.status === 'resolved').length,
     rejected: disputes.filter(d => d.status === 'rejected').length,
+    cancelled: disputes.filter(d => d.status === 'cancelled').length,
   }
 
   const filtered = filterStatus === 'all' ? disputes : disputes.filter(d => d.status === filterStatus)
@@ -247,6 +317,8 @@ export default function DisputesScreen() {
     { key: 'open', label: `Open (${counts.open})` },
     { key: 'in_progress', label: `In Progress (${counts.in_progress})` },
     { key: 'resolved', label: `Resolved (${counts.resolved})` },
+    { key: 'rejected', label: `Rejected (${counts.rejected})` },
+    { key: 'cancelled', label: `Cancelled (${counts.cancelled})` },
   ]
 
   return (
@@ -254,9 +326,11 @@ export default function DisputesScreen() {
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_DASHBOARD)} style={s.backBtn}>
-            <Ionicons name="chevron-back" size={20} color={COLORS.white} />
-          </TouchableOpacity>
+          {showBackButton ? (
+            <TouchableOpacity onPress={() => replaceManagerRoute(router, MANAGER_DASHBOARD)} style={s.backBtn}>
+              <Ionicons name="chevron-back" size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          ) : null}
           <View style={{ flex: 1 }}>
             <Text style={s.appName}>Party<Text style={{ color: COLORS.purple }}>On</Text></Text>
             <Text style={s.sub}>Manager Portal</Text>
@@ -410,7 +484,13 @@ export default function DisputesScreen() {
 
                 {/* Actions */}
                 <View style={s.disputeActions}>
-                  {d.status !== 'resolved' && d.status !== 'rejected' ? (
+                  {d.status === 'open' ? (
+                    <TouchableOpacity style={s.progressBtn} onPress={(e) => { e.stopPropagation(); quickStartProgress(d) }}>
+                      <Ionicons name="time-outline" size={15} color={COLORS.cta} />
+                      <Text style={s.progressBtnText}>Start Review</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {d.status !== 'resolved' && d.status !== 'rejected' && d.status !== 'cancelled' ? (
                     <TouchableOpacity style={s.resolveBtn} onPress={(e) => { e.stopPropagation(); quickResolve(d) }}>
                       <Ionicons name="checkmark-circle-outline" size={15} color="#fff" />
                       <Text style={s.resolveBtnText}>Resolve</Text>
@@ -420,7 +500,7 @@ export default function DisputesScreen() {
                     <Ionicons name="create-outline" size={15} color={COLORS.purple} />
                     <Text style={s.notesBtnText}>Update</Text>
                   </TouchableOpacity>
-                  {(d.status === 'resolved' || d.status === 'rejected') ? (
+                  {(d.status === 'resolved' || d.status === 'rejected' || d.status === 'cancelled') ? (
                     <TouchableOpacity style={s.deleteBtn} onPress={(e) => { e.stopPropagation(); handleDelete(d) }}>
                       <Ionicons name="trash-outline" size={15} color={COLORS.red} />
                       <Text style={s.deleteBtnText}>Delete</Text>
@@ -522,6 +602,8 @@ const s = StyleSheet.create({
   notesText: { color: COLORS.muted, fontSize: FONT.sm, lineHeight: 18 },
 
   disputeActions: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
+  progressBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, backgroundColor: COLORS.cta + '14', borderRadius: RADIUS.sm, paddingVertical: 10, borderWidth: 1, borderColor: COLORS.cta + '35' },
+  progressBtnText: { color: COLORS.cta, fontSize: FONT.sm, fontWeight: '600' },
   resolveBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.sm, paddingVertical: 10 },
   resolveBtnText: { color: '#fff', fontSize: FONT.sm, fontWeight: '600' },
   notesBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, backgroundColor: 'rgba(139,92,246,0.12)', borderRadius: RADIUS.sm, paddingVertical: 10, borderWidth: 1, borderColor: 'rgba(139,92,246,0.25)' },
@@ -532,8 +614,10 @@ const s = StyleSheet.create({
   contactBtnText: { color: COLORS.muted, fontSize: FONT.sm },
 
   // Modal
+  keyboardAvoid: { flex: 1 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' },
   modal: {
+    maxHeight: '88%',
     backgroundColor: COLORS.bgCard,
     borderTopLeftRadius: RADIUS.xl + 4, borderTopRightRadius: RADIUS.xl + 4,
     paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm,
@@ -542,6 +626,7 @@ const s = StyleSheet.create({
   },
   modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: COLORS.border, alignSelf: 'center', marginBottom: SPACING.md },
   modalClose: { position: 'absolute', top: SPACING.md, right: SPACING.md, width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.bgInput, alignItems: 'center', justifyContent: 'center' },
+  modalScrollContent: { paddingBottom: SPACING.md },
   modalTitle: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '800', marginBottom: 4, marginTop: SPACING.xs },
   modalSub: { color: COLORS.muted, fontSize: FONT.sm, marginBottom: SPACING.lg },
   fieldLabel: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600', marginBottom: SPACING.xs },
@@ -552,13 +637,28 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.bgInput,
   },
   statusChipText: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600' },
+  statusPreview: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs,
+    borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.sm,
+    padding: SPACING.sm, marginBottom: SPACING.md,
+  },
+  statusPreviewText: { color: COLORS.muted, fontSize: FONT.sm, lineHeight: 18, flex: 1 },
   notesInput: {
     backgroundColor: COLORS.bgInput,
     borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border,
     color: COLORS.white, fontSize: FONT.base,
     paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
-    marginBottom: SPACING.lg, minHeight: 100, textAlignVertical: 'top',
+    marginBottom: SPACING.sm, minHeight: 100, textAlignVertical: 'top',
   },
+  templateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs, marginBottom: SPACING.xs },
+  templateChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderRadius: RADIUS.pill, borderWidth: 1, borderColor: 'rgba(139,92,246,0.25)',
+    backgroundColor: 'rgba(139,92,246,0.10)',
+    paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs + 1,
+  },
+  templateChipText: { color: COLORS.purple, fontSize: 12, fontWeight: '700' },
+  notesHint: { color: COLORS.mutedDark, fontSize: 11, lineHeight: 16, marginBottom: SPACING.lg },
   saveBtn: { backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.lg, paddingVertical: SPACING.md + 2, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '800', fontSize: FONT.base },
 })

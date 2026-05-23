@@ -41,7 +41,7 @@ const FAQS: { q: string; a: string }[] = [
 export default function SupportScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const [openIdx, setOpenIdx] = useState<number | null>(0)
+  const [openIdx, setOpenIdx] = useState<number | null>(null)
 
   async function openUrl(url: string, fallbackMessage: string) {
     try {

@@ -69,7 +69,7 @@ export default function EventDetailScreen() {
   function handleReserve() {
     if (!user) { Alert.alert('Login required', 'Please log in to reserve a table.', [{ text: 'Log in', onPress: () => router.push('/(auth)/login') }, { text: 'Cancel', style: 'cancel' }]); return }
     if (!event) return
-    router.push({ pathname: '/payment', params: { eventId: event.event_id, eventName: event.event_name, price: '0', isReservation: 'true' } })
+    router.push({ pathname: '/payment', params: { eventId: event.event_id, eventName: event.event_name, price: '0', isReservation: 'true', clubPhone: event.clubs?.club_phone_number ?? '' } })
   }
 
   if (loading) {
@@ -99,7 +99,7 @@ export default function EventDetailScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Top bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { top: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.topBarBtn}>
           <Ionicons name="arrow-back" size={22} color={COLORS.white} />
         </TouchableOpacity>

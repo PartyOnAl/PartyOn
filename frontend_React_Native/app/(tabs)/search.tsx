@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   FlatList, ActivityIndicator, Image, Modal, Pressable,
@@ -205,9 +205,29 @@ function CalendarPicker({ visible, selectedFrom, selectedTo, onApply, onClose }:
   )
 }
 
+// ── City helpers ─────────────────────────────────────────────────────────────
+const CITY_PATTERNS: { city: string; match: string }[] = [
+  { city: 'Tirana', match: 'tiran' },
+  { city: 'Durrës', match: 'durr' },
+  { city: 'Vlorë', match: 'vlor' },
+  { city: 'Shkodër', match: 'shkod' },
+  { city: 'Elbasan', match: 'elbasan' },
+  { city: 'Fier', match: 'fier' },
+  { city: 'Korçë', match: 'korc' },
+  { city: 'Berat', match: 'berat' },
+  { city: 'Sarandë', match: 'saran' },
+]
+
+function addressToCity(address: string | null): string | null {
+  if (!address) return null
+  const lower = address.toLowerCase()
+  const found = CITY_PATTERNS.find(p => lower.includes(p.match))
+  return found?.city ?? null
+}
+
 // ── Search Screen ────────────────────────────────────────────────────────────
 type ResultItem =
-  | { kind: 'header'; label: string }
+  | { kind: 'header'; label: string; onSeeAll?: () => void }
   | { kind: 'event'; data: Event }
   | { kind: 'club'; data: Club }
   | { kind: 'empty'; label: string }
@@ -224,6 +244,32 @@ export default function SearchScreen() {
   const [events, setEvents] = useState<Event[]>([])
   const [clubs, setClubs] = useState<Club[]>([])
   const [loading, setLoading] = useState(false)
+  const [allClubs, setAllClubs] = useState<Club[]>([])
+  const [selectedCity, setSelectedCity] = useState<string | null>(null)
+  const [showLocationDrop, setShowLocationDrop] = useState(false)
+
+  useEffect(() => {
+    supabase.from('clubs').select('club_id,club_name,club_address').eq('club_status', 'approved')
+      .then(({ data }) => setAllClubs((data as Club[]) ?? []))
+  }, [])
+
+  // Derive unique cities that have at least one club
+  const availableCities = useMemo(() => {
+    const seen = new Set<string>()
+    allClubs.forEach(c => {
+      const city = addressToCity(c.club_address)
+      if (city) seen.add(city)
+    })
+    return Array.from(seen).sort()
+  }, [allClubs])
+
+  // Club IDs belonging to the selected city
+  const cityClubIds = useMemo(() => {
+    if (!selectedCity) return null
+    return allClubs
+      .filter(c => addressToCity(c.club_address) === selectedCity)
+      .map(c => c.club_id)
+  }, [allClubs, selectedCity])
 
   const runSearch = useCallback(async () => {
     setLoading(true)
@@ -233,6 +279,7 @@ export default function SearchScreen() {
     if (query.trim()) evQ = evQ.ilike('event_name', `%${query.trim()}%`)
     if (dateFrom) evQ = evQ.gte('event_starting_date', isoDate(dateFrom))
     if (dateTo) evQ = evQ.lte('event_starting_date', isoDate(dateTo) + 'T23:59:59')
+    if (cityClubIds && cityClubIds.length > 0) evQ = evQ.in('club_id', cityClubIds)
 
     let clQ = supabase.from('clubs').select('*').eq('club_status', 'approved')
     if (query.trim()) clQ = clQ.ilike('club_name', `%${query.trim()}%`)
@@ -242,7 +289,7 @@ export default function SearchScreen() {
     setEvents(dateFrom ? rows : rows.filter(ev => isEventUpcomingOrLive(ev)))
     setClubs((clRes.data as Club[]) ?? [])
     setLoading(false)
-  }, [query, dateFrom, dateTo])
+  }, [query, dateFrom, dateTo, cityClubIds])
 
   useEffect(() => {
     const t = setTimeout(runSearch, 350)
@@ -256,13 +303,14 @@ export default function SearchScreen() {
   }
 
   const hasFilter = dateFrom !== null || dateTo !== null
+  const hasLocationFilter = selectedCity !== null
 
   const filterLabel = hasFilter
     ? `${dateFrom ? isoDate(dateFrom) : '…'} → ${dateTo ? isoDate(dateTo) : '…'}`
     : null
 
   const items: ResultItem[] = [
-    { kind: 'header', label: 'Events' },
+    { kind: 'header', label: 'Events', onSeeAll: () => router.push('/all-events') },
     ...(events.length === 0
       ? [{ kind: 'empty' as const, label: 'No events found.' }]
       : events.map((e) => ({ kind: 'event' as const, data: e }))),
@@ -274,7 +322,16 @@ export default function SearchScreen() {
 
   function renderItem({ item }: { item: ResultItem }) {
     if (item.kind === 'header') {
-      return <Text style={styles.catHeader}>{item.label}</Text>
+      return (
+        <View style={styles.catHeaderRow}>
+          <Text style={styles.catHeader}>{item.label}</Text>
+          {item.onSeeAll ? (
+            <TouchableOpacity onPress={item.onSeeAll} hitSlop={8}>
+              <Text style={styles.catSeeAll}>See all →</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )
     }
     if (item.kind === 'empty') {
       return <Text style={styles.empty}>{item.label}</Text>
@@ -363,6 +420,13 @@ export default function SearchScreen() {
           )}
         </View>
         <TouchableOpacity
+          style={[styles.filterBtn, hasLocationFilter && styles.filterBtnActive]}
+          onPress={() => setShowLocationDrop(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="location-outline" size={18} color={hasLocationFilter ? COLORS.purple : COLORS.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.filterBtn, hasFilter && styles.filterBtnActive]}
           onPress={() => setShowCalendar(true)}
           activeOpacity={0.8}
@@ -371,14 +435,27 @@ export default function SearchScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Active date filter pill */}
-      {hasFilter && (
-        <View style={styles.filterPill}>
-          <Ionicons name="calendar" size={13} color={COLORS.purple} />
-          <Text style={styles.filterPillText}>{filterLabel}</Text>
-          <TouchableOpacity onPress={() => { setDateFrom(null); setDateTo(null) }} hitSlop={8}>
-            <Ionicons name="close-circle" size={15} color={COLORS.mutedDark} />
-          </TouchableOpacity>
+      {/* Active filter pills */}
+      {(hasLocationFilter || hasFilter) && (
+        <View style={styles.filterPillsRow}>
+          {hasLocationFilter && (
+            <View style={styles.filterPill}>
+              <Ionicons name="location" size={13} color={COLORS.purple} />
+              <Text style={styles.filterPillText} numberOfLines={1}>{selectedCity}</Text>
+              <TouchableOpacity onPress={() => setSelectedCity(null)} hitSlop={8}>
+                <Ionicons name="close-circle" size={15} color={COLORS.mutedDark} />
+              </TouchableOpacity>
+            </View>
+          )}
+          {hasFilter && (
+            <View style={styles.filterPill}>
+              <Ionicons name="calendar" size={13} color={COLORS.purple} />
+              <Text style={styles.filterPillText}>{filterLabel}</Text>
+              <TouchableOpacity onPress={() => { setDateFrom(null); setDateTo(null) }} hitSlop={8}>
+                <Ionicons name="close-circle" size={15} color={COLORS.mutedDark} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
 
@@ -407,6 +484,55 @@ export default function SearchScreen() {
         onApply={handleCalendarApply}
         onClose={() => setShowCalendar(false)}
       />
+
+      {/* City picker */}
+      <Modal visible={showLocationDrop} transparent animationType="slide" onRequestClose={() => setShowLocationDrop(false)}>
+        <Pressable style={styles.calOverlay} onPress={() => setShowLocationDrop(false)}>
+          <Pressable style={styles.calSheet} onPress={() => {}}>
+            <View style={styles.calHandle} />
+            <Text style={styles.calInstruction}>Filter by city</Text>
+            {availableCities.length === 0 ? (
+              <Text style={styles.locEmpty}>No cities found.</Text>
+            ) : (
+              <FlatList
+                data={availableCities}
+                keyExtractor={c => c}
+                style={styles.locList}
+                showsVerticalScrollIndicator={false}
+                ItemSeparatorComponent={() => <View style={styles.locSep} />}
+                renderItem={({ item: city }) => {
+                  const active = selectedCity === city
+                  const count = allClubs.filter(c => addressToCity(c.club_address) === city).length
+                  return (
+                    <TouchableOpacity
+                      style={[styles.locRow, active && styles.locRowActive]}
+                      onPress={() => {
+                        setSelectedCity(active ? null : city)
+                        setShowLocationDrop(false)
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[styles.locIcon, active && styles.locIconActive]}>
+                        <Ionicons name="location-outline" size={16} color={active ? COLORS.purple : COLORS.muted} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.locName, active && { color: COLORS.purple }]}>{city}</Text>
+                        <Text style={styles.locAddr}>{count} venue{count !== 1 ? 's' : ''}</Text>
+                      </View>
+                      {active && <Ionicons name="checkmark-circle" size={18} color={COLORS.purple} />}
+                    </TouchableOpacity>
+                  )
+                }}
+              />
+            )}
+            {selectedCity && (
+              <TouchableOpacity style={[styles.calClearBtn, { marginTop: SPACING.sm }]} onPress={() => { setSelectedCity(null); setShowLocationDrop(false) }}>
+                <Text style={styles.calClearBtnText}>Clear city filter</Text>
+              </TouchableOpacity>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -445,30 +571,41 @@ const styles = StyleSheet.create({
     borderColor: COLORS.purple,
     backgroundColor: 'rgba(167,139,250,0.12)',
   },
+  filterPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
   filterPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.xs,
-    marginHorizontal: SPACING.md,
-    marginBottom: SPACING.xs,
     backgroundColor: 'rgba(167,139,250,0.10)',
     borderRadius: RADIUS.pill,
     borderWidth: 1,
     borderColor: 'rgba(167,139,250,0.28)',
     paddingHorizontal: SPACING.sm + 2,
     paddingVertical: SPACING.xs + 2,
-    alignSelf: 'flex-start',
+    maxWidth: 200,
   },
   filterPillText: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '600', flex: 1 },
+  catHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.xs,
+  },
+  catSeeAll: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '700' },
   catHeader: {
     color: COLORS.mutedDark,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    paddingHorizontal: SPACING.md,
-    paddingTop: SPACING.md,
-    paddingBottom: SPACING.xs,
   },
   empty: {
     color: COLORS.mutedDark,
@@ -621,4 +758,26 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.purple,
   },
   calApplyBtnText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
+
+  // Location picker
+  locList: { maxHeight: 340 },
+  locSep: { height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border, marginHorizontal: SPACING.md },
+  locEmpty: { color: COLORS.mutedDark, fontSize: FONT.sm, textAlign: 'center', paddingVertical: SPACING.xl },
+  locRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+  },
+  locRowActive: { backgroundColor: 'rgba(167,139,250,0.07)' },
+  locIcon: {
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: COLORS.bgInput,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  locIconActive: { backgroundColor: 'rgba(167,139,250,0.15)' },
+  locName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '600' },
+  locAddr: { color: COLORS.mutedDark, fontSize: 12, marginTop: 1 },
 })

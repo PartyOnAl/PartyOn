@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/AuthContext'
 import type { Reservation, Attendee, ClaimedPromotion } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { downloadTicketPdf } from '@/lib/ticketPdf'
+import { isEventPast } from '@/lib/eventDates'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateLong(iso: string) {
@@ -25,8 +26,24 @@ function formatTime(iso: string) {
 function formatShort(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
-function isPast(iso: string) {
-  return new Date(iso) < new Date()
+function bookingIsPast(reservation: Reservation) {
+  const ev = reservation.events as any
+  if (!ev?.event_starting_date) return false
+  return isEventPast({
+    event_starting_date: ev.event_starting_date,
+    event_ending_date: ev.event_ending_date,
+    event_hours: ev.event_hours,
+  })
+}
+function isTableReservation(reservation: Reservation) {
+  return reservation.type === 'table'
+}
+function isTicketReservation(reservation: Reservation) {
+  return reservation.type === 'ticket' || (!!reservation.ticket_type_id && reservation.type !== 'table')
+}
+function hasEventData(reservation: Reservation) {
+  const ev = reservation.events as any
+  return !!reservation.event_id && !!ev?.event_id && !!ev?.event_name
 }
 function statusColor(s: string) {
   if (s === 'confirmed') return COLORS.green
@@ -160,12 +177,17 @@ function DisputeModal({
       return
     }
     if (!user) return
+    const clubId = (res2.events as any)?.club_id ?? null
+    if (!clubId) {
+      Alert.alert('Cannot file dispute', 'This booking is not linked to a venue. Please contact support directly.')
+      return
+    }
     setLoading(true)
     const { error } = await supabase.from('disputes').insert({
       user_id: user.id,
       reservation_id: res2.reservation_id,
       event_id: (res2.events as any)?.event_id ?? res2.event_id,
-      club_id: (res2.events as any)?.club_id ?? null,
+      club_id: clubId,
       subject: subject.trim(),
       description: description.trim(),
       priority,
@@ -280,7 +302,7 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
   const currentReservation = reservation
   const ev = reservation.events as any
   const isTable = reservation.type === 'table'
-  const past = ev?.event_starting_date ? isPast(ev.event_starting_date) : false
+  const past = bookingIsPast(reservation)
   const effectiveStatus = past && reservation.status === 'confirmed' ? 'completed' : reservation.status
 
   const qrUrl = reservation.qr_code && !past ? qrUrlFor(reservation.qr_code) : null
@@ -441,7 +463,13 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
                 <Ionicons name="download-outline" size={18} color={COLORS.white} />
                 <Text style={styles.sheetActionText}>PDF</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.sheetActionBtn}>
+              <TouchableOpacity
+                style={styles.sheetActionBtn}
+                onPress={past
+                  ? handleDownloadPdf
+                  : () => Alert.alert('Coming soon', 'Wallet integration is on its way.')
+                }
+              >
                 <Ionicons name="wallet-outline" size={18} color={COLORS.white} />
                 <Text style={styles.sheetActionText}>{past ? 'View Receipt' : 'Add to Wallet'}</Text>
               </TouchableOpacity>
@@ -468,6 +496,7 @@ function TicketCard({
   onRefund,
   onRate,
   onDispute,
+  onClear,
 }: {
   reservation: Reservation
   existingRating: number
@@ -477,10 +506,12 @@ function TicketCard({
   onRefund: () => void
   onRate: () => void
   onDispute: () => void
+  onClear: () => void
 }) {
   const ev = reservation.events as any
   const isTable = reservation.type === 'table'
   const effectiveStatus = isPastTab && reservation.status === 'confirmed' ? 'completed' : reservation.status
+  const kindLabel = isTable ? 'Table reservation' : ((reservation as any).ticket_types?.name ?? 'Ticket')
 
   return (
     <TouchableOpacity
@@ -505,6 +536,10 @@ function TicketCard({
           {ev?.clubs?.club_address && (
             <Text style={styles.ticketVenue} numberOfLines={1}>{ev.clubs.club_address}</Text>
           )}
+          <View style={styles.kindRow}>
+            <Ionicons name={isTable ? 'restaurant-outline' : 'ticket-outline'} size={11} color={isTable ? COLORS.purple : COLORS.green} />
+            <Text style={[styles.kindText, { color: isTable ? COLORS.purple : COLORS.green }]}>{kindLabel}</Text>
+          </View>
           {ev?.event_starting_date && (
             <View style={styles.ticketDateRow}>
               <Ionicons name="calendar-outline" size={11} color={COLORS.mutedDark} />
@@ -530,26 +565,24 @@ function TicketCard({
         </View>
       </View>
 
-      {/* Upcoming actions: cancel / refund */}
+      {/* Upcoming actions: reservation cancel or ticket refund */}
       {!isPastTab && reservation.status !== 'cancelled' && (
         <View style={styles.pastActions}>
-          <TouchableOpacity style={styles.cancelBtn} onPress={(e) => { e.stopPropagation(); onCancel() }}>
-            <Ionicons name="close-circle-outline" size={14} color={COLORS.red} />
-            <Text style={styles.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          {!isTable && (
-            <>
-              <View style={styles.pastActionsDivider} />
-              <TouchableOpacity style={styles.refundBtn} onPress={(e) => { e.stopPropagation(); onRefund() }}>
-                <Ionicons name="card-outline" size={14} color={COLORS.purple} />
-                <Text style={styles.refundBtnText}>Refund Ticket</Text>
-              </TouchableOpacity>
-            </>
+          {isTable ? (
+            <TouchableOpacity style={styles.cancelBtn} onPress={(e) => { e.stopPropagation(); onCancel() }}>
+              <Ionicons name="close-circle-outline" size={14} color={COLORS.red} />
+              <Text style={styles.cancelBtnText}>Cancel reservation</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.refundBtn} onPress={(e) => { e.stopPropagation(); onRefund() }}>
+              <Ionicons name="card-outline" size={14} color={COLORS.purple} />
+              <Text style={styles.refundBtnText}>Request refund</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
 
-      {/* Past actions: rate + dispute */}
+      {/* Past actions: rate + dispute + clear */}
       {isPastTab && (
         <View style={styles.pastActions}>
           {existingRating > 0 ? (
@@ -567,6 +600,10 @@ function TicketCard({
           <TouchableOpacity style={styles.disputeBtn} onPress={(e) => { e.stopPropagation(); onDispute() }}>
             <Ionicons name="alert-circle-outline" size={14} color={COLORS.red} />
             <Text style={styles.disputeBtnText}>File Dispute</Text>
+          </TouchableOpacity>
+          <View style={styles.pastActionsDivider} />
+          <TouchableOpacity style={styles.clearHistoryBtn} onPress={(e) => { e.stopPropagation(); onClear() }}>
+            <Ionicons name="trash-outline" size={14} color={COLORS.mutedDark} />
           </TouchableOpacity>
         </View>
       )}
@@ -711,7 +748,7 @@ function ClaimSheet({ claim, onClose, onCancel }: {
 }
 
 // ── Claimed Offer Card ────────────────────────────────────────────────────────
-function ClaimedOfferCard({ claim, onPress }: { claim: ClaimedPromotion; onPress: () => void }) {
+function ClaimedOfferCard({ claim, onPress, onClear }: { claim: ClaimedPromotion; onPress: () => void; onClear?: () => void }) {
   const promo = claim.promotions
   const validUntil = promo?.valid_until ? new Date(promo.valid_until) : null
   const expired = !!validUntil && validUntil < new Date()
@@ -768,10 +805,16 @@ function ClaimedOfferCard({ claim, onPress }: { claim: ClaimedPromotion; onPress
         </TouchableOpacity>
 
         <View style={styles.ticketActions}>
-          <TouchableOpacity style={styles.viewBtn} onPress={onPress}>
-            <Text style={styles.viewBtnText}>{effectiveStatus === 'active' ? 'Show' : 'Details'}</Text>
-            <Ionicons name="chevron-forward" size={13} color={COLORS.white} />
-          </TouchableOpacity>
+          {onClear ? (
+            <TouchableOpacity style={styles.clearBtn} onPress={onClear}>
+              <Ionicons name="trash-outline" size={16} color={COLORS.mutedDark} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.viewBtn} onPress={onPress}>
+              <Text style={styles.viewBtnText}>Show</Text>
+              <Ionicons name="chevron-forward" size={13} color={COLORS.white} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </View>
@@ -785,11 +828,12 @@ export default function BookingsScreen() {
   const { user } = useAuth()
   const params = useLocalSearchParams<{ section?: string }>()
   const [reservations, setReservations] = useState<Reservation[]>([])
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [claims, setClaims] = useState<ClaimedPromotion[]>([])
   const [ratings, setRatings] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [section, setSection] = useState<'reservations' | 'offers'>(
-    params.section === 'offers' ? 'offers' : 'reservations',
+  const [section, setSection] = useState<'tickets' | 'reservations' | 'offers'>(
+    params.section === 'reservations' ? 'reservations' : params.section === 'offers' ? 'offers' : 'tickets',
   )
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
   const [selected, setSelected] = useState<Reservation | null>(null)
@@ -798,8 +842,9 @@ export default function BookingsScreen() {
   const [disputeTarget, setDisputeTarget] = useState<Reservation | null>(null)
 
   useEffect(() => {
-    if (params.section === 'offers') setSection('offers')
-    else if (params.section === 'reservations') setSection('reservations')
+    if (params.section === 'reservations') setSection('reservations')
+    else if (params.section === 'offers') setSection('offers')
+    else setSection('tickets')
   }, [params.section])
 
   useFocusEffect(
@@ -809,7 +854,7 @@ export default function BookingsScreen() {
       Promise.all([
         supabase
           .from('reservations')
-          .select('*, events(event_id, event_name, event_starting_date, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
+          .select('*, events(event_id, event_name, event_starting_date, event_ending_date, event_hours, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
         supabase
@@ -853,14 +898,28 @@ export default function BookingsScreen() {
     )
   }
 
-  async function handleCancel(reservationId: string) {
-    Alert.alert('Cancel booking', 'Are you sure you want to cancel this booking?', [
+  async function handleClearClaim(claim: ClaimedPromotion) {
+    const { error } = await supabase
+      .from('claimed_promotions')
+      .delete()
+      .eq('id', claim.id)
+    if (error) { Alert.alert('Error', error.message); return }
+    setClaims((prev) => prev.filter((c) => c.id !== claim.id))
+  }
+
+  function handleClearReservation(reservation: Reservation) {
+    setHiddenIds((prev) => new Set(prev).add(reservation.reservation_id))
+  }
+
+  async function handleCancel(reservation: Reservation) {
+    if (reservation.type !== 'table') return
+    Alert.alert('Cancel reservation', 'Cancel this table reservation? Tickets cannot be cancelled here; use Request refund for tickets.', [
       { text: 'Keep it', style: 'cancel' },
       {
-        text: 'Cancel booking', style: 'destructive', onPress: async () => {
-          await supabase.from('reservations').update({ status: 'cancelled' }).eq('reservation_id', reservationId)
+        text: 'Cancel reservation', style: 'destructive', onPress: async () => {
+          await supabase.from('reservations').update({ status: 'cancelled' }).eq('reservation_id', reservation.reservation_id)
           setReservations((prev) => prev.map((r) =>
-            r.reservation_id === reservationId ? { ...r, status: 'cancelled' } : r,
+            r.reservation_id === reservation.reservation_id ? { ...r, status: 'cancelled' } : r,
           ))
         },
       },
@@ -869,12 +928,12 @@ export default function BookingsScreen() {
 
   async function handleRefund(reservation: Reservation) {
     Alert.alert(
-      'Refund Ticket',
+      'Request refund',
       'Your ticket will be cancelled and a refund will be processed within 5–7 business days.',
       [
         { text: 'Keep ticket', style: 'cancel' },
         {
-          text: 'Confirm Refund', style: 'destructive', onPress: async () => {
+          text: 'Request refund', style: 'destructive', onPress: async () => {
             await supabase.from('reservations').update({ status: 'cancelled' }).eq('reservation_id', reservation.reservation_id)
             await supabase.from('payments').update({ status: 'refund_pending' }).eq('reservation_id', reservation.reservation_id)
             setReservations((prev) => prev.map((r) =>
@@ -900,20 +959,26 @@ export default function BookingsScreen() {
     )
   }
 
-  const upcomingList = reservations.filter((r) => {
-    if (r.status === 'cancelled') return false
-    const ev = r.events as any
-    if (!ev?.event_starting_date) return true
-    return !isPast(ev.event_starting_date)
+  const visibleReservations = reservations.filter(r => hasEventData(r) && !hiddenIds.has(r.reservation_id))
+  const scopedReservations = visibleReservations.filter((r) => section === 'tickets' ? isTicketReservation(r) : isTableReservation(r))
+  const ticketCount = visibleReservations.filter(isTicketReservation).length
+  const reservationCount = visibleReservations.filter(isTableReservation).length
+
+  const upcomingList = scopedReservations.filter((r) => {
+    if (r.status === 'cancelled' || r.status === 'completed') return false
+    return !bookingIsPast(r)
   })
 
-  const pastList = reservations.filter((r) => {
-    const ev = r.events as any
-    if (!ev?.event_starting_date) return false
-    return isPast(ev.event_starting_date)
+  const pastList = scopedReservations.filter((r) => {
+    if (r.status === 'cancelled' || r.status === 'completed') return true
+    return bookingIsPast(r)
   })
 
-  const activeList = activeTab === 'upcoming' ? upcomingList : pastList
+  const activeList = [...(activeTab === 'upcoming' ? upcomingList : pastList)].sort((a, b) => {
+    const aTime = new Date(((a.events as any)?.event_starting_date ?? a.created_at ?? 0) as string).getTime()
+    const bTime = new Date(((b.events as any)?.event_starting_date ?? b.created_at ?? 0) as string).getTime()
+    return activeTab === 'upcoming' ? aTime - bTime : bTime - aTime
+  })
 
   // ── Offers (claimed promotions) split by status ──
   const activeClaims = claims.filter((c) => {
@@ -931,20 +996,34 @@ export default function BookingsScreen() {
         <Text style={styles.headerTitle}>Your Nights</Text>
       </View>
 
-      {/* Top section toggle: Reservations / Offers */}
+      {/* Top section toggle: Tickets / Reservations / Offers */}
       <View style={styles.segmentWrap}>
+        <TouchableOpacity
+          style={[styles.segment, section === 'tickets' && styles.segmentActive]}
+          onPress={() => setSection('tickets')}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name="ticket-outline"
+            size={15}
+            color={section === 'tickets' ? COLORS.white : COLORS.muted}
+          />
+          <Text style={[styles.segmentText, section === 'tickets' && styles.segmentTextActive]}>
+            Tickets{ticketCount > 0 ? ` (${ticketCount})` : ''}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.segment, section === 'reservations' && styles.segmentActive]}
           onPress={() => setSection('reservations')}
           activeOpacity={0.85}
         >
           <Ionicons
-            name="ticket-outline"
+            name="restaurant-outline"
             size={15}
             color={section === 'reservations' ? COLORS.white : COLORS.muted}
           />
           <Text style={[styles.segmentText, section === 'reservations' && styles.segmentTextActive]}>
-            Reservations{reservations.length > 0 ? ` (${reservations.length})` : ''}
+            Reservations{reservationCount > 0 ? ` (${reservationCount})` : ''}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -963,7 +1042,21 @@ export default function BookingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {section === 'reservations' ? (
+      {section !== 'offers' && (
+        <View style={styles.miniStatsRow}>
+          <View style={styles.miniStat}>
+            <Text style={styles.miniStatValue}>{upcomingList.length}</Text>
+            <Text style={styles.miniStatLabel}>Coming up</Text>
+          </View>
+          <View style={styles.miniStatDivider} />
+          <View style={styles.miniStat}>
+            <Text style={styles.miniStatValue}>{pastList.length}</Text>
+            <Text style={styles.miniStatLabel}>History</Text>
+          </View>
+        </View>
+      )}
+
+      {section !== 'offers' ? (
         <>
           {/* Filter tabs */}
           <View style={styles.tabRow}>
@@ -972,7 +1065,7 @@ export default function BookingsScreen() {
               onPress={() => setActiveTab('upcoming')}
             >
               <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
-                Upcoming{upcomingList.length > 0 ? ` (${upcomingList.length})` : ''}
+                Coming up{upcomingList.length > 0 ? ` (${upcomingList.length})` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -980,7 +1073,7 @@ export default function BookingsScreen() {
               onPress={() => setActiveTab('past')}
             >
               <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
-                Past{pastList.length > 0 ? ` (${pastList.length})` : ''}
+                Night history{pastList.length > 0 ? ` (${pastList.length})` : ''}
               </Text>
             </TouchableOpacity>
           </View>
@@ -990,9 +1083,15 @@ export default function BookingsScreen() {
           ) : activeList.length === 0 ? (
             <View style={styles.center}>
               <Ionicons name={activeTab === 'upcoming' ? 'calendar-outline' : 'time-outline'} size={52} color={COLORS.mutedDark} />
-              <Text style={styles.emptyTitle}>{activeTab === 'upcoming' ? 'No upcoming bookings' : 'No past bookings'}</Text>
+              <Text style={styles.emptyTitle}>
+                {activeTab === 'upcoming'
+                  ? section === 'tickets' ? 'No upcoming tickets' : 'No upcoming reservations'
+                  : section === 'tickets' ? 'No ticket history' : 'No reservation history'}
+              </Text>
               <Text style={styles.emptySub}>
-                {activeTab === 'upcoming' ? 'Buy a ticket or reserve a table to get started' : 'Events you attend will appear here'}
+                {activeTab === 'upcoming'
+                  ? section === 'tickets' ? 'Buy a ticket and it will land here.' : 'Reserve a table and it will land here.'
+                  : 'Finished events move here after they end.'}
               </Text>
               {activeTab === 'upcoming' && (
                 <TouchableOpacity style={styles.ctaBtn} onPress={() => router.push('/(tabs)/search')}>
@@ -1012,10 +1111,11 @@ export default function BookingsScreen() {
                   existingRating={ratings[r.reservation_id] ?? 0}
                   isPastTab={activeTab === 'past'}
                   onPress={() => setSelected(r)}
-                  onCancel={() => handleCancel(r.reservation_id)}
+                  onCancel={() => handleCancel(r)}
                   onRefund={() => handleRefund(r)}
                   onRate={() => setRateTarget(r)}
                   onDispute={() => setDisputeTarget(r)}
+                  onClear={() => handleClearReservation(r)}
                 />
               ))}
             </ScrollView>
@@ -1061,6 +1161,7 @@ export default function BookingsScreen() {
                     key={c.id}
                     claim={c}
                     onPress={() => setSelectedClaim(c)}
+                    onClear={() => handleClearClaim(c)}
                   />
                 ))}
               </>
@@ -1119,7 +1220,21 @@ const styles = StyleSheet.create({
   segmentActive: { backgroundColor: COLORS.purpleDark },
   segmentText: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '700' },
   segmentTextActive: { color: COLORS.white },
-
+  miniStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SPACING.sm,
+  },
+  miniStat: { flex: 1, alignItems: 'center', gap: 2 },
+  miniStatValue: { color: COLORS.white, fontSize: FONT.lg, fontWeight: '900' },
+  miniStatLabel: { color: COLORS.mutedDark, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7 },
+  miniStatDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
   offersSectionTitle: {
     color: COLORS.mutedDark, fontSize: 11, fontWeight: '800',
     textTransform: 'uppercase', letterSpacing: 1.2,
@@ -1164,6 +1279,8 @@ const styles = StyleSheet.create({
   ticketName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700' },
   ticketNamePast: { color: COLORS.muted },
   ticketVenue: { color: COLORS.muted, fontSize: FONT.sm },
+  kindRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  kindText: { fontSize: 11, fontWeight: '800' },
   ticketDateRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
   ticketDate: { color: COLORS.mutedDark, fontSize: 11 },
   ticketSep: { color: COLORS.mutedDark, fontSize: 11 },
@@ -1181,6 +1298,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
   viewBtnText: { color: COLORS.white, fontSize: 12, fontWeight: '600' },
+  clearBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.bgInput, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  clearHistoryBtn: { paddingHorizontal: 6, paddingVertical: 2, alignItems: 'center', justifyContent: 'center' },
 
   // Past actions row
   pastActions: {

@@ -7,6 +7,83 @@
 
 create extension if not exists pgcrypto;
 
+alter table if exists public.disputes
+  add column if not exists user_cleared_at timestamptz;
+
+do $$
+declare
+  r record;
+begin
+  if to_regclass('public.disputes') is null then
+    return;
+  end if;
+
+  alter table public.disputes
+    drop constraint if exists disputes_status_check;
+
+  for r in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.disputes'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%status%'
+      and pg_get_constraintdef(oid) ilike '%open%'
+  loop
+    execute format('alter table public.disputes drop constraint %I', r.conname);
+  end loop;
+
+  alter table public.disputes
+    add constraint disputes_status_check
+    check (status in ('open', 'in_progress', 'resolved', 'rejected', 'cancelled'));
+end
+$$;
+
+create or replace function public.delete_current_user_account()
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  delete from public.push_tokens where profile_id = v_user;
+  delete from public.notifications where recipient_profile_id = v_user;
+
+  if to_regclass('public.saved_promotions') is not null then
+    execute 'delete from public.saved_promotions where user_id = $1' using v_user;
+  end if;
+
+  if to_regclass('public.payment_methods') is not null then
+    execute 'delete from public.payment_methods where user_id = $1' using v_user;
+  end if;
+
+  if to_regclass('public.claimed_promotions') is not null then
+    execute 'delete from public.claimed_promotions where user_id = $1' using v_user;
+  end if;
+
+  if to_regclass('public.saved_events') is not null then
+    execute 'delete from public.saved_events where user_id = $1' using v_user;
+  end if;
+
+  if to_regclass('public.disputes') is not null then
+    execute 'delete from public.disputes where user_id = $1' using v_user;
+  end if;
+
+  if to_regclass('public.reservations') is not null then
+    execute 'delete from public.reservations where user_id = $1' using v_user;
+  end if;
+
+  delete from auth.users where id = v_user;
+end
+$$;
+
+grant execute on function public.delete_current_user_account() to authenticated;
+
 -- ─── notifications ──────────────────────────────────────────────────────────
 create table if not exists public.notifications (
   id                    uuid primary key default gen_random_uuid(),
@@ -267,8 +344,8 @@ create trigger trg_notify_dispute_new
   after insert on public.disputes
   for each row execute function public.fn_notify_dispute_new();
 
--- ─── trigger: dispute updated -> notify club manager on status change ──────
-create or replace function public.fn_notify_dispute_update()
+-- ─── trigger: open dispute edited -> notify club manager ────────────────────
+create or replace function public.fn_notify_dispute_user_edit()
 returns trigger
 language plpgsql
 security definer
@@ -277,7 +354,121 @@ as $$
 declare
   v_manager uuid;
 begin
-  if new.status is not distinct from old.status then return new; end if;
+  if new.club_id is null then return new; end if;
+  if new.status <> 'open' or old.status <> 'open' then return new; end if;
+  if new.subject is not distinct from old.subject
+     and new.description is not distinct from old.description
+     and new.priority is not distinct from old.priority then
+    return new;
+  end if;
+
+  v_manager := public.fn_club_manager_id(new.club_id);
+  if v_manager is null then return new; end if;
+
+  insert into public.notifications (
+    recipient_profile_id, club_id, type, title, body, data
+  ) values (
+    v_manager,
+    new.club_id,
+    'dispute_update',
+    'Dispute updated by customer',
+    'A customer edited an open dispute before review.',
+    jsonb_build_object(
+      'dispute_id', new.id,
+      'status', new.status,
+      'priority', new.priority
+    )
+  );
+
+  return new;
+end
+$$;
+
+drop trigger if exists trg_notify_dispute_user_edit on public.disputes;
+create trigger trg_notify_dispute_user_edit
+  after update of subject, description, priority on public.disputes
+  for each row execute function public.fn_notify_dispute_user_edit();
+
+-- ─── trigger: manager dispute update -> notify customer ─────────────────────
+create or replace function public.fn_notify_dispute_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status_label text;
+  v_note_preview text;
+  v_body text;
+begin
+  if new.user_id is null then return new; end if;
+  if new.status is not distinct from old.status
+     and new.manager_notes is not distinct from old.manager_notes then
+    return new;
+  end if;
+  if new.status = 'cancelled' and old.status = 'open' then
+    return new;
+  end if;
+
+  v_status_label := initcap(replace(coalesce(new.status, 'updated'), '_', ' '));
+  v_note_preview := nullif(trim(coalesce(new.manager_notes, '')), '');
+  v_body := case
+    when new.status is distinct from old.status and new.status = 'in_progress'
+      then 'The manager started reviewing your dispute and may contact you soon.'
+    when new.status is distinct from old.status and new.status = 'resolved'
+      then 'The manager marked your dispute as resolved.'
+    when new.status is distinct from old.status and new.status = 'rejected'
+      then 'The manager reviewed and closed your dispute.'
+    when new.status is distinct from old.status
+      and new.manager_notes is distinct from old.manager_notes
+      then 'The manager updated your dispute to ' || v_status_label || ' and added a response.'
+    when new.status is distinct from old.status
+      then 'The manager updated your dispute to ' || v_status_label || '.'
+    else 'The manager added a response to your dispute.'
+  end;
+
+  if v_note_preview is not null then
+    v_body := v_body || ' Message: ' || left(v_note_preview, 140) ||
+      case when length(v_note_preview) > 140 then '...' else '' end;
+  end if;
+
+  insert into public.notifications (
+    recipient_profile_id, club_id, type, title, body, data
+  ) values (
+    new.user_id,
+    new.club_id,
+    'dispute_update',
+    'Dispute updated',
+    v_body,
+    jsonb_build_object(
+      'dispute_id', new.id,
+      'status', new.status,
+      'previous_status', old.status,
+      'has_manager_notes', new.manager_notes is not null,
+      'manager_message', v_note_preview
+    )
+  );
+
+  return new;
+end
+$$;
+
+drop trigger if exists trg_notify_dispute_update on public.disputes;
+create trigger trg_notify_dispute_update
+  after update of status, manager_notes on public.disputes
+  for each row execute function public.fn_notify_dispute_update();
+
+-- trigger: user cancelled dispute -> notify club manager
+create or replace function public.fn_notify_dispute_cancelled()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_manager uuid;
+begin
+  if new.status <> 'cancelled' or old.status <> 'open' then return new; end if;
   if new.club_id is null then return new; end if;
 
   v_manager := public.fn_club_manager_id(new.club_id);
@@ -289,21 +480,25 @@ begin
     v_manager,
     new.club_id,
     'dispute_update',
-    'Dispute status changed',
-    'A dispute is now ' || new.status || '.',
-    jsonb_build_object('dispute_id', new.id, 'status', new.status)
+    'Dispute cancelled',
+    'A customer cancelled an open dispute before review.',
+    jsonb_build_object(
+      'dispute_id', new.id,
+      'status', new.status,
+      'previous_status', old.status
+    )
   );
 
   return new;
 end
 $$;
 
-drop trigger if exists trg_notify_dispute_update on public.disputes;
-create trigger trg_notify_dispute_update
+drop trigger if exists trg_notify_dispute_cancelled on public.disputes;
+create trigger trg_notify_dispute_cancelled
   after update of status on public.disputes
-  for each row execute function public.fn_notify_dispute_update();
+  for each row execute function public.fn_notify_dispute_cancelled();
 
--- ─── trigger: event published -> notify club manager ───────────────────────
+-- trigger: event published -> notify club manager
 create or replace function public.fn_notify_event_published()
 returns trigger
 language plpgsql
