@@ -57,7 +57,7 @@ export default function PaymentMethodScreen() {
   const params = useLocalSearchParams<{
     eventId?: string; eventName?: string; ticketTypeId?: string
     ticketTypeName?: string; quantity?: string; total?: string; isReservation?: string
-    attendees?: string
+    attendees?: string; tableId?: string; tableNumber?: string; tableType?: string
   }>()
 
   const isCheckout = Boolean(params.eventId)
@@ -201,9 +201,11 @@ export default function PaymentMethodScreen() {
     setCheckoutLoading(true)
     try {
       const nrPeople = Number(params.quantity ?? 1)
-      let assignedTableId: string | null = null
+      // Use the user-selected tableId if provided, otherwise fall back to auto-assignment
+      let assignedTableId: string | null = params.tableId || null
 
-      if (isReservation && params.eventId) {
+      if (isReservation && params.eventId && !assignedTableId) {
+        // Auto-assign a table if none was selected
         const { data: eventRow } = await supabase
           .from('events').select('club_id').eq('event_id', params.eventId).single()
 
