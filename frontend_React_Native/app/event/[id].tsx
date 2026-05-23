@@ -41,10 +41,15 @@ type TableCategory = {
   maxCapacity: number | null           // highest seating_capacity across the category
 }
 
+function normalizeType(raw: string | null | undefined): string {
+  const s = (raw ?? 'Standard').trim()
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+}
+
 function buildCategories(tables: TableWithAvailability[]): TableCategory[] {
   const map = new Map<string, TableWithAvailability[]>()
   for (const t of tables) {
-    const key = t.type ?? 'Standard'
+    const key = normalizeType(t.type)
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(t)
   }
