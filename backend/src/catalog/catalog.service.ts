@@ -576,17 +576,19 @@ export class CatalogService {
       club?.address ||
       pickString(row, ['address', 'venue_address', 'location']) ||
       undefined;
-    const listPrice = pickOptionalNumber(row, [
-      'original_price',
-      'list_price',
-      'regular_price',
-    ]);
-    const promoPrice = pickOptionalNumber(row, [
-      'price',
-      'discounted_price',
-      'promo_price',
-      'sale_price',
-    ]);
+    const explicitOriginal = pickOptionalNumber(row, ['original_price']);
+    let listPrice: number | undefined;
+    let promoPrice: number | undefined;
+    const showNumericPricing =
+      explicitOriginal != null && explicitOriginal > 0;
+    if (showNumericPricing) {
+      listPrice = explicitOriginal;
+      const d = Number.isNaN(disc) ? 0 : Math.min(100, Math.max(0, disc));
+      promoPrice =
+        d >= 100
+          ? 0
+          : Math.round(explicitOriginal * (100 - d) * 100) / 10000;
+    }
 
     const validUntilRaw = row.valid_until;
     const validUntil =
@@ -719,6 +721,7 @@ export class CatalogService {
       lng: club?.club_lng,
       listPrice,
       promoPrice,
+      showNumericPricing,
       validUntil,
       subtitle: subtitle || undefined,
       longDescription,

@@ -353,7 +353,8 @@ export default function MyBookings() {
                 return (
                   <article
                     key={booking.bookingId}
-                    className="grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 md:grid-cols-[112px_1fr_auto] md:items-center"
+                    className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(236,72,153,0.22)] md:grid-cols-[112px_1fr_auto] md:items-center"
+                    onClick={() => navigate(`/my-bookings/${booking.bookingId}`)}
                   >
                     <div className="h-24 w-28 overflow-hidden rounded-xl border border-white/10 bg-black/30">
                       {booking.eventImage ? (
@@ -391,10 +392,8 @@ export default function MyBookings() {
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${typeClass}`}>
                         {booking.kind === 'reservation' ? 'RESERVATION' : 'TICKET'}
                       </span>
-                      <span className="text-sm font-semibold text-white">x{booking.quantity}</span>
                       <button
                         type="button"
-                        onClick={() => navigate(`/my-bookings/${booking.bookingId}`)}
                         className="rounded-full border border-primary/45 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/10"
                       >
                         View Details

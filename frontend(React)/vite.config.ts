@@ -20,15 +20,34 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          homeTopMenu: path.resolve(__dirname, 'home-top-menu.html'),
+          managerDashboard: path.resolve(__dirname, 'manager/manager-dashboard.html'),
+          clubProfileEditor: path.resolve(__dirname, 'manager/club-profile-editor.html'),
+          eventManagement: path.resolve(__dirname, 'manager/event-management.html'),
+          reservationManagement: path.resolve(__dirname, 'manager/reservation-management.html'),
+        },
+      },
+    },
     server: {
       proxy: {
         '/catalog': { target: apiTarget, changeOrigin: true },
+        '/suggestions': { target: apiTarget, changeOrigin: true },
         '/auth': { target: apiTarget, changeOrigin: true },
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },
         '/api': { target: apiTarget, changeOrigin: true },
         '/event': { target: apiTarget, changeOrigin: true },
         '/payment': { target: apiTarget, changeOrigin: true },
+        '/dashboard': { target: apiTarget, changeOrigin: true },
+        '/api': {
+          target: apiTarget,
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/api/, ''),
+        },
       },
     },
   }

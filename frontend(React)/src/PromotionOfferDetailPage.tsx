@@ -163,7 +163,16 @@ export default function PromotionOfferDetailPage() {
 
   const savings = offer.savingsAmount
   const discountPct =
-    offer.originalPrice > 0 ? Math.round((savings / offer.originalPrice) * 100) : 100
+    offer.showPriceInSidebar && offer.originalPrice > 0
+      ? Math.round((savings / offer.originalPrice) * 100)
+      : 100
+
+  const sidebarPriceLabel =
+    offer.checkoutPrice === 0 && offer.originalPrice > 0
+      ? 'Free Entry'
+      : offer.checkoutPrice === 0
+        ? 'FREE'
+        : `${offer.currency}${offer.checkoutPrice}`
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -379,27 +388,29 @@ export default function PromotionOfferDetailPage() {
                   className="sticky top-24 space-y-6"
                 >
                   <div className="space-y-5 rounded-2xl border border-border/30 bg-card p-6">
-                    <div className="space-y-2 text-center">
-                      {offer.checkoutPrice < offer.originalPrice ? (
-                        <p className="text-lg text-muted-foreground line-through">
-                          {offer.currency}
-                          {offer.originalPrice}
-                        </p>
-                      ) : null}
-                      <p className="text-4xl font-bold text-primary">
-                        {offer.checkoutPrice === 0
-                          ? 'FREE'
-                          : `${offer.currency}${offer.checkoutPrice}`}
-                      </p>
-                      {savings > 0 ? (
-                        <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
-                          You save {offer.currency}
-                          {savings} ({discountPct}% off)
-                        </span>
-                      ) : null}
-                    </div>
+                    {offer.showPriceInSidebar ? (
+                      <>
+                        <div className="space-y-2 text-center">
+                          {offer.checkoutPrice < offer.originalPrice ? (
+                            <p className="text-lg text-muted-foreground line-through">
+                              {offer.currency}
+                              {offer.originalPrice}
+                            </p>
+                          ) : null}
+                          <p className="text-4xl font-bold text-primary">
+                            {sidebarPriceLabel}
+                          </p>
+                          {savings > 0 ? (
+                            <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+                              You save {offer.currency}
+                              {savings} ({discountPct}% off)
+                            </span>
+                          ) : null}
+                        </div>
 
-                    <Separator />
+                        <Separator />
+                      </>
+                    ) : null}
 
                     <Button
                       type="button"

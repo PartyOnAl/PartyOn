@@ -86,6 +86,7 @@ const DETAIL_PATCHES: Record<
       | 'originalPrice'
       | 'savingsAmount'
       | 'savingsPercentLabel'
+      | 'showPriceInSidebar'
       | 'whyWorthItBulletLines'
       | 'worthCardIncludedItems'
     >
@@ -130,56 +131,6 @@ function currencyDisplay(promo: Promotion): string {
   return '€'
 }
 
-/** Reference + savings for pricing UI (sidebar), from badge + checkout price. */
-function derivePricing(
-  promo: Promotion,
-  checkoutPrice: number,
-): Pick<
-  PromotionOfferDetail,
-  'originalPrice' | 'savingsAmount' | 'savingsPercentLabel'
-> {
-  const pctMatch = promo.badge.match(/(\d+)\s*%/i)
-  if (pctMatch) {
-    const pct = Math.min(95, Math.max(1, parseInt(pctMatch[1], 10)))
-    const original = Math.max(
-      checkoutPrice + 1,
-      Math.round((checkoutPrice * 100) / (100 - pct)),
-    )
-    return {
-      originalPrice: original,
-      savingsAmount: Math.max(0, original - checkoutPrice),
-      savingsPercentLabel: `${pct}% off`,
-    }
-  }
-  if (/2\s*[- ]?\s*for\s*[- ]?\s*1|2\s*for\s*1/i.test(promo.badge)) {
-    const original = Math.max(checkoutPrice * 2, checkoutPrice + 1)
-    return {
-      originalPrice: original,
-      savingsAmount: Math.max(0, original - checkoutPrice),
-      savingsPercentLabel: null,
-    }
-  }
-  if (/free/i.test(promo.badge) && checkoutPrice <= 0) {
-    return {
-      originalPrice: 15,
-      savingsAmount: 15,
-      savingsPercentLabel: '100% off',
-    }
-  }
-  const original = Math.max(
-    checkoutPrice + 5,
-    Math.round(checkoutPrice * 1.3),
-  )
-  const saving = original - checkoutPrice
-  const pct =
-    original > 0 ? Math.round((saving / original) * 100) : null
-  return {
-    originalPrice: original,
-    savingsAmount: saving,
-    savingsPercentLabel: pct != null && pct > 0 ? `${pct}% off` : null,
-  }
-}
-
 export function buildPromotionOfferDetail(
   id: string,
   promotions: Promotion[],
@@ -217,36 +168,45 @@ export function buildPromotionOfferDetail(
     return lines.length > 0 ? lines : null
   }
 
-  const checkoutPrice =
-    patch.checkoutPrice !== undefined
-      ? patch.checkoutPrice
-      : typeof promo.promoPrice === 'number' && Number.isFinite(promo.promoPrice)
-        ? Math.max(0, promo.promoPrice)
-        : /free/i.test(promo.badge)
-          ? 0
-          : 35
+  const showPriceInSidebar = promo.showNumericPricing === true
+
+  let checkoutPrice: number
+  let originalPrice: number
+  let savingsAmount: number
+  let savingsPercentLabel: string | null
+
+  if (!showPriceInSidebar) {
+    checkoutPrice = 0
+    originalPrice = 0
+    savingsAmount = 0
+    savingsPercentLabel = null
+  } else {
+    checkoutPrice =
+      patch.checkoutPrice !== undefined
+        ? patch.checkoutPrice
+        : typeof promo.promoPrice === 'number' && Number.isFinite(promo.promoPrice)
+          ? Math.max(0, promo.promoPrice)
+          : 0
+    originalPrice =
+      patch.originalPrice ??
+      (typeof promo.listPrice === 'number' && Number.isFinite(promo.listPrice)
+        ? promo.listPrice
+        : 0)
+    savingsAmount =
+      patch.savingsAmount ?? Math.max(0, originalPrice - checkoutPrice)
+    savingsPercentLabel =
+      patch.savingsPercentLabel !== undefined
+        ? patch.savingsPercentLabel
+        : originalPrice > 0 && savingsAmount > 0
+          ? `${Math.round((savingsAmount / originalPrice) * 100)}% off`
+          : null
+  }
 
   const parsedValid = promo.validUntil ? new Date(promo.validUntil) : null
   const validDate =
     parsedValid && !Number.isNaN(parsedValid.getTime())
       ? parsedValid
       : new Date(Date.now() + 45 * 24 * 60 * 60 * 1000)
-  const derived = derivePricing(promo, checkoutPrice)
-  const fromList =
-    typeof promo.listPrice === 'number' &&
-    Number.isFinite(promo.listPrice) &&
-    promo.listPrice >= checkoutPrice
-  const originalPrice =
-    patch.originalPrice ??
-    (fromList ? promo.listPrice! : derived.originalPrice)
-  const savingsAmount =
-    patch.savingsAmount ?? Math.max(0, originalPrice - checkoutPrice)
-  const savingsPercentLabel =
-    patch.savingsPercentLabel !== undefined
-      ? patch.savingsPercentLabel
-      : fromList && originalPrice > 0 && savingsAmount > 0
-        ? `${Math.round((savingsAmount / originalPrice) * 100)}% off`
-        : derived.savingsPercentLabel
 
   let lat: number | undefined
   let lng: number | undefined
@@ -354,6 +314,7 @@ export function buildPromotionOfferDetail(
     originalPrice,
     savingsAmount,
     savingsPercentLabel,
+    showPriceInSidebar,
     currency: currencyDisplay(promo),
     venue: promo.venue,
     city: promo.city,

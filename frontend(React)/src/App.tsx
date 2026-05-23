@@ -5,6 +5,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
   useParams,
 } from 'react-router-dom'
 import EventClicked from './EventClicked'
@@ -31,10 +32,103 @@ import DjDetail from './DjDetail'
 import SignupPage from './SignupPage'
 import MyProfile from './MyProfile'
 import TopClubs from './TopClubs'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { CatalogProvider } from './contexts/CatalogContext'
 import { SavedEventsProvider } from './contexts/SavedEventsContext'
 import EventPage from './data/EventPage'
+import ManagerRoute from './manager/ManagerRoute'
+import ManagerDashboard from './manager/ManagerDashboard'
+import ClubProfile from './manager/ClubProfile'
+import EventManagement from './manager/EventManagement'
+import ReservationManagement from './manager/ReservationManagement'
+import ManagerPromotions from './manager/ManagerPromotions'
+import ManagerAnalytics from './manager/ManagerAnalytics'
+import ManagerStaffApproval from './manager/ManagerStaffApproval'
+import ManagerDisputes from './manager/ManagerDisputes'
+import ManagerSettings from './manager/ManagerSettings'
+import ManagerProfile from './manager/ManagerProfile'
+import TableManagement from './manager/TableManagement'
+import AdminRoute from './admin/AdminRoute'
+import AdminPlatformAnalysis from './admin/AdminPlatformAnalysis'
+import ClubApproving from './admin/ClubApproving'
+import UserManagement from './admin/UserManagement'
+import RevenueAndPayments from './admin/RevenueAndPayments'
+import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
+import StaffMobileOnlyPage from './StaffMobileOnlyPage'
+import { userMustChangePassword } from './lib/mustChangePassword'
+import { getStaffRoleFromUser, isMobileOnlyStaffRole } from './lib/staffRoles'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
+
+function MustChangePasswordGuard() {
+  const { user, isLoading } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (isLoading) return
+    if (!userMustChangePassword(user)) return
+    const path = location.pathname
+    if (
+      path === '/staff/change-password' ||
+      path === '/login' ||
+      path === '/signup' ||
+      path === '/reset-password'
+    ) {
+      return
+    }
+    navigate('/staff/change-password', { replace: true })
+  }, [user, isLoading, location.pathname, navigate])
+
+  return null
+}
+
+function WebStaffAccessGuard() {
+  const { user, profile, isLoading } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const isManagerPath =
+    location.pathname.startsWith('/manager') || location.pathname.startsWith('/admin')
+
+  useEffect(() => {
+    if (isLoading) return
+    if (isManagerPath) return
+
+    const roleNorm = String(profile?.role ?? '').toLowerCase().trim()
+    const isAdminRole =
+      roleNorm === 'admin' || roleNorm === 'superadmin' || roleNorm === 'super_admin'
+    if (isAdminRole) {
+      navigate('/admin/platform-analysis', { replace: true })
+      return
+    }
+
+    const staffRole = getStaffRoleFromUser(user ?? null)
+    if (!staffRole) return
+
+    const path = location.pathname
+    if (
+      path === '/staff/mobile-only' ||
+      path === '/login' ||
+      path === '/signup' ||
+      path === '/reset-password' ||
+      path === '/staff/change-password'
+    ) {
+      return
+    }
+
+    if (!supabase || !isSupabaseConfigured) return
+
+    if (isMobileOnlyStaffRole(staffRole)) {
+      void supabase.auth.signOut({ scope: 'local' })
+      navigate('/staff/mobile-only', { replace: true })
+      return
+    }
+
+    void supabase.auth.signOut({ scope: 'local' })
+    navigate('/login', { replace: true, state: { staffWebBlocked: true } })
+  }, [user, profile, isLoading, location.pathname, isManagerPath, navigate])
+
+  return null
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -62,10 +156,14 @@ function App() {
       <AuthProvider>
         <CatalogProvider>
           <SavedEventsProvider>
+            <MustChangePasswordGuard />
+            <WebStaffAccessGuard />
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/staff/change-password" element={<StaffMustChangePasswordPage />} />
+              <Route path="/staff/mobile-only" element={<StaffMobileOnlyPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/home" element={<Home />} />
               <Route path="/profile" element={<MyProfile />} />
@@ -100,6 +198,67 @@ function App() {
               <Route path="/events/:eventId" element={<EventClicked />} />
               <Route path="/event" element={<EventClicked />} />
               <Route path="/events-api" element={<EventPage />} />
+              <Route
+                path="/manager/dashboard"
+                element={<ManagerRoute><ManagerDashboard /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/club-profile"
+                element={<ManagerRoute><ClubProfile /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/events"
+                element={<ManagerRoute><EventManagement /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/reservations"
+                element={<ManagerRoute><ReservationManagement /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/tables"
+                element={<ManagerRoute><TableManagement /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/promotions"
+                element={<ManagerRoute><ManagerPromotions /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/analytics"
+                element={<ManagerRoute><ManagerAnalytics /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/staff-approval"
+                element={<ManagerRoute><ManagerStaffApproval /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/disputes"
+                element={<ManagerRoute><ManagerDisputes /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/settings"
+                element={<ManagerRoute><ManagerSettings /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/profile"
+                element={<ManagerRoute><ManagerProfile /></ManagerRoute>}
+              />
+              <Route
+                path="/admin/platform-analysis"
+                element={<AdminRoute><AdminPlatformAnalysis /></AdminRoute>}
+              />
+              <Route
+                path="/admin/club-approvals"
+                element={<AdminRoute><ClubApproving /></AdminRoute>}
+              />
+              <Route
+                path="/admin/user-management"
+                element={<AdminRoute><UserManagement /></AdminRoute>}
+              />
+              <Route
+                path="/admin/revenue-payments"
+                element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
+              />
+
               <Route path="/header" element={<Header />} />
               <Route path="/footer" element={<Footer />} />
               <Route path="/get-the-app" element={<GetTheApp />} />

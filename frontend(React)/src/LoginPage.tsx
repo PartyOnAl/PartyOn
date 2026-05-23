@@ -1,7 +1,13 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useState, useEffect, type FormEvent } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import ForgotPasswordModal from './ForgotPasswordModal'
-import { isSupabaseConfigured, supabase } from './lib/supabase'
+import { isSupabaseConfigured, managerSupabase, supabase } from './lib/supabase'
+import { userMustChangePassword } from './lib/mustChangePassword'
+import {
+  getStaffRoleFromUser,
+  isMobileOnlyStaffRole,
+} from './lib/staffRoles'
 import styles from './LoginPage.module.css'
 
 function GoogleIcon() {
@@ -118,6 +124,63 @@ function safeInternalPath(path: unknown): string | null {
   return path
 }
 
+function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'superadmin' || role === 'super_admin'
+}
+
+/**
+ * Manager/admin routes use a separate Supabase auth storage key. Prefer moving
+ * the session from the user client; if that fails, sign in again on the
+ * manager client (same credentials) so the dashboard always gets a session.
+ */
+async function ensureManagerSideSession(
+  normalizedEmail: string,
+  password: string,
+  userSession: Session | null,
+): Promise<{ error: string | null }> {
+  if (!managerSupabase) {
+    return { error: 'Authentication is not configured.' }
+  }
+
+  const access = userSession?.access_token
+  const refresh = userSession?.refresh_token
+  if (access && refresh) {
+    const { error } = await managerSupabase.auth.setSession({
+      access_token: access,
+      refresh_token: refresh,
+    })
+    if (!error) {
+      const { data: afterSet } = await managerSupabase.auth.getSession()
+      if (afterSet.session) return { error: null }
+    }
+  }
+
+  const { data: signData, error: signErr } =
+    await managerSupabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    })
+  if (signErr) return { error: signErr.message }
+
+  const { data: afterSign } = await managerSupabase.auth.getSession()
+  if (!afterSign.session && signData.session) {
+    const { error: recoverErr } = await managerSupabase.auth.setSession({
+      access_token: signData.session.access_token,
+      refresh_token: signData.session.refresh_token,
+    })
+    if (recoverErr) return { error: recoverErr.message }
+  }
+
+  const { data: finalCheck } = await managerSupabase.auth.getSession()
+  if (!finalCheck.session) {
+    return {
+      error:
+        'Could not establish a manager session after sign-in. Please try again.',
+    }
+  }
+  return { error: null }
+}
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -132,6 +195,18 @@ export default function LoginPage() {
 
   const emailErrorId = useId()
   const passwordErrorId = useId()
+
+  useEffect(() => {
+    const st = location.state as { staffWebBlocked?: boolean } | null
+    if (!st?.staffWebBlocked) return
+    setRequestError(
+      'Staff accounts cannot log in here. Please use the manager portal or the mobile app.',
+    )
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true },
+    )
+  }, [location.state, location.pathname, location.search, navigate])
 
   const emailError =
     submitAttempted && !email.trim()
@@ -162,42 +237,128 @@ export default function LoginPage() {
 
     if (valid) {
       setIsSubmitting(true)
-      const normalizedEmail = email.trim().toLowerCase()
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      })
+      try {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        })
 
-      if (error) {
+        if (error) {
+          setRequestError(error.message)
+          return
+        }
+
+        if (userMustChangePassword(data.user)) {
+          if (managerSupabase) {
+            await managerSupabase.auth.signOut({ scope: 'local' })
+          }
+          navigate('/staff/change-password', { replace: true })
+          return
+        }
+
+        const userId = data.user?.id
+        if (!userId) {
+          setRequestError(
+            'Login succeeded, but no user id was returned by Supabase.',
+          )
+          return
+        }
+
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, role')
+          .eq('id', userId)
+          .single()
+
+        if (profileError) {
+          setRequestError(
+            `Login succeeded, but profile could not be loaded: ${profileError.message}`,
+          )
+          await supabase.auth.signOut()
+          return
+        }
+
+        const roleNorm = String(profileData?.role ?? '').toLowerCase().trim()
+
+        if (roleNorm === 'manager') {
+          const { error: mgrSessErr } = await ensureManagerSideSession(
+            normalizedEmail,
+            password,
+            data.session ?? null,
+          )
+          if (mgrSessErr) {
+            await supabase.auth.signOut({ scope: 'local' })
+            await managerSupabase?.auth.signOut({ scope: 'local' })
+            setRequestError(mgrSessErr)
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          navigate('/manager/dashboard', { replace: true })
+          return
+        }
+
+        if (isAdminRole(roleNorm)) {
+          const { error: mgrSessErr } = await ensureManagerSideSession(
+            normalizedEmail,
+            password,
+            data.session ?? null,
+          )
+          if (mgrSessErr) {
+            await supabase.auth.signOut({ scope: 'local' })
+            await managerSupabase?.auth.signOut({ scope: 'local' })
+            setRequestError(mgrSessErr)
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          navigate('/admin/platform-analysis', { replace: true })
+          return
+        }
+
+        const staffRole = getStaffRoleFromUser(data.user)
+        if (staffRole) {
+          if (managerSupabase) {
+            await managerSupabase.auth.signOut({ scope: 'local' })
+          }
+          if (isMobileOnlyStaffRole(staffRole)) {
+            await supabase.auth.signOut({ scope: 'local' })
+            navigate('/staff/mobile-only', { replace: true })
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          setRequestError(
+            'Staff accounts cannot log in here. Please use the manager portal or the mobile app.',
+          )
+          return
+        }
+
+        if (managerSupabase) {
+          await managerSupabase.auth.signOut({ scope: 'local' })
+        }
+
+        let target =
+          safeInternalPath(searchParams.get('from')) ??
+          safeInternalPath((location.state as { from?: string } | null)?.from) ??
+          '/home'
+
+        if (target.startsWith('/manager') && roleNorm !== 'manager') {
+          target = '/home'
+        }
+        if (target.startsWith('/admin') && !isAdminRole(roleNorm)) {
+          target = '/home'
+        }
+        navigate(target, { replace: true })
+      } catch (err) {
+        setRequestError(err instanceof Error ? err.message : String(err))
+        try {
+          await supabase.auth.signOut({ scope: 'local' })
+          await managerSupabase?.auth.signOut({ scope: 'local' })
+        } catch {
+          /* ignore cleanup errors */
+        }
+      } finally {
         setIsSubmitting(false)
-        setRequestError(error.message)
-        return
       }
-
-      const userId = data.user?.id
-      if (!userId) {
-        setIsSubmitting(false)
-        setRequestError('Login succeeded, but no user id was returned by Supabase.')
-        return
-      }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .select('id, role')
-        .eq('id', userId)
-        .single()
-
-      setIsSubmitting(false)
-      if (profileError) {
-        setRequestError(`Login succeeded, but profile could not be loaded: ${profileError.message}`)
-        await supabase.auth.signOut()
-        return
-      }
-
-      const from =
-        safeInternalPath(searchParams.get('from')) ??
-        safeInternalPath((location.state as { from?: string } | null)?.from)
-      navigate(from ?? '/home', { replace: true })
     }
   }
 
@@ -242,7 +403,7 @@ export default function LoginPage() {
         <div className={styles.card}>
           <h1 className={styles.heading}>Welcome back</h1>
 
-          <form className={styles.form} onSubmit={handleSubmit} noValidate>
+          <form className={styles.form} onSubmit={handleSubmit} autoComplete="on" noValidate>
             <div className={styles.field}>
               <label className={styles.fieldLabel} htmlFor="login-email">
                 Email
@@ -285,7 +446,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   autoComplete="current-password"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   aria-invalid={passwordError ? true : undefined}

@@ -76,6 +76,8 @@ export type Promotion = {
   listPrice?: number
   /** From DB: promo / checkout price when present */
   promoPrice?: number
+  /** Catalog: show sidebar pricing when `original_price` is set */
+  showNumericPricing?: boolean
   /** ISO end date from `valid_until` when present */
   validUntil?: string
   subtitle?: string
@@ -134,6 +136,8 @@ export type PromotionOfferDetail = {
   rating: number
   badge: string
   badgeColor: string
+  /** When false, sidebar hides euro amounts (discount badge only). */
+  showPriceInSidebar: boolean
   /** Venue coordinates when linked club has lat/lng */
   lat?: number
   lng?: number

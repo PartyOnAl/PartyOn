@@ -63,6 +63,8 @@ export function promotionEntityToRow(p: Promotions): Record<string, unknown> {
     description: p.description,
     category: p.category,
     discount_value: p.discountValue != null ? num(p.discountValue) : undefined,
+    original_price:
+      p.originalPrice != null ? num(p.originalPrice) : undefined,
     rating: p.rating != null ? num(p.rating) : undefined,
     valid_from: p.validFrom,
     valid_until: p.validUntil,

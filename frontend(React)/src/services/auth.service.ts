@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '@/api'
 
-const TOKEN_KEY = 'accessToken'
-const USER_KEY = 'user'
+const TOKEN_KEY = 'user_accessToken'
+const USER_KEY = 'user_profile'
 
 export type AuthUser = {
   id: number

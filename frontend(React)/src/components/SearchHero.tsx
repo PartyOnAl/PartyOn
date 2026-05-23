@@ -556,6 +556,11 @@ export function SearchHero({ events, value, onChange }: SearchHeroProps) {
                       onClick={() => {
                         goSearchPage()
                         setFocused(false)
+                        requestAnimationFrame(() => {
+                          requestAnimationFrame(() => {
+                            scrollToEventsSection()
+                          })
+                        })
                       }}
                       className={`search-hero-typeahead__row mt-1 w-full border-t border-white/10 px-3 py-2.5 text-left text-sm ${
                         active ? 'bg-primary/15' : 'hover:bg-white/8'

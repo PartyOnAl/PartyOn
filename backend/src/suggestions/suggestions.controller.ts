@@ -2,11 +2,11 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { SuggestionsService } from './suggestions.service';
 import type { SuggestionQueryFilters } from './suggestions.types';
 
-@Controller('api')
+@Controller('suggestions')
 export class SuggestionsController {
   constructor(private readonly suggestions: SuggestionsService) {}
 
-  @Get('suggestions')
+  @Get()
   getSuggestions(
     @Query('q') q: string,
     @Query('city') city?: string,
