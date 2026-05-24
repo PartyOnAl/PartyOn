@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import './ManagerDashboard.css'
 import { MANAGER_NAV, ManagerSidebar, ManagerTopBar } from './ManagerNav'
@@ -263,6 +263,7 @@ export default function ManagerDashboard() {
   const [statsLoading, setStatsLoading] = useState(true)
   const [statsError, setStatsError]   = useState<string | null>(null)
   const [statsReloadKey, setStatsReloadKey] = useState(0)
+  const hasLoadedStatsRef = useRef(false)
 
   // ── Supplementary data still fetched from Supabase for the lists ──────────
   const [events,             setEvents]             = useState<EventRow[]>([])
@@ -272,6 +273,8 @@ export default function ManagerDashboard() {
   const [listLoading,        setListLoading]        = useState(true)
   const [clubEventPricing, setClubEventPricing] = useState<ClubEventPriceRow[]>([])
   const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityBar[]>([])
+  const hasLoadedListsRef = useRef(false)
+  const realtimeRefreshTimerRef = useRef<number | null>(null)
 
   // ── Fetch stats from backend ──────────────────────────────────────────────
   useEffect(() => {
@@ -282,7 +285,9 @@ export default function ManagerDashboard() {
       return
     }
 
-    setStatsLoading(true)
+    if (!hasLoadedStatsRef.current) {
+      setStatsLoading(true)
+    }
     setStatsError(null)
 
     void (async () => {
@@ -308,12 +313,13 @@ export default function ManagerDashboard() {
       } catch (err) {
         setStatsError(err instanceof Error ? err.message : String(err))
       } finally {
+        hasLoadedStatsRef.current = true
         setStatsLoading(false)
       }
     })()
   }, [user, session, authLoading, statsReloadKey])
 
-  const fetchDashboardLists = useCallback(async () => {
+  const fetchDashboardLists = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (authLoading || !stats || !user) {
       setListLoading(false)
       return
@@ -324,7 +330,9 @@ export default function ManagerDashboard() {
       return
     }
 
-    setListLoading(true)
+    if (!silent && !hasLoadedListsRef.current) {
+      setListLoading(true)
+    }
 
     try {
       const currentUser = user
@@ -476,6 +484,7 @@ export default function ManagerDashboard() {
 
       setRecentReservations((recentData ?? []) as unknown as RecentReservation[])
     } finally {
+      hasLoadedListsRef.current = true
       setListLoading(false)
     }
   }, [authLoading, stats, user])
@@ -484,18 +493,16 @@ export default function ManagerDashboard() {
     void fetchDashboardLists()
   }, [fetchDashboardLists])
 
-  useEffect(() => {
-    function refreshOnFocus() {
-      setStatsReloadKey((key) => key + 1)
-      void fetchDashboardLists()
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current !== null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current)
     }
 
-    window.addEventListener('focus', refreshOnFocus)
-    document.addEventListener('visibilitychange', refreshOnFocus)
-    return () => {
-      window.removeEventListener('focus', refreshOnFocus)
-      document.removeEventListener('visibilitychange', refreshOnFocus)
-    }
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null
+      setStatsReloadKey((key) => key + 1)
+      void fetchDashboardLists({ silent: true })
+    }, 250)
   }, [fetchDashboardLists])
 
   useEffect(() => {
@@ -503,28 +510,20 @@ export default function ManagerDashboard() {
 
     const channel = supabase
       .channel('manager-dashboard-upcoming-events')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
-        setStatsReloadKey((key) => key + 1)
-        void fetchDashboardLists()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-        setStatsReloadKey((key) => key + 1)
-        void fetchDashboardLists()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
-        setStatsReloadKey((key) => key + 1)
-        void fetchDashboardLists()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_types' }, () => {
-        setStatsReloadKey((key) => key + 1)
-        void fetchDashboardLists()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_types' }, scheduleRealtimeRefresh)
       .subscribe()
 
     return () => {
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current)
+        realtimeRefreshTimerRef.current = null
+      }
       void supabase?.removeChannel(channel)
     }
-  }, [fetchDashboardLists])
+  }, [scheduleRealtimeRefresh])
 
   // ── Derived data for the lists ────────────────────────────────────────────
 

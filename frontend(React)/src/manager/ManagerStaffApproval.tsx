@@ -7,15 +7,12 @@ import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import type { InviteStaffRole } from '../lib/staffRoles'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type StaffToastVariant = 'access-removed' | 'access-restored' | 'error' | 'default'
-
-type StaffToast = {
-  message: string
-  variant: StaffToastVariant
-}
-
+type StaffToast = { message: string; variant: StaffToastVariant }
 type StaffStatus = 'approved' | 'pending' | 'rejected'
-type StaffFilter = 'all' | StaffStatus
+type StaffFilter = 'all' | 'approved' | 'rejected'
 type InviteRole = InviteStaffRole
 
 type ProfileRow = {
@@ -29,23 +26,34 @@ type ProfileRow = {
   created_at: string | null
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+/** Manager role is intentionally excluded — staff can only be Hostess or Security. */
 const ROLE_OPTIONS: { value: InviteRole; label: string; permissions: string }[] = [
-  { value: 'hostess', label: 'Hostess', permissions: 'Hostess can view events and check in guests.' },
-  { value: 'security', label: 'Security', permissions: 'Security can view event guest lists and verify entries at the door.' },
-  { value: 'staff_manager', label: 'Manager', permissions: 'Manager can review staff activity and help manage venue operations.' },
+  {
+    value: 'hostess',
+    label: 'Hostess',
+    permissions: 'Can view events and check in guests at the door.',
+  },
+  {
+    value: 'security',
+    label: 'Security',
+    permissions: 'Can view guest lists and verify entries at the door.',
+  },
 ]
 
 const EMPTY_INVITE_FORM = {
   fullName: '',
   email: '',
   role: 'hostess' as InviteRole,
-  message: '',
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function roleStatus(role: string | null): StaffStatus {
-  const normalized = (role ?? '').toLowerCase()
-  if (normalized.includes('rejected')) return 'rejected'
-  if (normalized.includes('pending')) return 'pending'
+  const n = (role ?? '').toLowerCase()
+  if (n.includes('rejected')) return 'rejected'
+  if (n.includes('pending')) return 'pending'
   return 'approved'
 }
 
@@ -56,10 +64,10 @@ function statusLabel(status: StaffStatus) {
 }
 
 function roleLabel(role: string | null) {
-  const normalized = (role ?? 'staff').toLowerCase()
-  if (normalized.includes('hostess')) return 'Hostess'
-  if (normalized.includes('security')) return 'Security'
-  if (normalized.includes('manager')) return 'Manager'
+  const n = (role ?? 'staff').toLowerCase()
+  if (n.includes('hostess')) return 'Hostess'
+  if (n.includes('security')) return 'Security'
+  if (n.includes('manager')) return 'Manager'
   return 'Staff'
 }
 
@@ -90,6 +98,16 @@ function formatDate(value: string | null) {
     year: 'numeric',
   })
 }
+
+function avatarAccent(role: string | null) {
+  const n = (role ?? '').toLowerCase()
+  if (n.includes('hostess')) return 'pink'
+  if (n.includes('security')) return 'blue'
+  if (n.includes('manager')) return 'purple'
+  return 'gray'
+}
+
+// ─── Icons ───────────────────────────────────────────────────────────────────
 
 function IconMail() {
   return (
@@ -125,18 +143,119 @@ function IconClock() {
   )
 }
 
+function IconStatUserCheck() {
+  return (
+    <svg className="staff-approval__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m16 11 2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconStatUserX() {
+  return (
+    <svg className="staff-approval__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m17 9 5 5m0-5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconStatUsers() {
+  return (
+    <svg className="staff-approval__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M17 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm6 9v-1a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconPlus() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" style={{ width: 15, height: 15, flexShrink: 0 }} aria-hidden>
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ─── Custom role dropdown (pink highlight) ────────────────────────────────────
+
+function RoleSelect({ value, onChange }: { value: InviteRole; onChange: (v: InviteRole) => void }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setIsOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isOpen])
+
+  const selected = ROLE_OPTIONS.find((r) => r.value === value)
+
+  return (
+    <div className="staff-approval__role-select" ref={wrapRef}>
+      <button
+        type="button"
+        className="staff-approval__role-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((o) => !o)}
+      >
+        <span>{selected?.label ?? 'Select role'}</span>
+        <svg className="staff-approval__role-chevron" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d={isOpen ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'}
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {isOpen && (
+        <ul className="staff-approval__role-list" role="listbox" aria-label="Select role">
+          {ROLE_OPTIONS.map((option) => (
+            <li
+              key={option.value}
+              role="option"
+              aria-selected={value === option.value}
+              className={
+                value === option.value
+                  ? 'staff-approval__role-option staff-approval__role-option--selected'
+                  : 'staff-approval__role-option'
+              }
+              onMouseDown={() => {
+                onChange(option.value as InviteRole)
+                setIsOpen(false)
+              }}
+            >
+              {option.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ─── Shell ────────────────────────────────────────────────────────────────────
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="manager-dash">
       <div className="manager-dash__layout">
         <ManagerSidebar />
-        <div className="manager-dash__main staff-approval__main">
-          {children}
-        </div>
+        <div className="manager-dash__main staff-approval__main">{children}</div>
       </div>
     </div>
   )
 }
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ManagerStaffApproval() {
   const { session } = useAuth()
@@ -160,6 +279,7 @@ export default function ManagerStaffApproval() {
   >(null)
   const [accessConfirmBusy, setAccessConfirmBusy] = useState(false)
 
+  // ── Fetch all staff from DB via backend API ──────────────────────────────────
   useEffect(() => {
     if (!clubId || !session?.access_token) {
       setLoading(false)
@@ -187,14 +307,11 @@ export default function ManagerStaffApproval() {
         setStaff(rows)
         setLoading(false)
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (isInitialLoad) {
           setError(err instanceof Error ? err.message : String(err))
         } else {
-          setToast({
-            variant: 'error',
-            message: err instanceof Error ? err.message : String(err),
-          })
+          setToast({ variant: 'error', message: err instanceof Error ? err.message : String(err) })
         }
         setLoading(false)
       })
@@ -208,23 +325,24 @@ export default function ManagerStaffApproval() {
 
   useEffect(() => {
     if (!session?.access_token) return
-    const interval = window.setInterval(() => {
-      setRefreshKey((key) => key + 1)
-    }, 30000)
+    const interval = window.setInterval(() => setRefreshKey((k) => k + 1), 30_000)
     return () => window.clearInterval(interval)
   }, [session?.access_token])
 
+  // ── Derived stats (no Pending card) ─────────────────────────────────────────
   const stats = useMemo(() => {
-    const approved = staff.filter((person) => roleStatus(person.role) === 'approved').length
-    const pending = staff.filter((person) => roleStatus(person.role) === 'pending').length
-    const rejected = staff.filter((person) => roleStatus(person.role) === 'rejected').length
-    return { approved, pending, rejected, total: staff.length }
+    const approved = staff.filter((p) => roleStatus(p.role) === 'approved').length
+    const rejected = staff.filter((p) => roleStatus(p.role) === 'rejected').length
+    return { approved, rejected, total: staff.length }
   }, [staff])
 
   const filteredStaff = useMemo(() => {
-    if (filter === 'all') return staff
-    return staff.filter((person) => roleStatus(person.role) === filter)
+    if (filter === 'approved') return staff.filter((p) => roleStatus(p.role) === 'approved')
+    if (filter === 'rejected') return staff.filter((p) => roleStatus(p.role) === 'rejected')
+    return staff
   }, [staff, filter])
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
   async function updateStaffRole(
     person: ProfileRow,
@@ -232,10 +350,7 @@ export default function ManagerStaffApproval() {
     successToast: 'remove' | 'restore' | null = null,
   ): Promise<boolean> {
     if (!session?.access_token) {
-      setToast({
-        variant: 'error',
-        message: 'You must be signed in as a manager to update staff.',
-      })
+      setToast({ variant: 'error', message: 'You must be signed in as a manager to update staff.' })
       return false
     }
 
@@ -251,21 +366,15 @@ export default function ManagerStaffApproval() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => null)
-      setToast({
-        variant: 'error',
-        message: body?.message ?? `Could not update staff (${res.status}).`,
-      })
+      setToast({ variant: 'error', message: body?.message ?? `Could not update staff (${res.status}).` })
       return false
     }
 
     const data = (await res.json()) as { profile: ProfileRow }
     setStaff((current) => current.map((row) => (row.id === person.id ? data.profile : row)))
-    const displayName = fullName(person)
-    if (successToast === 'remove') {
-      setToast({ variant: 'access-removed', message: `Access removed for ${displayName}` })
-    } else if (successToast === 'restore') {
-      setToast({ variant: 'access-restored', message: `Access restored for ${displayName}` })
-    }
+    const name = fullName(person)
+    if (successToast === 'remove') setToast({ variant: 'access-removed', message: `Access removed for ${name}` })
+    else if (successToast === 'restore') setToast({ variant: 'access-restored', message: `Access restored for ${name}` })
     return true
   }
 
@@ -287,34 +396,22 @@ export default function ManagerStaffApproval() {
 
   async function deleteStaffRequest(person: ProfileRow) {
     if (!session?.access_token) {
-      setToast({
-        variant: 'error',
-        message: 'You must be signed in as a manager to delete staff requests.',
-      })
+      setToast({ variant: 'error', message: 'You must be signed in as a manager to delete staff.' })
       return
     }
-
     setDeletingStaffId(person.id)
     const res = await fetch(`/api/staff/${person.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${session.access_token}` },
     })
     setDeletingStaffId(null)
-
     if (!res.ok) {
       const body = await res.json().catch(() => null)
-      setToast({
-        variant: 'error',
-        message: body?.message ?? `Could not delete request (${res.status}).`,
-      })
+      setToast({ variant: 'error', message: body?.message ?? `Could not delete (${res.status}).` })
       return
     }
-
     setStaff((current) => current.filter((row) => row.id !== person.id))
-    setToast({
-      variant: 'default',
-      message: `${fullName(person)} was removed.`,
-    })
+    setToast({ variant: 'default', message: `${fullName(person)} was removed.` })
   }
 
   function closeInviteModal() {
@@ -328,39 +425,20 @@ export default function ManagerStaffApproval() {
 
   async function handleSendInvite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const fullName = inviteForm.fullName.trim()
+    const name = inviteForm.fullName.trim()
     const email = inviteForm.email.trim().toLowerCase()
-
-    if (!fullName) {
-      setInviteError('Full name is required.')
-      return
-    }
-    if (!email || !email.includes('@')) {
-      setInviteError('A valid email address is required.')
-      return
-    }
-    if (!session?.access_token) {
-      setInviteError('You must be signed in as a manager to invite staff.')
-      return
-    }
+    if (!name) { setInviteError('Full name is required.'); return }
+    if (!email || !email.includes('@')) { setInviteError('A valid email address is required.'); return }
+    if (!session?.access_token) { setInviteError('You must be signed in as a manager to invite staff.'); return }
 
     setIsSendingInvite(true)
     setInviteError(null)
 
     const res = await fetch('/api/staff/invite', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        fullName,
-        email,
-        role: inviteForm.role,
-        message: inviteForm.message.trim(),
-      }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ fullName: name, email, role: inviteForm.role }),
     })
-
     setIsSendingInvite(false)
 
     if (!res.ok) {
@@ -370,20 +448,18 @@ export default function ManagerStaffApproval() {
     }
 
     const data = (await res.json()) as { profile: ProfileRow; temporaryPassword?: string }
-    const invitedProfile = data.profile
-    setStaff((current) => [invitedProfile, ...current])
+    setStaff((current) => [data.profile, ...current])
     setFilter('all')
     setInviteSuccessEmail(email)
     setInviteTemporaryPassword(data.temporaryPassword ?? null)
   }
 
-  if (loading) {
-    return <Shell><span style={{ color: '#8a8a8a' }}>Loading staff approvals...</span></Shell>
-  }
+  // ── Loading / Error ───────────────────────────────────────────────────────────
 
-  if (error) {
-    return <Shell><span style={{ color: '#f87171' }}>Error: {error}</span></Shell>
-  }
+  if (loading) return <Shell><span style={{ color: '#8a8a8a' }}>Loading staff...</span></Shell>
+  if (error) return <Shell><span style={{ color: '#f87171' }}>Error: {error}</span></Shell>
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div className="manager-dash">
@@ -394,22 +470,24 @@ export default function ManagerStaffApproval() {
           <ManagerTopBar clubName={club?.club_name} />
 
           <div className="staff-approval__bound">
+
+            {/* ── Page header ──────────────────────────────────────── */}
             <header className="staff-approval__head">
               <div>
-                <h1 className="manager-dash__page-title">Staff &amp; Hostess Approval</h1>
-                <p className="manager-dash__page-sub">
-                  Invite staff and track who has accepted access to your venue
-                </p>
+                <h1 className="manager-dash__page-title">Staff Management</h1>
+                <p className="manager-dash__page-sub">Manage your team and control venue access</p>
               </div>
               <button
                 type="button"
                 className="staff-approval__invite"
                 onClick={() => setShowInviteModal(true)}
               >
+                <IconPlus />
                 Invite Staff
               </button>
             </header>
 
+            {/* ── Invite modal ─────────────────────────────────────── */}
             {showInviteModal && (
               <div className="staff-approval__modal-overlay" role="presentation" onClick={closeInviteModal}>
                 <aside
@@ -424,11 +502,11 @@ export default function ManagerStaffApproval() {
                       <span className="staff-approval__success-icon" aria-hidden>✓</span>
                       <h2>Account created</h2>
                       <p>
-                        Share the temporary password below with <strong>{inviteSuccessEmail}</strong> (e.g. in person
-                        or chat). They must set a new password when they first sign in.
+                        Share the temporary password below with <strong>{inviteSuccessEmail}</strong>. They must set a new
+                        password when they first sign in.
                       </p>
-                      {inviteTemporaryPassword ? (
-                        <div className="staff-approval__field">
+                      {inviteTemporaryPassword && (
+                        <div className="staff-approval__field" style={{ width: '100%' }}>
                           <label>Temporary password</label>
                           <input
                             type="text"
@@ -445,7 +523,7 @@ export default function ManagerStaffApproval() {
                             Copy password
                           </button>
                         </div>
-                      ) : null}
+                      )}
                       <button
                         type="button"
                         className="staff-approval__modal-btn staff-approval__modal-btn--cancel"
@@ -454,7 +532,7 @@ export default function ManagerStaffApproval() {
                           setInviteForm(EMPTY_INVITE_FORM)
                           setInviteSuccessEmail(null)
                           setInviteTemporaryPassword(null)
-                          setRefreshKey((key) => key + 1)
+                          setRefreshKey((k) => k + 1)
                         }}
                       >
                         Done
@@ -465,13 +543,13 @@ export default function ManagerStaffApproval() {
                       <div className="staff-approval__modal-head">
                         <div>
                           <h2>Add Staff Member</h2>
-                          <p>Send an invite and add them as pending until they accept.</p>
+                          <p>Create an account and share the temporary password with them.</p>
                         </div>
                         <button
                           type="button"
                           className="staff-approval__modal-close"
                           onClick={closeInviteModal}
-                          aria-label="Close add staff modal"
+                          aria-label="Close modal"
                         >
                           ×
                         </button>
@@ -484,7 +562,7 @@ export default function ManagerStaffApproval() {
                             type="text"
                             value={inviteForm.fullName}
                             placeholder="e.g. Emma Laurent"
-                            onChange={(e) => setInviteForm((form) => ({ ...form, fullName: e.target.value }))}
+                            onChange={(e) => setInviteForm((f) => ({ ...f, fullName: e.target.value }))}
                           />
                         </div>
 
@@ -494,33 +572,19 @@ export default function ManagerStaffApproval() {
                             type="email"
                             value={inviteForm.email}
                             placeholder="name@example.com"
-                            onChange={(e) => setInviteForm((form) => ({ ...form, email: e.target.value }))}
+                            onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
                           />
                         </div>
 
                         <div className="staff-approval__field">
                           <label>Role</label>
-                          <select
+                          <RoleSelect
                             value={inviteForm.role}
-                            onChange={(e) => setInviteForm((form) => ({ ...form, role: e.target.value as InviteRole }))}
-                          >
-                            {ROLE_OPTIONS.map((role) => (
-                              <option key={role.value} value={role.value}>{role.label}</option>
-                            ))}
-                          </select>
-                          <p className="staff-approval__permission-preview">
-                            {ROLE_OPTIONS.find((role) => role.value === inviteForm.role)?.permissions}
-                          </p>
-                        </div>
-
-                        <div className="staff-approval__field">
-                          <label>Personal Message <span>Optional</span></label>
-                          <textarea
-                            rows={4}
-                            value={inviteForm.message}
-                            placeholder="Add a short note to include in the invite email..."
-                            onChange={(e) => setInviteForm((form) => ({ ...form, message: e.target.value }))}
+                            onChange={(role) => setInviteForm((f) => ({ ...f, role }))}
                           />
+                          <p className="staff-approval__permission-preview">
+                            {ROLE_OPTIONS.find((r) => r.value === inviteForm.role)?.permissions}
+                          </p>
                         </div>
 
                         {inviteError && <p className="staff-approval__modal-error">{inviteError}</p>}
@@ -540,7 +604,7 @@ export default function ManagerStaffApproval() {
                           className="staff-approval__modal-btn staff-approval__modal-btn--send"
                           disabled={isSendingInvite}
                         >
-                          {isSendingInvite ? 'Sending...' : 'Send Invite'}
+                          {isSendingInvite ? 'Creating...' : 'Add Staff Member'}
                         </button>
                       </div>
                     </form>
@@ -549,42 +613,30 @@ export default function ManagerStaffApproval() {
               </div>
             )}
 
-            <section className="staff-approval__stats" aria-label="Staff approval stats">
-              <article className="staff-approval__stat staff-approval__stat--approved">
-                <span className="staff-approval__stat-dot" />
-                <div>
-                  <strong>{stats.approved}</strong>
-                  <p>Active</p>
-                </div>
-              </article>
-              <article className="staff-approval__stat staff-approval__stat--pending">
-                <span className="staff-approval__stat-dot" />
-                <div>
-                  <strong>{stats.pending}</strong>
-                  <p>Pending</p>
-                </div>
-              </article>
-              <article className="staff-approval__stat staff-approval__stat--rejected">
-                <span className="staff-approval__stat-dot" />
-                <div>
-                  <strong>{stats.rejected}</strong>
-                  <p>Rejected</p>
-                </div>
-              </article>
-              <article className="staff-approval__stat staff-approval__stat--total">
-                <span className="staff-approval__stat-dot" />
-                <div>
-                  <strong>{stats.total}</strong>
-                  <p>Total Staff</p>
-                </div>
-              </article>
+            {/* ── Stat cards (3 only — no Pending) ────────────────── */}
+            <section className="staff-approval__stats" aria-label="Staff statistics">
+              {[
+                { label: 'Active Staff',  value: stats.approved, accent: 'green',  icon: <IconStatUserCheck /> },
+                { label: 'Rejected',      value: stats.rejected,  accent: 'red',    icon: <IconStatUserX /> },
+                { label: 'Total Staff',   value: stats.total,     accent: 'purple', icon: <IconStatUsers /> },
+              ].map((stat) => (
+                <article key={stat.label} className={`staff-approval__stat staff-approval__stat--${stat.accent}`}>
+                  <div className="staff-approval__stat-body">
+                    <p className="staff-approval__stat-value">{stat.value}</p>
+                    <p className="staff-approval__stat-label">{stat.label}</p>
+                  </div>
+                  <span className={`staff-approval__stat-icon staff-approval__stat-icon--${stat.accent}`} aria-hidden>
+                    {stat.icon}
+                  </span>
+                </article>
+              ))}
             </section>
 
-            <div className="staff-approval__tabs" role="tablist" aria-label="Staff approval filters">
+            {/* ── Filter tabs (no Pending) ─────────────────────────── */}
+            <div className="staff-approval__tabs" role="tablist" aria-label="Filter staff">
               {[
-                { id: 'all', label: `All (${stats.total})` },
+                { id: 'all',      label: `All (${stats.total})` },
                 { id: 'approved', label: `Active (${stats.approved})` },
-                { id: 'pending', label: `Pending (${stats.pending})` },
                 { id: 'rejected', label: `Rejected (${stats.rejected})` },
               ].map((tab) => (
                 <button
@@ -600,20 +652,34 @@ export default function ManagerStaffApproval() {
               ))}
             </div>
 
-            <section className="staff-approval__list" aria-label="Staff approval list">
+            {/* ── Staff card list ──────────────────────────────────── */}
+            <section className="staff-approval__list" aria-label="Staff list">
               {filteredStaff.length === 0 ? (
-                <p className="staff-approval__empty">No staff profiles found for this filter.</p>
+                <p className="staff-approval__empty">No staff found for this filter.</p>
               ) : (
                 filteredStaff.map((person) => {
                   const status = roleStatus(person.role)
+                  const accent = avatarAccent(person.role)
                   return (
-                    <article key={person.id} className="staff-approval__row">
-                      <div className="staff-approval__avatar">{initials(person)}</div>
+                    <article
+                      key={person.id}
+                      className={`staff-approval__card staff-approval__card--${status}`}
+                    >
+                      {/* Avatar */}
+                      <div className={`staff-approval__avatar staff-approval__avatar--${accent}`}>
+                        {initials(person)}
+                      </div>
+
+                      {/* Main content */}
                       <div className="staff-approval__content">
                         <div className="staff-approval__person-head">
                           <h2>{fullName(person)}</h2>
-                          <span className="staff-approval__role-pill">{roleLabel(person.role)}</span>
-                          <span className={`staff-approval__status staff-approval__status--${status}`}>{statusLabel(status)}</span>
+                          <span className={`staff-approval__role-badge staff-approval__role-badge--${accent}`}>
+                            {roleLabel(person.role)}
+                          </span>
+                          <span className={`staff-approval__status-badge staff-approval__status-badge--${status}`}>
+                            {statusLabel(status)}
+                          </span>
                         </div>
 
                         <div className="staff-approval__meta-grid">
@@ -624,44 +690,33 @@ export default function ManagerStaffApproval() {
                         </div>
                       </div>
 
+                      {/* Actions */}
                       <div className="staff-approval__actions">
                         {status === 'rejected' ? (
-                          <>
-                            <button
-                              type="button"
-                              className="staff-approval__btn staff-approval__btn--ghost"
-                              onClick={() => setAccessConfirm({ kind: 'restore', person })}
-                            >
-                              Restore Access
-                            </button>
-                            <button
-                              type="button"
-                              className="staff-approval__btn staff-approval__btn--danger"
-                              disabled={deletingStaffId === person.id}
-                              onClick={() => void deleteStaffRequest(person)}
-                            >
-                              {deletingStaffId === person.id ? 'Deleting...' : 'Delete'}
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="staff-approval__btn staff-approval__btn--restore"
+                            onClick={() => setAccessConfirm({ kind: 'restore', person })}
+                          >
+                            Restore Access
+                          </button>
                         ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="staff-approval__btn staff-approval__btn--ghost"
-                              onClick={() => setAccessConfirm({ kind: 'remove', person })}
-                            >
-                              Remove Access
-                            </button>
-                            <button
-                              type="button"
-                              className="staff-approval__btn staff-approval__btn--danger"
-                              disabled={deletingStaffId === person.id}
-                              onClick={() => void deleteStaffRequest(person)}
-                            >
-                              {deletingStaffId === person.id ? 'Deleting...' : 'Delete'}
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="staff-approval__btn staff-approval__btn--ghost"
+                            onClick={() => setAccessConfirm({ kind: 'remove', person })}
+                          >
+                            Remove Access
+                          </button>
                         )}
+                        <button
+                          type="button"
+                          className="staff-approval__btn staff-approval__btn--danger"
+                          disabled={deletingStaffId === person.id}
+                          onClick={() => void deleteStaffRequest(person)}
+                        >
+                          {deletingStaffId === person.id ? 'Deleting...' : 'Delete'}
+                        </button>
                       </div>
                     </article>
                   )
@@ -672,7 +727,8 @@ export default function ManagerStaffApproval() {
         </div>
       </div>
 
-      {accessConfirm ? (
+      {/* ── Access confirm dialog ─────────────────────────────────── */}
+      {accessConfirm && (
         <div
           className="staff-approval__access-confirm-backdrop"
           role="presentation"
@@ -706,13 +762,15 @@ export default function ManagerStaffApproval() {
             <p id="staff-access-confirm-desc" className="staff-approval__access-confirm-message">
               {accessConfirm.kind === 'remove' ? (
                 <>
-                  Are you sure you want to remove access for <strong>{fullName(accessConfirm.person)}</strong>? They
-                  will no longer be able to access the venue dashboard.
+                  Are you sure you want to remove access for{' '}
+                  <strong>{fullName(accessConfirm.person)}</strong>? They will no longer be able to access
+                  the venue dashboard.
                 </>
               ) : (
                 <>
-                  Are you sure you want to restore access for <strong>{fullName(accessConfirm.person)}</strong>? They
-                  will regain access to the venue dashboard.
+                  Are you sure you want to restore access for{' '}
+                  <strong>{fullName(accessConfirm.person)}</strong>? They will regain access to the venue
+                  dashboard.
                 </>
               )}
             </p>
@@ -744,16 +802,17 @@ export default function ManagerStaffApproval() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {toast ? (
+      {/* ── Toast ────────────────────────────────────────────────────── */}
+      {toast && (
         <div
           className={`staff-approval__toast-float staff-approval__toast-float--${toast.variant}`}
           role="status"
         >
           {toast.message}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }

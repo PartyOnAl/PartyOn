@@ -45,6 +45,12 @@ async createPayment(@Body() body: {amount : number , quantity : number ,events :
   return { url: result.url };
 }
 
+@Post('feature-pay')
+async createFeaturePayment(@Body() body: { eventId: string; fee: number }) {
+  const result = await this.eventService.createFeaturePayment(body.eventId, body.fee);
+  return { url: result.url };
+}
+
 @Post('webhook')
 async handleWebhook(@Req() req: Request) {
   const sig = req.headers['stripe-signature'];

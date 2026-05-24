@@ -1,7 +1,8 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import './ManagerDashboard.css'
 import './EventManagement.css'
+import './ManagerPromotions.css'
 import { TimePickerField } from './EventManagement'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
@@ -20,6 +21,8 @@ type PromotionRow = {
   valid_until: string | null
   status: string | null
   image_url: string | null
+  included_items: string | null
+  terms_conditions: string | null
   created_at: string | null
 }
 
@@ -31,9 +34,12 @@ type PromotionFormState = {
   original_price: string
   valid_from: string
   valid_until: string
-  image_url: string
-  status: 'active' | 'pending'
+  what_included: string
+  terms_conditions: string
+  status: 'active' | 'draft'
 }
+
+type FilterTab = 'all' | 'active' | 'draft' | 'passed'
 
 type FormErrors = Partial<Record<'title' | 'valid_until', string>>
 
@@ -55,7 +61,6 @@ function toDateLocalPart(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
-/** Value is datetime-local shaped: YYYY-MM-DDTHH:mm */
 function toDateTimeLocalValue(d: Date): string {
   return `${toDateLocalPart(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
 }
@@ -112,14 +117,18 @@ function humanRangeSummary(fromStr: string, untilStr: string): string | null {
 }
 
 function endOfLocalDay(d: Date): Date {
-  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0)
-  return x
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0)
+}
+
+function promoIsPassed(promo: PromotionRow): boolean {
+  if (promo.status === 'expired') return true
+  if (!promo.valid_until) return false
+  return new Date(promo.valid_until).getTime() < Date.now()
 }
 
 function promotionRowToFormState(promo: PromotionRow): PromotionFormState {
-  const statusRaw = (promo.status ?? 'pending').toLowerCase()
-  const status: PromotionFormState['status'] =
-    statusRaw === 'active' || statusRaw === 'pending' ? statusRaw : 'pending'
+  const statusRaw = (promo.status ?? 'draft').toLowerCase()
+  const status: PromotionFormState['status'] = statusRaw === 'active' ? 'active' : 'draft'
 
   let valid_from = ''
   if (promo.valid_from) {
@@ -154,7 +163,8 @@ function promotionRowToFormState(promo: PromotionRow): PromotionFormState {
     original_price,
     valid_from,
     valid_until,
-    image_url: promo.image_url ?? '',
+    what_included: promo.included_items ?? '',
+    terms_conditions: promo.terms_conditions ?? '',
     status,
   }
 }
@@ -175,7 +185,7 @@ function presetThisWeekendRange(): { from: Date; until: Date } {
   return { from: sat, until: endOfLocalDay(sun) }
 }
 
-// ─── DateTimePickerField (promotion modal) ───────────────────────────────────
+// ─── DateTimePickerField ──────────────────────────────────────────────────────
 
 function DateTimePickerField({
   label,
@@ -189,9 +199,7 @@ function DateTimePickerField({
   onChange: (dateTimeLocal: string) => void
 }) {
   const { date: datePart, time: timePart } = splitDateTimeLocal(value)
-  const initialMonth = datePart
-    ? new Date(`${datePart}T12:00`)
-    : new Date()
+  const initialMonth = datePart ? new Date(`${datePart}T12:00`) : new Date()
   const [isOpen, setIsOpen] = useState(false)
   const [viewMonth, setViewMonth] = useState(
     new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1),
@@ -203,6 +211,7 @@ function DateTimePickerField({
     if (Number.isNaN(d.getTime())) return
     setViewMonth(new Date(d.getFullYear(), d.getMonth(), 1))
   }, [datePart])
+
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
@@ -211,7 +220,6 @@ function DateTimePickerField({
     ...Array.from({ length: firstDay }, () => null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ]
-
   const currentDateStr = datePart || toDateLocalPart(new Date())
 
   return (
@@ -219,7 +227,11 @@ function DateTimePickerField({
       <label>{label}</label>
       <button
         type="button"
-        className={error ? 'event-mgmt__picker-trigger event-mgmt__input--error' : 'event-mgmt__picker-trigger'}
+        className={
+          error
+            ? 'event-mgmt__picker-trigger event-mgmt__input--error'
+            : 'event-mgmt__picker-trigger'
+        }
         onClick={() => setIsOpen((v) => !v)}
       >
         <span>{formatDateTimeReadable(value)}</span>
@@ -258,9 +270,7 @@ function DateTimePickerField({
                       ? 'event-mgmt__calendar-day event-mgmt__calendar-day--active'
                       : 'event-mgmt__calendar-day'
                   }
-                  onClick={() => {
-                    onChange(`${dateValue}T${timePart}`)
-                  }}
+                  onClick={() => onChange(`${dateValue}T${timePart}`)}
                 >
                   {day}
                 </button>
@@ -280,6 +290,8 @@ function DateTimePickerField({
   )
 }
 
+// ─── SVG Icons ────────────────────────────────────────────────────────────────
+
 function IconPlus() {
   return (
     <svg className="event-mgmt__btn-plus" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -287,33 +299,378 @@ function IconPlus() {
     </svg>
   )
 }
-function IconTag() {
+
+function IconUpload() {
   return (
-    <svg className="event-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg className="promo-mgmt__upload-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
-function IconCalendar() {
+
+function IconStatTag() {
   return (
-    <svg className="event-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg className="promo-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconStatCheck() {
+  return (
+    <svg className="promo-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 12.5l3 3 5-5.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconStatPencil() {
+  return (
+    <svg className="promo-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconStatHistory() {
+  return (
+    <svg className="promo-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 3v5h5M12 7v5l4 2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconCalMeta() {
+  return (
+    <svg className="promo-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
       <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
       <path d="M16 3v4M8 3v4M3 11h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
 }
-function IconDollar() {
+
+function IconDollarMeta() {
   return (
-    <svg className="event-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 2v20M17 5H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <svg className="promo-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 2v20M17 5H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
-function IconTrash() {
+
+function IconListMeta() {
   return (
-    <svg className="event-mgmt__action-ic event-mgmt__action-ic--compact" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 7h16M10 11v8M14 11v8M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 14a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9l1-14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg className="promo-mgmt__meta-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
+  )
+}
+
+function IconTrashSm() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden style={{ width: 14, height: 14 }}>
+      <path
+        d="M4 7h16M10 11v8M14 11v8M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 14a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9l1-14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// ─── Custom category dropdown ─────────────────────────────────────────────────
+
+const CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: '',        label: 'Select category' },
+  { value: 'Entry',   label: 'Entry' },
+  { value: 'Drinks',  label: 'Drinks' },
+  { value: 'VIP',     label: 'VIP' },
+  { value: 'Tables',  label: 'Tables' },
+  { value: 'Food',    label: 'Food' },
+  { value: 'Other',   label: 'Other' },
+]
+
+function CategorySelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isOpen])
+
+  const selectedLabel =
+    CATEGORY_OPTIONS.find((o) => o.value === value)?.label ?? 'Select category'
+
+  return (
+    <div className="promo-mgmt__cat-select" ref={wrapRef}>
+      <button
+        type="button"
+        className={`event-mgmt__input promo-mgmt__cat-trigger${isOpen ? ' promo-mgmt__cat-trigger--open' : ''}`}
+        onClick={() => setIsOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+      >
+        <span className={value ? undefined : 'promo-mgmt__cat-placeholder'}>
+          {selectedLabel}
+        </span>
+        <svg className="promo-mgmt__cat-chevron" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <polyline
+            points="6 9 12 15 18 9"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {isOpen && (
+        <ul className="promo-mgmt__cat-list" role="listbox">
+          {CATEGORY_OPTIONS.map((opt) => (
+            <li
+              key={opt.value}
+              role="option"
+              aria-selected={value === opt.value}
+              className={`promo-mgmt__cat-option${value === opt.value ? ' promo-mgmt__cat-option--selected' : ''}`}
+              onClick={() => {
+                onChange(opt.value)
+                setIsOpen(false)
+              }}
+            >
+              {opt.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ─── Helpers shared by card + view modal ────────────────────────────────────
+
+function fmtDateShort(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function fmtPrice(n: number): string {
+  return n % 1 === 0 ? String(n) : n.toFixed(2)
+}
+
+function buildStatusBadgeClass(isPassed: boolean, isActive: boolean, isDraft: boolean): string {
+  if (isPassed) return 'promo-mgmt__badge promo-mgmt__badge--passed'
+  if (isActive)  return 'promo-mgmt__badge promo-mgmt__badge--active'
+  if (isDraft)   return 'promo-mgmt__badge promo-mgmt__badge--draft'
+  return 'promo-mgmt__badge promo-mgmt__badge--pending'
+}
+
+// ─── Promotion view modal ─────────────────────────────────────────────────────
+
+function PromotionViewModal({
+  promo,
+  onClose,
+  onEdit,
+}: {
+  promo: PromotionRow
+  onClose: () => void
+  onEdit: (promo: PromotionRow) => void
+}) {
+  const isPassed = promoIsPassed(promo)
+  const isDraft  = !isPassed && (promo.status === 'draft' || promo.status === 'pending')
+  const isActive = !isPassed && promo.status === 'active'
+
+  const statusLabel = isPassed ? 'passed' : (promo.status ?? 'draft')
+  const badgeClass  = buildStatusBadgeClass(isPassed, isActive, isDraft)
+
+  const validFrom  = fmtDateShort(promo.valid_from)
+  const validUntil = fmtDateShort(promo.valid_until)
+
+  const origNum    = promo.original_price  ? Number(promo.original_price)  : null
+  const discountNum = promo.discount_value ? Number(promo.discount_value)  : null
+  const finalPrice = (origNum != null && discountNum != null)
+    ? origNum * (1 - discountNum / 100)
+    : null
+
+  return (
+    <div
+      className="event-mgmt__modal-overlay"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="promo-mgmt__view-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={promo.title}
+      >
+        {/* Close button */}
+        <button
+          type="button"
+          className="promo-mgmt__view-close"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
+
+        {/* Image */}
+        {promo.image_url
+          ? <img className="promo-mgmt__view-img" src={promo.image_url} alt={promo.title} />
+          : <div className="promo-mgmt__view-img-placeholder" aria-hidden>🎉</div>}
+
+        <div className="promo-mgmt__view-body">
+          {/* Title + badges */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <h2 className="promo-mgmt__view-title">{promo.title}</h2>
+            <div className="promo-mgmt__badges">
+              <span className={badgeClass}>{statusLabel}</span>
+              {promo.category && (
+                <span className="promo-mgmt__badge promo-mgmt__badge--cat">{promo.category}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Price */}
+          {(origNum != null || discountNum != null) && (
+            <ul className="promo-mgmt__meta">
+              <li className="promo-mgmt__meta-row">
+                <IconDollarMeta />
+                <span className="promo-mgmt__meta-text">
+                  {origNum != null && `€${fmtPrice(origNum)}`}
+                  {finalPrice != null && origNum != null && ` → €${fmtPrice(finalPrice)}`}
+                  {discountNum != null && ` (${discountNum}% off)`}
+                </span>
+              </li>
+              {(validFrom || validUntil) && (
+                <li className="promo-mgmt__meta-row">
+                  <IconCalMeta />
+                  <span className="promo-mgmt__meta-text">
+                    {validFrom && validUntil
+                      ? `${validFrom} – ${validUntil}`
+                      : validFrom ? `From ${validFrom}` : `Until ${validUntil}`}
+                  </span>
+                </li>
+              )}
+            </ul>
+          )}
+
+          {/* Date only (when no price shown) */}
+          {origNum == null && discountNum == null && (validFrom || validUntil) && (
+            <ul className="promo-mgmt__meta">
+              <li className="promo-mgmt__meta-row">
+                <IconCalMeta />
+                <span className="promo-mgmt__meta-text">
+                  {validFrom && validUntil
+                    ? `${validFrom} – ${validUntil}`
+                    : validFrom ? `From ${validFrom}` : `Until ${validUntil}`}
+                </span>
+              </li>
+            </ul>
+          )}
+
+          {/* Description */}
+          {promo.description && (
+            <div className="promo-mgmt__view-section">
+              <p className="promo-mgmt__view-section-label">Description</p>
+              <p className="promo-mgmt__view-section-text">{promo.description}</p>
+            </div>
+          )}
+
+          {/* What's included */}
+          {promo.included_items && (
+            <div className="promo-mgmt__view-section">
+              <p className="promo-mgmt__view-section-label">What's Included</p>
+              <p className="promo-mgmt__view-section-text">{promo.included_items}</p>
+            </div>
+          )}
+
+          {/* Terms & conditions */}
+          {promo.terms_conditions && (
+            <div className="promo-mgmt__view-section">
+              <p className="promo-mgmt__view-section-label">Terms & Conditions</p>
+              <p className="promo-mgmt__view-section-text">{promo.terms_conditions}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="promo-mgmt__view-footer">
+          <button
+            type="button"
+            className="promo-mgmt__view-edit-btn"
+            onClick={() => { onClose(); onEdit(promo) }}
+          >
+            <Pencil size={14} strokeWidth={2} aria-hidden />
+            Edit Promotion
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -323,90 +680,101 @@ function PromotionCard({
   promo,
   onEdit,
   onDelete,
+  onView,
 }: {
   promo: PromotionRow
   onEdit: (promo: PromotionRow) => void
-  onDelete: (id: string) => void
+  onDelete: (promo: PromotionRow) => void
+  onView: (promo: PromotionRow) => void
 }) {
-  const imgVariants = ['violet', 'cyan', 'placeholder'] as const
-  const imgKey = Math.abs([...promo.promotion_id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)) % 3
-  const imgClass = imgVariants[imgKey] === 'placeholder'
-    ? 'event-mgmt__card-img event-mgmt__card-img--placeholder'
-    : `event-mgmt__card-img event-mgmt__card-img--${imgVariants[imgKey]}`
+  const isPassed = promoIsPassed(promo)
+  const isDraft  = !isPassed && (promo.status === 'draft' || promo.status === 'pending')
+  const isActive = !isPassed && promo.status === 'active'
 
-  const statusKey = (promo.status ?? 'pending').toLowerCase()
-  const badgeClass =
-    statusKey === 'active'
-      ? 'event-mgmt__badge event-mgmt__badge--status'
-      : statusKey === 'pending'
-        ? 'event-mgmt__badge event-mgmt__badge--status-pending'
-        : 'event-mgmt__badge event-mgmt__badge--genre'
+  const statusLabel = isPassed ? 'passed' : (promo.status ?? 'draft')
+  const badgeClass  = buildStatusBadgeClass(isPassed, isActive, isDraft)
 
-  const validFrom = promo.valid_from
-    ? new Date(promo.valid_from).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : null
-  const validUntil = promo.valid_until
-    ? new Date(promo.valid_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : null
+  const validFrom  = fmtDateShort(promo.valid_from)
+  const validUntil = fmtDateShort(promo.valid_until)
+
+  const discountNum = promo.discount_value ? Number(promo.discount_value) : null
+  const origNum     = promo.original_price ? Number(promo.original_price) : null
 
   return (
-    <article className="event-mgmt__card">
-      {promo.image_url
-        ? <img className="event-mgmt__card-img" src={promo.image_url} alt={promo.title} style={{ objectFit: 'cover' }} />
-        : <div className={imgClass} aria-hidden />}
-      <div className="event-mgmt__card-body">
-        <h2 className="event-mgmt__card-title">{promo.title}</h2>
-        <div className="event-mgmt__badges">
-          <span className={badgeClass}>{promo.status ?? 'pending'}</span>
+    <article className="promo-mgmt__card" onClick={() => onView(promo)}>
+      {promo.image_url ? (
+        <img className="promo-mgmt__card-img" src={promo.image_url} alt={promo.title} />
+      ) : (
+        <div className="promo-mgmt__card-img-placeholder" aria-hidden>
+          🎉
+        </div>
+      )}
+
+      <div className="promo-mgmt__card-body">
+        <h2 className="promo-mgmt__card-title">{promo.title}</h2>
+
+        <div className="promo-mgmt__badges">
+          <span className={badgeClass}>{statusLabel}</span>
           {promo.category && (
-            <span className="event-mgmt__badge event-mgmt__badge--genre">{promo.category}</span>
+            <span className="promo-mgmt__badge promo-mgmt__badge--cat">{promo.category}</span>
           )}
         </div>
-        <ul className="event-mgmt__meta">
-          {promo.discount_value && (
-            <li className="event-mgmt__meta-row">
-              <IconDollar />
-              <span>{promo.discount_value}% discount</span>
+
+        <ul className="promo-mgmt__meta">
+          {(discountNum != null || origNum != null) && (
+            <li className="promo-mgmt__meta-row">
+              <IconDollarMeta />
+              <span className="promo-mgmt__meta-text">
+                {origNum != null && `€${fmtPrice(origNum)}`}
+                {discountNum != null && origNum != null &&
+                  ` → €${fmtPrice(origNum * (1 - discountNum / 100))}`}
+                {discountNum != null && ` (${discountNum}% off)`}
+              </span>
             </li>
           )}
           {(validFrom || validUntil) && (
-            <li className="event-mgmt__meta-row">
-              <IconCalendar />
-              <span>
+            <li className="promo-mgmt__meta-row">
+              <IconCalMeta />
+              <span className="promo-mgmt__meta-text">
                 {validFrom && validUntil
                   ? `${validFrom} – ${validUntil}`
-                  : validFrom
-                  ? `From ${validFrom}`
-                  : `Until ${validUntil}`}
+                  : validFrom ? `From ${validFrom}` : `Until ${validUntil}`}
               </span>
             </li>
           )}
-          {promo.description && (
-            <li className="event-mgmt__meta-row">
-              <IconTag />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {promo.description}
-              </span>
+          {promo.included_items && (
+            <li className="promo-mgmt__meta-row">
+              <IconListMeta />
+              <span className="promo-mgmt__meta-text">{promo.included_items}</span>
             </li>
           )}
         </ul>
-        <div className="event-mgmt__card-actions">
-          <div className="event-mgmt__card-actions-main" />
+
+        {promo.description && (
+          <p className="promo-mgmt__card-desc">{promo.description}</p>
+        )}
+
+        {/* Stop propagation so action buttons don't open view modal */}
+        <div
+          className="promo-mgmt__card-actions"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             type="button"
-            className="event-mgmt__action event-mgmt__action--edit-icon"
+            className="promo-mgmt__action--edit"
             aria-label={`Edit ${promo.title}`}
             onClick={() => onEdit(promo)}
           >
-            <Pencil size={14} strokeWidth={2} aria-hidden />
+            <Pencil size={13} strokeWidth={2} aria-hidden />
+            Edit
           </button>
           <button
             type="button"
-            className="event-mgmt__action event-mgmt__action--danger-icon"
+            className="promo-mgmt__action--delete"
             aria-label={`Delete ${promo.title}`}
-            onClick={() => onDelete(promo.promotion_id)}
+            onClick={() => onDelete(promo)}
           >
-            <IconTrash />
+            <IconTrashSm />
           </button>
         </div>
       </div>
@@ -414,7 +782,7 @@ function PromotionCard({
   )
 }
 
-// ─── Empty form state ─────────────────────────────────────────────────────────
+// ─── Empty form ───────────────────────────────────────────────────────────────
 
 const EMPTY_FORM: PromotionFormState = {
   title: '',
@@ -424,11 +792,12 @@ const EMPTY_FORM: PromotionFormState = {
   original_price: '',
   valid_from: '',
   valid_until: '',
-  image_url: '',
-  status: 'pending',
+  what_included: '',
+  terms_conditions: '',
+  status: 'draft',
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ManagerPromotions() {
   const { club, clubId } = useManagerClub()
@@ -442,11 +811,29 @@ export default function ManagerPromotions() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [form, setForm] = useState<PromotionFormState>(EMPTY_FORM)
   const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null)
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('')
+  const [viewPromo, setViewPromo] = useState<PromotionRow | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [globalTc, setGlobalTc] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Modal helpers ─────────────────────────────────────────────────────────
+
+  function resetImageState(previewUrl: string) {
+    if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl)
+    setImageFile(null)
+    setImagePreviewUrl('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   function resetForm() {
     setForm(EMPTY_FORM)
     setFormErrors({})
     setEditingPromotionId(null)
+    resetImageState(imagePreviewUrl)
   }
 
   function closeModal() {
@@ -457,28 +844,50 @@ export default function ManagerPromotions() {
   function openAddModal() {
     setFormErrors({})
     setEditingPromotionId(null)
-    setForm(EMPTY_FORM)
+    setForm({ ...EMPTY_FORM, terms_conditions: globalTc })
+    resetImageState(imagePreviewUrl)
     setShowForm(true)
   }
 
   function openEditModal(promo: PromotionRow) {
     setFormErrors({})
-    setForm(promotionRowToFormState(promo))
+    const fs = promotionRowToFormState(promo)
+    // Fallback to global T&C if the promotion has none saved
+    if (!fs.terms_conditions && globalTc) fs.terms_conditions = globalTc
+    setForm(fs)
     setEditingPromotionId(promo.promotion_id)
+    resetImageState(imagePreviewUrl)
+    setImagePreviewUrl(promo.image_url ?? '')
     setShowForm(true)
   }
 
-  // ── Fetch promotions ──────────────────────────────────────────────────────
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (imagePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(imagePreviewUrl)
+    setImageFile(file)
+    setImagePreviewUrl(URL.createObjectURL(file))
+  }
+
+  function handleRemoveImage() {
+    resetImageState(imagePreviewUrl)
+  }
+
+  // ── Fetch ─────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    if (!clubId || !supabase || !isSupabaseConfigured) { setLoading(false); return }
+    if (!clubId || !supabase || !isSupabaseConfigured) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
-    const now = new Date().toISOString()
     void supabase
       .from('promotions')
-      .select('promotion_id, title, description, category, discount_value, original_price, valid_from, valid_until, status, image_url, created_at')
+      .select(
+        'promotion_id, title, description, category, discount_value, original_price, valid_from, valid_until, status, image_url, included_items, terms_conditions, created_at',
+      )
       .eq('club_id', clubId)
-      .or(`valid_until.is.null,valid_until.gte.${now}`)
       .order('valid_until', { ascending: true, nullsFirst: false })
       .order('promotion_id', { ascending: true })
       .then(({ data, error: err }) => {
@@ -488,29 +897,83 @@ export default function ManagerPromotions() {
       })
   }, [clubId, refreshKey])
 
-  // ── Auto-dismiss toast ────────────────────────────────────────────────────
+  // ── Toast auto-dismiss ────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 4000)
     return () => clearTimeout(t)
   }, [toast])
 
+  // ── Fetch global terms & conditions once ──────────────────────────────────
+
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+    void supabase
+      .from('global_settings')
+      .select('value')
+      .eq('key', 'terms_and_conditions')
+      .single()
+      .then(({ data }) => {
+        const val = (data as { value?: string } | null)?.value
+        if (val) setGlobalTc(val)
+      })
+  }, [])
+
   // ── Stats ─────────────────────────────────────────────────────────────────
-  const stats = [
-    { label: 'Total Promotions', value: String(promotions.length) },
-    { label: 'Active',           value: String(promotions.filter((p) => p.status === 'active').length) },
-    { label: 'Pending',          value: String(promotions.filter((p) => p.status === 'pending').length) },
-    {
-      label: 'Expired',
-      value: String(
-        promotions.filter((p) => {
-          if (!p.valid_until) return false
-          const t = new Date(p.valid_until).getTime()
-          return Number.isFinite(t) && t < Date.now()
-        }).length,
-      ),
-    },
-  ]
+
+  const stats = useMemo(
+    () => [
+      {
+        label: 'Total',
+        value: String(promotions.length),
+        accent: 'purple',
+        icon: <IconStatTag />,
+      },
+      {
+        label: 'Active',
+        value: String(promotions.filter((p) => p.status === 'active' && !promoIsPassed(p)).length),
+        accent: 'green',
+        icon: <IconStatCheck />,
+      },
+      {
+        label: 'Draft',
+        value: String(
+          promotions.filter(
+            (p) => (p.status === 'draft' || p.status === 'pending') && !promoIsPassed(p),
+          ).length,
+        ),
+        accent: 'amber',
+        icon: <IconStatPencil />,
+      },
+      {
+        label: 'Passed',
+        value: String(promotions.filter(promoIsPassed).length),
+        accent: 'gray',
+        icon: <IconStatHistory />,
+      },
+    ],
+    [promotions],
+  )
+
+  // ── Filtered promotions ───────────────────────────────────────────────────
+
+  const filteredPromotions = useMemo(() => {
+    switch (activeFilter) {
+      case 'active':
+        return promotions.filter((p) => p.status === 'active' && !promoIsPassed(p))
+      case 'draft':
+        return promotions.filter(
+          (p) => (p.status === 'draft' || p.status === 'pending') && !promoIsPassed(p),
+        )
+      case 'passed':
+        return promotions.filter(promoIsPassed)
+      default:
+        return promotions
+    }
+  }, [promotions, activeFilter])
+
+  // ── Date range helpers ────────────────────────────────────────────────────
 
   const promotionRangeSummary = humanRangeSummary(form.valid_from, form.valid_until)
 
@@ -539,23 +1002,22 @@ export default function ManagerPromotions() {
       return
     }
     if (preset === 'week') {
-      const until = new Date(now.getTime() + 7 * 86400000)
       setForm((f) => ({
         ...f,
         valid_from: toDateTimeLocalValue(now),
-        valid_until: toDateTimeLocalValue(until),
+        valid_until: toDateTimeLocalValue(new Date(now.getTime() + 7 * 86400000)),
       }))
       return
     }
-    const until = new Date(now.getTime() + 30 * 86400000)
     setForm((f) => ({
       ...f,
       valid_from: toDateTimeLocalValue(now),
-      valid_until: toDateTimeLocalValue(until),
+      valid_until: toDateTimeLocalValue(new Date(now.getTime() + 30 * 86400000)),
     }))
   }
 
-  // ── Submit handler ────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
 
@@ -563,13 +1025,13 @@ export default function ManagerPromotions() {
     if (!form.title.trim()) nextErrors.title = 'Title is required.'
     const validFromDt = parseDateTimeLocal(form.valid_from)
     const validUntilDt = parseDateTimeLocal(form.valid_until)
-    if (
-      validFromDt && validUntilDt &&
-      validUntilDt.getTime() <= validFromDt.getTime()
-    ) {
+    if (validFromDt && validUntilDt && validUntilDt.getTime() <= validFromDt.getTime()) {
       nextErrors.valid_until = '"Valid until" must be after "Valid from".'
     }
-    if (Object.keys(nextErrors).length > 0) { setFormErrors(nextErrors); return }
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors)
+      return
+    }
     setFormErrors({})
 
     if (!supabase || !isSupabaseConfigured) {
@@ -585,6 +1047,24 @@ export default function ManagerPromotions() {
     setToast(null)
 
     try {
+      // Upload new image if one was selected
+      let finalImageUrl: string | null = imagePreviewUrl.startsWith('http')
+        ? imagePreviewUrl
+        : null
+
+      if (imageFile) {
+        const ext = imageFile.name.split('.').pop() ?? 'jpg'
+        const path = `${clubId}/${Date.now()}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from('promotion-images')
+          .upload(path, imageFile, { upsert: true })
+        if (uploadErr) throw new Error(`Image upload failed: ${uploadErr.message}`)
+        const { data: urlData } = supabase.storage
+          .from('promotion-images')
+          .getPublicUrl(path)
+        finalImageUrl = urlData.publicUrl
+      }
+
       const payload = {
         title: form.title.trim(),
         description: form.description.trim() || null,
@@ -593,8 +1073,10 @@ export default function ManagerPromotions() {
         original_price: form.original_price.trim() ? Number(form.original_price) : null,
         valid_from: form.valid_from.trim() ? new Date(form.valid_from).toISOString() : null,
         valid_until: form.valid_until.trim() ? new Date(form.valid_until).toISOString() : null,
-        image_url: form.image_url.trim() || null,
+        image_url: finalImageUrl,
         status: form.status,
+        included_items: form.what_included.trim() || null,
+        terms_conditions: form.terms_conditions.trim() || null,
       }
 
       if (editingPromotionId) {
@@ -616,19 +1098,26 @@ export default function ManagerPromotions() {
       closeModal()
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // ── Delete handler ────────────────────────────────────────────────────────
-  async function handleDelete(promotionId: string) {
-    if (!supabase || !isSupabaseConfigured) return
+  // ── Delete (called only after confirmation) ───────────────────────────────
+
+  async function confirmDelete() {
+    if (!deleteTarget || !supabase || !isSupabaseConfigured) return
+    setIsDeleting(true)
     const { error: delErr } = await supabase
       .from('promotions')
       .delete()
-      .eq('promotion_id', promotionId)
+      .eq('promotion_id', deleteTarget.id)
+    setIsDeleting(false)
+    setDeleteTarget(null)
     if (delErr) {
       setToast({ type: 'error', message: delErr.message })
     } else {
@@ -637,13 +1126,17 @@ export default function ManagerPromotions() {
     }
   }
 
-  // ── Loading / Error shells ────────────────────────────────────────────────
+  // ── Loading / error shells ────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="manager-dash">
         <div className="manager-dash__layout">
           <ManagerSidebar />
-          <div className="manager-dash__main manager-dash__main--event-mgmt" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            className="manager-dash__main manager-dash__main--event-mgmt"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
             <span style={{ color: '#8a8a8a' }}>Loading promotions…</span>
           </div>
         </div>
@@ -656,7 +1149,10 @@ export default function ManagerPromotions() {
       <div className="manager-dash">
         <div className="manager-dash__layout">
           <ManagerSidebar />
-          <div className="manager-dash__main manager-dash__main--event-mgmt" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            className="manager-dash__main manager-dash__main--event-mgmt"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
             <span style={{ color: '#f87171' }}>Error: {error}</span>
           </div>
         </div>
@@ -667,6 +1163,7 @@ export default function ManagerPromotions() {
   const isEditMode = editingPromotionId != null
 
   // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="manager-dash">
       <div className="manager-dash__layout">
@@ -676,30 +1173,95 @@ export default function ManagerPromotions() {
           <ManagerTopBar clubName={club?.club_name} />
 
           <div className="event-mgmt__bound">
+            {/* ── Page header ─────────────────────────────────────────────── */}
             <header className="event-mgmt__head">
               <div className="event-mgmt__head-text">
                 <h1 className="manager-dash__page-title">Promotions</h1>
                 <p className="manager-dash__page-sub">Create and manage your club promotions</p>
               </div>
-              <button
-                type="button"
-                className="event-mgmt__create"
-                onClick={openAddModal}
-              >
+              <button type="button" className="event-mgmt__create" onClick={openAddModal}>
                 <IconPlus />
                 Add Promotion
               </button>
             </header>
 
+            {/* ── Toast ───────────────────────────────────────────────────── */}
             {toast && (
               <div className={`event-mgmt__toast event-mgmt__toast--${toast.type}`}>
                 {toast.message}
               </div>
             )}
 
-            {/* ── Add / Edit Promotion Modal ────────────────────────────────── */}
+            {/* ── View modal ──────────────────────────────────────────────── */}
+            {viewPromo && (
+              <PromotionViewModal
+                promo={viewPromo}
+                onClose={() => setViewPromo(null)}
+                onEdit={(p) => { setViewPromo(null); openEditModal(p) }}
+              />
+            )}
+
+            {/* ── Delete confirmation ─────────────────────────────────────── */}
+            {deleteTarget && (
+              <div
+                className="event-mgmt__modal-overlay"
+                onClick={() => { if (!isDeleting) setDeleteTarget(null) }}
+                role="presentation"
+              >
+                <div
+                  className="promo-mgmt__confirm"
+                  onClick={(e) => e.stopPropagation()}
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-label="Confirm deletion"
+                >
+                  <div className="promo-mgmt__confirm-icon" aria-hidden>
+                    <svg viewBox="0 0 24 24" fill="none" style={{ width: 40, height: 40 }}>
+                      <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                        stroke="#f87171"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <line x1="12" y1="9" x2="12" y2="13" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <h2 className="promo-mgmt__confirm-title">Delete Promotion?</h2>
+                  <p className="promo-mgmt__confirm-msg">
+                    <span className="promo-mgmt__confirm-name">"{deleteTarget.title}"</span>
+                    {' '}will be permanently deleted. This cannot be undone.
+                  </p>
+                  <div className="promo-mgmt__confirm-actions">
+                    <button
+                      type="button"
+                      className="promo-mgmt__confirm-cancel"
+                      onClick={() => setDeleteTarget(null)}
+                      disabled={isDeleting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="promo-mgmt__confirm-delete"
+                      onClick={confirmDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Add / Edit modal ────────────────────────────────────────── */}
             {showForm && (
-              <div className="event-mgmt__modal-overlay" onClick={closeModal} role="presentation">
+              <div
+                className="event-mgmt__modal-overlay"
+                onClick={closeModal}
+                role="presentation"
+              >
                 <aside
                   className="event-mgmt__modal"
                   onClick={(e) => e.stopPropagation()}
@@ -713,7 +1275,7 @@ export default function ManagerPromotions() {
                       type="button"
                       className="event-mgmt__modal-close"
                       onClick={closeModal}
-                      aria-label={isEditMode ? 'Close edit promotion modal' : 'Close add promotion modal'}
+                      aria-label="Close modal"
                     >
                       ×
                     </button>
@@ -721,35 +1283,33 @@ export default function ManagerPromotions() {
 
                   <form onSubmit={handleSubmit} className="event-mgmt__modal-form">
                     <div className="event-mgmt__modal-body">
+
                       {/* Title */}
                       <div className="event-mgmt__field event-mgmt__field--full">
-                        <label>Promotion Title</label>
+                        <label>Promotion Title *</label>
                         <input
-                          className={formErrors.title ? 'event-mgmt__input event-mgmt__input--error' : 'event-mgmt__input'}
+                          className={
+                            formErrors.title
+                              ? 'event-mgmt__input event-mgmt__input--error'
+                              : 'event-mgmt__input'
+                          }
                           type="text"
                           placeholder="e.g. Free entry before midnight"
                           value={form.title}
                           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                         />
-                        {formErrors.title && <p className="event-mgmt__field-error">{formErrors.title}</p>}
+                        {formErrors.title && (
+                          <p className="event-mgmt__field-error">{formErrors.title}</p>
+                        )}
                       </div>
 
                       {/* Category */}
                       <div className="event-mgmt__field event-mgmt__field--full">
                         <label>Category</label>
-                        <select
-                          className="event-mgmt__input event-mgmt__select"
+                        <CategorySelect
                           value={form.category}
-                          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                        >
-                          <option value="">Select category</option>
-                          <option value="Entry">Entry</option>
-                          <option value="Drinks">Drinks</option>
-                          <option value="VIP">VIP</option>
-                          <option value="Tables">Tables</option>
-                          <option value="Food">Food</option>
-                          <option value="Other">Other</option>
-                        </select>
+                          onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+                        />
                       </div>
 
                       {/* Original Price + Discount % */}
@@ -781,10 +1341,29 @@ export default function ManagerPromotions() {
                             step="1"
                             placeholder="e.g. 20"
                             value={form.discount_value}
-                            onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, discount_value: e.target.value }))
+                            }
                           />
                         </div>
                       </div>
+
+                      {/* Final price — read-only calculation */}
+                      {(() => {
+                        const orig = form.original_price ? Number(form.original_price) : NaN
+                        const disc = form.discount_value  ? Number(form.discount_value)  : NaN
+                        if (!Number.isFinite(orig) || orig <= 0 || !Number.isFinite(disc) || disc <= 0) return null
+                        const final = orig * (1 - disc / 100)
+                        const fmt = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2))
+                        return (
+                          <div className="promo-mgmt__final-price">
+                            <span className="promo-mgmt__final-price-label">Final price</span>
+                            <span className="promo-mgmt__final-price-value">
+                              €{fmt(orig)} → €{fmt(final)} ({disc}% off)
+                            </span>
+                          </div>
+                        )
+                      })()}
 
                       {/* Valid from + until */}
                       <div className="event-mgmt__field-grid">
@@ -800,62 +1379,76 @@ export default function ManagerPromotions() {
                           onChange={(v) => setForm((f) => ({ ...f, valid_until: v }))}
                         />
                       </div>
-                      <div className="event-time-picker__presets" role="group" aria-label="Quick date range presets">
-                        <button
-                          type="button"
-                          className="event-time-picker__preset-chip"
-                          onClick={() => applyPromotionDatePreset('today')}
-                        >
-                          Today only
-                        </button>
-                        <button
-                          type="button"
-                          className="event-time-picker__preset-chip"
-                          onClick={() => applyPromotionDatePreset('weekend')}
-                        >
-                          This weekend
-                        </button>
-                        <button
-                          type="button"
-                          className="event-time-picker__preset-chip"
-                          onClick={() => applyPromotionDatePreset('week')}
-                        >
-                          1 week
-                        </button>
-                        <button
-                          type="button"
-                          className="event-time-picker__preset-chip"
-                          onClick={() => applyPromotionDatePreset('month')}
-                        >
-                          1 month
-                        </button>
+
+                      {/* Date presets */}
+                      <div
+                        className="event-time-picker__presets"
+                        role="group"
+                        aria-label="Quick date range presets"
+                      >
+                        {(['today', 'weekend', 'week', 'month'] as const).map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            className="event-time-picker__preset-chip"
+                            onClick={() => applyPromotionDatePreset(p)}
+                          >
+                            {p === 'today'
+                              ? 'Today only'
+                              : p === 'weekend'
+                                ? 'This weekend'
+                                : p === 'week'
+                                  ? '1 week'
+                                  : '1 month'}
+                          </button>
+                        ))}
                       </div>
                       {promotionRangeSummary && (
-                        <p className="event-time-picker__range-summary">{promotionRangeSummary}</p>
+                        <p className="event-time-picker__range-summary">
+                          {promotionRangeSummary}
+                        </p>
                       )}
                       {formErrors.valid_until && (
                         <p className="event-mgmt__field-error">{formErrors.valid_until}</p>
                       )}
 
-                      {/* Image URL */}
+                      {/* Image upload */}
                       <div className="event-mgmt__field event-mgmt__field--full">
-                        <label>Image URL</label>
-                        <input
-                          className="event-mgmt__input"
-                          type="text"
-                          placeholder="https://..."
-                          value={form.image_url}
-                          onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
-                        />
+                        <label>Promotion Image</label>
+                        <div className="promo-mgmt__upload-wrap">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            style={{ display: 'none' }}
+                            onChange={handleFileChange}
+                          />
+                          <button
+                            type="button"
+                            className="promo-mgmt__upload-btn"
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <IconUpload />
+                            {imagePreviewUrl ? 'Change image' : 'Upload image'}
+                          </button>
+                          {imagePreviewUrl && (
+                            <>
+                              <img
+                                src={imagePreviewUrl}
+                                alt="Promotion preview"
+                                className="promo-mgmt__upload-preview"
+                              />
+                              <button
+                                type="button"
+                                className="promo-mgmt__upload-remove"
+                                onClick={handleRemoveImage}
+                              >
+                                Remove image
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      {form.image_url.trim() && (
-                        <img
-                          src={form.image_url}
-                          alt="Promotion preview"
-                          className="event-mgmt__image-preview"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                        />
-                      )}
 
                       {/* Description */}
                       <div className="event-mgmt__field event-mgmt__field--full">
@@ -865,7 +1458,37 @@ export default function ManagerPromotions() {
                           rows={3}
                           placeholder="Describe this promotion..."
                           value={form.description}
-                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, description: e.target.value }))
+                          }
+                        />
+                      </div>
+
+                      {/* What's Included */}
+                      <div className="event-mgmt__field event-mgmt__field--full">
+                        <label>What's Included</label>
+                        <textarea
+                          className="event-mgmt__input event-mgmt__input--textarea"
+                          rows={2}
+                          placeholder="e.g. 1 drink, skip-the-line entry, VIP wristband..."
+                          value={form.what_included}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, what_included: e.target.value }))
+                          }
+                        />
+                      </div>
+
+                      {/* Terms & Conditions */}
+                      <div className="event-mgmt__field event-mgmt__field--full">
+                        <label>Terms & Conditions</label>
+                        <textarea
+                          className="event-mgmt__input event-mgmt__input--textarea"
+                          rows={3}
+                          placeholder="e.g. Valid for new customers only. Cannot be combined with other offers..."
+                          value={form.terms_conditions}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, terms_conditions: e.target.value }))
+                          }
                         />
                       </div>
 
@@ -873,20 +1496,28 @@ export default function ManagerPromotions() {
                       <div className="event-mgmt__field event-mgmt__field--full">
                         <label>Status</label>
                         <div className="event-mgmt__status-toggle">
-                          {(['active', 'pending'] as const).map((s) => (
-                            <button
-                              key={s}
-                              type="button"
-                              className={
-                                form.status === s
-                                  ? 'event-mgmt__status-pill event-mgmt__status-pill--active'
-                                  : 'event-mgmt__status-pill'
-                              }
-                              onClick={() => setForm((f) => ({ ...f, status: s }))}
-                            >
-                              {s.charAt(0).toUpperCase() + s.slice(1)}
-                            </button>
-                          ))}
+                          <button
+                            type="button"
+                            className={
+                              form.status === 'draft'
+                                ? 'event-mgmt__status-pill event-mgmt__status-pill--active'
+                                : 'event-mgmt__status-pill'
+                            }
+                            onClick={() => setForm((f) => ({ ...f, status: 'draft' }))}
+                          >
+                            Draft
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              form.status === 'active'
+                                ? 'event-mgmt__status-pill event-mgmt__status-pill--active'
+                                : 'event-mgmt__status-pill'
+                            }
+                            onClick={() => setForm((f) => ({ ...f, status: 'active' }))}
+                          >
+                            Active
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -910,7 +1541,11 @@ export default function ManagerPromotions() {
                             <span className="event-mgmt__spinner" />
                             Saving...
                           </span>
-                        ) : isEditMode ? 'Save Changes' : 'Add Promotion'}
+                        ) : isEditMode ? (
+                          'Save Changes'
+                        ) : (
+                          'Add Promotion'
+                        )}
                       </button>
                     </div>
                   </form>
@@ -918,29 +1553,64 @@ export default function ManagerPromotions() {
               </div>
             )}
 
-            {/* ── Stats ─────────────────────────────────────────────────────── */}
-            <section className="event-mgmt__stats" aria-label="Promotions statistics">
+            {/* ── Stat cards ──────────────────────────────────────────────── */}
+            <section className="promo-mgmt__stats" aria-label="Promotions statistics">
               {stats.map((s) => (
-                <article key={s.label} className="event-mgmt__stat">
-                  <p className="event-mgmt__stat-value">{s.value}</p>
-                  <p className="event-mgmt__stat-label">{s.label}</p>
+                <article
+                  key={s.label}
+                  className={`promo-mgmt__stat promo-mgmt__stat--${s.accent}`}
+                >
+                  <div className="promo-mgmt__stat-body">
+                    <p className="promo-mgmt__stat-value">{s.value}</p>
+                    <p className="promo-mgmt__stat-label">{s.label}</p>
+                  </div>
+                  <span
+                    className={`promo-mgmt__stat-icon promo-mgmt__stat-icon--${s.accent}`}
+                    aria-hidden
+                  >
+                    {s.icon}
+                  </span>
                 </article>
               ))}
             </section>
 
-            {/* ── Grid ──────────────────────────────────────────────────────── */}
-            {promotions.length === 0 ? (
+            {/* ── Filter tabs ──────────────────────────────────────────────── */}
+            <div className="promo-mgmt__filter-tabs" role="tablist" aria-label="Filter promotions">
+              {(['all', 'active', 'draft', 'passed'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeFilter === tab}
+                  className={[
+                    'promo-mgmt__filter-tab',
+                    activeFilter === tab ? 'promo-mgmt__filter-tab--active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => setActiveFilter(tab)}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Promotions grid ──────────────────────────────────────────── */}
+            {filteredPromotions.length === 0 ? (
               <p style={{ color: '#8a8a8a', fontSize: '0.9375rem', paddingTop: '8px' }}>
-                No promotions yet. Add your first promotion!
+                {activeFilter === 'all'
+                  ? 'No promotions yet. Add your first promotion!'
+                  : `No ${activeFilter} promotions.`}
               </p>
             ) : (
               <section className="event-mgmt__grid" aria-label="Promotions list">
-                {promotions.map((promo) => (
+                {filteredPromotions.map((promo) => (
                   <PromotionCard
                     key={promo.promotion_id}
                     promo={promo}
                     onEdit={openEditModal}
-                    onDelete={handleDelete}
+                    onDelete={(p) => setDeleteTarget({ id: p.promotion_id, title: p.title })}
+                    onView={setViewPromo}
                   />
                 ))}
               </section>

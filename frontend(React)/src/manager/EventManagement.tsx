@@ -32,6 +32,9 @@ type EventRow = {
   final_ticket_price: string | null
   event_image: string | null
   event_status: string | null
+  is_featured: boolean | null
+  featured_request_status: string | null
+  featured_rejection_reason: string | null
   reservations: ReservationMini[]
 }
 
@@ -78,7 +81,7 @@ type ToastState = {
   message: string
 } | null
 
-type EventFilter = 'all' | 'published' | 'draft' | 'upcoming' | 'past'
+type EventFilter = 'all' | 'draft' | 'upcoming' | 'past' | 'featured'
 
 const MONTH_NAMES = [
   'January',
@@ -99,11 +102,11 @@ const HOUR_SELECT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 
 const MINUTE_SELECT_OPTIONS = ['00', '30'] as const
 const EVENT_TYPE_OPTIONS = ['Club Night', 'Live Music', 'Special Event', 'Private Party', 'Other'] as const
 const EVENT_FILTERS: Array<{ id: EventFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'published', label: 'Published' },
-  { id: 'draft', label: 'Draft' },
   { id: 'upcoming', label: 'Upcoming' },
+  { id: 'featured', label: '★ Featured' },
+  { id: 'draft', label: 'Draft' },
   { id: 'past', label: 'Past' },
+  { id: 'all', label: 'All' },
 ]
 
 function datePart(dateTime: string) {
@@ -607,6 +610,69 @@ function IconUpload() {
     </svg>
   )
 }
+function IconStar() {
+  return (
+    <svg className="event-mgmt__action-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconStarFill() {
+  return (
+    <svg className="event-mgmt__action-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  )
+}
+
+// ── Stat card icons ───────────────────────────────────────────────────────────
+function IconStatCalendar() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M16 3v4M8 3v4M3 11h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+function IconStatClock() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconStatTicket() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M2 9a2 2 0 1 0 0-4V4a1 1 0 0 1 1-1h18a1 1 0 0 1 1 1v1a2 2 0 1 0 0 4v2a2 2 0 1 0 0 4v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1a2 2 0 1 0 0-4V9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconStatCheckCircle() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 12.5l3 3 5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconStatHistory() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 3v5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 7v5l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconStatDraft() {
+  return (
+    <svg className="event-mgmt__stat-ic" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 function EventCard({
   ev,
@@ -615,6 +681,7 @@ function EventCard({
   onDuplicate,
   onPublish,
   onDelete,
+  onFeatureRequest,
   todayStart,
 }: {
   ev: EventRow
@@ -623,6 +690,7 @@ function EventCard({
   onDuplicate: (event: EventRow) => void
   onPublish: (event: EventRow) => void
   onDelete: (event: EventRow) => void
+  onFeatureRequest: (event: EventRow) => void
   todayStart: Date
 }) {
   const booked = confirmedGuestsForEvent(ev)
@@ -647,6 +715,12 @@ function EventCard({
   const isDraft = ev.event_status === 'draft'
   const isPast = eventIsPast(ev, todayStart)
 
+  const isFeatured = ev.is_featured ?? false
+  const featuredStatus = ev.featured_request_status ?? 'none'
+  const isFeaturePending = featuredStatus === 'pending_review'
+  const isFeatureRejected = featuredStatus === 'rejected' && !isFeatured
+  const canRequestFeature = !isFeatured && !isFeaturePending && !isPast
+
   const imgVariants = ['violet', 'cyan', 'placeholder'] as const
   const imgKey = Math.abs([...ev.event_id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)) % 3
   const imgClass = imgVariants[imgKey] === 'placeholder'
@@ -654,10 +728,26 @@ function EventCard({
     : `event-mgmt__card-img event-mgmt__card-img--${imgVariants[imgKey]}`
 
   return (
-    <article className="event-mgmt__card">
-      {ev.event_image
-        ? <img className="event-mgmt__card-img" src={ev.event_image} alt={ev.event_name} style={{ objectFit: 'cover' }} />
-        : <div className={imgClass} aria-hidden />}
+    <article
+      className="event-mgmt__card event-mgmt__card--clickable"
+      onClick={() => onView(ev)}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onView(ev) }
+      }}
+      aria-label={`View details for ${ev.event_name}`}
+    >
+      <div className="event-mgmt__card-img-wrap">
+        {ev.event_image
+          ? <img className="event-mgmt__card-img" src={ev.event_image} alt={ev.event_name} style={{ objectFit: 'cover' }} />
+          : <div className={imgClass} aria-hidden />}
+        {isFeatured && (
+          <div className="event-mgmt__card-featured-pill" aria-label="Featured event">
+            <IconStarFill />
+            Featured
+          </div>
+        )}
+      </div>
       <div className="event-mgmt__card-body">
         <h2 className="event-mgmt__card-title">{ev.event_name}</h2>
         <div className="event-mgmt__badges">
@@ -666,6 +756,19 @@ function EventCard({
           </span>
           {ev.event_type && (
             <span className="event-mgmt__badge event-mgmt__badge--genre">{ev.event_type}</span>
+          )}
+          {isFeaturePending && (
+            <span className="event-mgmt__badge event-mgmt__badge--featured-pending">
+              pending review
+            </span>
+          )}
+          {isFeatureRejected && (
+            <span
+              className="event-mgmt__badge event-mgmt__badge--featured-rejected"
+              title={ev.featured_rejection_reason ?? 'Feature request was not approved'}
+            >
+              not featured
+            </span>
           )}
         </div>
         <ul className="event-mgmt__meta">
@@ -692,28 +795,21 @@ function EventCard({
         )}
         <div className="event-mgmt__card-actions">
           <div className="event-mgmt__card-actions-main">
-            <button
-              type="button"
-              className="event-mgmt__action event-mgmt__action--secondary event-mgmt__action--split"
-              onClick={() => onView(ev)}
-            >
-              <IconEye />
-              View
-            </button>
             {isPast && (
               <button
                 type="button"
                 className="event-mgmt__action event-mgmt__action--secondary event-mgmt__action--split"
-                onClick={() => onDuplicate(ev)}
+                title="Create a new event based on this one — just update the dates and publish"
+                onClick={(e) => { e.stopPropagation(); onDuplicate(ev) }}
               >
                 <IconCopy />
-                Duplicate
+                Repeat
               </button>
             )}
             <button
               type="button"
               className="event-mgmt__action event-mgmt__action--secondary event-mgmt__action--split"
-              onClick={() => onEdit(ev)}
+              onClick={(e) => { e.stopPropagation(); onEdit(ev) }}
             >
               <IconPencil />
               Edit
@@ -722,10 +818,21 @@ function EventCard({
               <button
                 type="button"
                 className="event-mgmt__action event-mgmt__action--publish event-mgmt__action--split"
-                onClick={() => onPublish(ev)}
+                onClick={(e) => { e.stopPropagation(); onPublish(ev) }}
               >
                 <IconCheck />
                 Publish
+              </button>
+            )}
+            {canRequestFeature && (
+              <button
+                type="button"
+                className="event-mgmt__action event-mgmt__action--feature event-mgmt__action--split"
+                title="Request to feature this event on the app"
+                onClick={(e) => { e.stopPropagation(); onFeatureRequest(ev) }}
+              >
+                <IconStar />
+                Feature
               </button>
             )}
           </div>
@@ -733,7 +840,7 @@ function EventCard({
             type="button"
             className="event-mgmt__action event-mgmt__action--danger-icon"
             aria-label={`Delete ${ev.event_name}`}
-            onClick={() => onDelete(ev)}
+            onClick={(e) => { e.stopPropagation(); onDelete(ev) }}
           >
             <IconTrash compact />
           </button>
@@ -755,13 +862,69 @@ export default function EventManagement() {
   const [isDuplicatingEvent, setIsDuplicatingEvent] = useState(false)
   const [viewingEvent, setViewingEvent] = useState<EventRow | null>(null)
   const [deletingEvent, setDeletingEvent] = useState<EventRow | null>(null)
+  const [featuringEvent, setFeaturingEvent] = useState<EventRow | null>(null)
+  const [featuredSlotFee, setFeaturedSlotFee] = useState<number>(50)
   const [confirmDeletePast, setConfirmDeletePast] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formErrors, setFormErrors] = useState<FormErrors>({})
   const [toast, setToast] = useState<ToastState>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+    void supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'featured_slot_fee')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) setFeaturedSlotFee(Number(data.value))
+      })
+  }, [])
+
+  useEffect(() => {
+    const featuredPaidEventId = searchParams.get('featured_paid')
+    if (!featuredPaidEventId || !supabase || !isSupabaseConfigured || !clubId) return
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('featured_paid')
+    setSearchParams(nextParams, { replace: true })
+
+    void supabase
+      .from('events')
+      .update({
+        featured_request_status: 'pending_review',
+        featured_fee_paid: true,
+        featured_paid_at: new Date().toISOString(),
+        featured_fee_amount: featuredSlotFee,
+        featured_requested_at: new Date().toISOString(),
+      })
+      .eq('event_id', featuredPaidEventId)
+      .eq('club_id', clubId)
+      .then(({ error: updateErr }) => {
+        if (updateErr) {
+          setToast({ type: 'error', message: 'Payment successful but status update failed. Please contact support.' })
+        } else {
+          setEvents((current) =>
+            current.map((ev) =>
+              ev.event_id === featuredPaidEventId
+                ? { ...ev, featured_request_status: 'pending_review' }
+                : ev,
+            ),
+          )
+          setToast({ type: 'success', message: 'Feature request submitted! Your event will be reviewed and featured across the app once approved.' })
+        }
+      })
+  }, [searchParams, clubId, featuredSlotFee])
+
   const [refreshKey, setRefreshKey] = useState(0)
   const [eventSearch, setEventSearch] = useState('')
-  const [activeFilter, setActiveFilter] = useState<EventFilter>('all')
+  const [activeFilter, setActiveFilter] = useState<EventFilter>('upcoming')
   const selectedEventId = searchParams.get('event')
   const [form, setForm] = useState<EventFormState>({
     event_name: '',
@@ -874,6 +1037,7 @@ export default function EventManagement() {
         event_id, event_name, event_description, event_type, event_starting_date,
         event_ending_date, event_hours,
         event_capacity, ticket_price, final_ticket_price, event_image, event_status,
+        is_featured, featured_request_status, featured_rejection_reason,
         reservations(reservation_id, type, status, nr_of_people)
       `)
       .eq('club_id', clubId)
@@ -897,18 +1061,12 @@ export default function EventManagement() {
   const confirmedReservations = allReservations.filter(reservationIsConfirmed)
 
   const stats = [
-    { label: 'Total Events', value: String(events.length) },
-    { label: 'Upcoming', value: String(events.filter((e) => new Date(e.event_starting_date) > now).length) },
-    {
-      label: 'Total Tickets / Reservations',
-      value: String(totalGuestCount(allReservations)),
-    },
-    { label: 'Confirmed Reservations', value: String(totalGuestCount(confirmedReservations)) },
-    {
-      label: 'Past Events',
-      value: String(events.filter((e) => eventIsPast(e, todayStart)).length),
-    },
-    { label: 'Draft Events', value: String(events.filter((e) => e.event_status === 'draft').length) },
+    { label: 'Total Events',                value: String(events.length),                                                       accent: 'purple', icon: <IconStatCalendar /> },
+    { label: 'Upcoming',                    value: String(events.filter((e) => new Date(e.event_starting_date) > now).length),  accent: 'blue',   icon: <IconStatClock /> },
+    { label: 'Total Tickets / Reservations', value: String(totalGuestCount(allReservations)),                                   accent: 'pink',   icon: <IconStatTicket /> },
+    { label: 'Confirmed Reservations',      value: String(totalGuestCount(confirmedReservations)),                              accent: 'green',  icon: <IconStatCheckCircle /> },
+    { label: 'Past Events',                 value: String(events.filter((e) => eventIsPast(e, todayStart)).length),            accent: 'gray',   icon: <IconStatHistory /> },
+    { label: 'Draft Events',                value: String(events.filter((e) => e.event_status === 'draft').length),            accent: 'amber',  icon: <IconStatDraft /> },
   ]
 
   const normalizedSearch = eventSearch.trim().toLowerCase()
@@ -918,7 +1076,7 @@ export default function EventManagement() {
     const isPast = eventIsPast(event, todayStart)
     const matchesFilter =
       activeFilter === 'all' ||
-      (activeFilter === 'published' && status === 'published') ||
+      (activeFilter === 'featured' && (event.is_featured === true || event.featured_request_status === 'pending_review')) ||
       (activeFilter === 'draft' && status === 'draft') ||
       (activeFilter === 'upcoming' && isUpcoming) ||
       (activeFilter === 'past' && isPast)
@@ -967,7 +1125,7 @@ export default function EventManagement() {
     setToast(null)
 
     try {
-      const nextStatus = isDuplicatingEvent ? 'draft' : form.event_status
+      const nextStatus = form.event_status
       const finalTicketPrice = computeFinalTicketPrice(form.ticket_price, form.discount_percent)
       const eventPayload = {
         club_id: clubId,
@@ -1060,6 +1218,28 @@ export default function EventManagement() {
       ),
     )
     setToast({ type: 'success', message: 'Event published successfully' })
+  }
+
+  async function handleFeatureRequest(ev: EventRow) {
+    setIsSubmitting(true)
+    setToast(null)
+    try {
+      const res = await fetch('http://localhost:3000/event/feature-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: ev.event_id, fee: featuredSlotFee }),
+      })
+      const data = await res.json() as { url?: string }
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        setToast({ type: 'error', message: 'Could not create payment session. Please try again.' })
+      }
+    } catch {
+      setToast({ type: 'error', message: 'Payment request failed. Please try again.' })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   async function handleDeleteEvent(ev: EventRow) {
@@ -1157,7 +1337,7 @@ export default function EventManagement() {
     )
   }
 
-  const createModalTitle = isDuplicatingEvent ? 'Duplicate Event' : editingEventId ? 'Edit Event' : 'Create Event'
+  const createModalTitle = isDuplicatingEvent ? 'Repeat Event' : editingEventId ? 'Edit Event' : 'Create Event'
 
   return (
     <div className="manager-dash">
@@ -1167,7 +1347,7 @@ export default function EventManagement() {
         <div className="manager-dash__main manager-dash__main--event-mgmt">
           <ManagerTopBar clubName={club?.club_name} />
 
-          <div className="event-mgmt__bound">
+          <>
             <header className="event-mgmt__head">
               <div className="event-mgmt__head-text">
                 <h1 className="manager-dash__page-title">Event Management</h1>
@@ -1223,6 +1403,47 @@ export default function EventManagement() {
                       onClick={() => void confirmDeleteEvent()}
                     >
                       Delete Event
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            )}
+
+            {featuringEvent && (
+              <div className="event-mgmt__modal-overlay event-mgmt__modal-overlay--blur" onClick={() => setFeaturingEvent(null)} role="presentation">
+                <aside
+                  className="event-mgmt__delete-modal"
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Confirm feature request"
+                >
+                  <div className="event-mgmt__feature-confirm-icon" aria-hidden>
+                    <IconStarFill />
+                  </div>
+                  <div className="event-mgmt__delete-copy">
+                    <h2>Feature This Event?</h2>
+                    <p className="event-mgmt__delete-subtitle">
+                      <span className="event-mgmt__delete-event-name">{featuringEvent.event_name}</span>
+                      will appear in the Featured section of the app once approved, giving it maximum visibility. A one-time fee of <strong>€{featuredSlotFee}</strong> applies — you'll be taken to Stripe's secure checkout to complete payment.
+                    </p>
+                  </div>
+                  <div className="event-mgmt__delete-actions">
+                    <button
+                      type="button"
+                      className="event-mgmt__delete-btn event-mgmt__delete-btn--cancel"
+                      onClick={() => setFeaturingEvent(null)}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="event-mgmt__delete-btn event-mgmt__delete-btn--feature"
+                      disabled={isSubmitting}
+                      onClick={() => { const ev = featuringEvent; setFeaturingEvent(null); void handleFeatureRequest(ev) }}
+                    >
+                      {isSubmitting ? 'Redirecting to Stripe…' : `Pay €${featuredSlotFee} & Feature`}
                     </button>
                   </div>
                 </aside>
@@ -1312,6 +1533,26 @@ export default function EventManagement() {
                           <span className={getEventStatusBadgeClass(viewingEvent.event_status)} style={{ width: 'fit-content' }}>
                             {viewingEvent.event_status ?? 'upcoming'}
                           </span>
+                        </div>
+                      </div>
+                      <div className="event-mgmt__field event-mgmt__field--full">
+                        <label>Featured Status</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {viewingEvent.is_featured ? (
+                            <span className="event-mgmt__badge event-mgmt__badge--featured-active" style={{ width: 'fit-content' }}>
+                              ★ Featured on the app
+                            </span>
+                          ) : viewingEvent.featured_request_status === 'pending_review' ? (
+                            <span className="event-mgmt__badge event-mgmt__badge--featured-pending" style={{ width: 'fit-content' }}>
+                              Pending review
+                            </span>
+                          ) : viewingEvent.featured_request_status === 'rejected' ? (
+                            <span className="event-mgmt__badge event-mgmt__badge--featured-rejected" style={{ width: 'fit-content' }}>
+                              Not approved{viewingEvent.featured_rejection_reason ? ` — ${viewingEvent.featured_rejection_reason}` : ''}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#8a8a8a', fontSize: '0.8125rem' }}>Not featured</span>
+                          )}
                         </div>
                       </div>
                       <div className="event-mgmt__field-grid">
@@ -1631,7 +1872,7 @@ export default function EventManagement() {
                             <span className="event-mgmt__spinner" />
                             Saving...
                           </span>
-                        ) : editingEventId ? 'Save Changes' : isDuplicatingEvent ? 'Duplicate Event' : 'Create Event'}
+                        ) : editingEventId ? 'Save Changes' : isDuplicatingEvent ? 'Repeat Event' : 'Create Event'}
                       </button>
                     </div>
                   </form>
@@ -1642,9 +1883,14 @@ export default function EventManagement() {
 
             <section className="event-mgmt__stats" aria-label="Event statistics">
               {stats.map((s) => (
-                <article key={s.label} className="event-mgmt__stat">
-                  <p className="event-mgmt__stat-value">{s.value}</p>
-                  <p className="event-mgmt__stat-label">{s.label}</p>
+                <article key={s.label} className={`event-mgmt__stat event-mgmt__stat--${s.accent}`}>
+                  <div className="event-mgmt__stat-body">
+                    <p className="event-mgmt__stat-value">{s.value}</p>
+                    <p className="event-mgmt__stat-label">{s.label}</p>
+                  </div>
+                  <span className={`event-mgmt__stat-icon event-mgmt__stat-icon--${s.accent}`} aria-hidden>
+                    {s.icon}
+                  </span>
                 </article>
               ))}
             </section>
@@ -1706,12 +1952,13 @@ export default function EventManagement() {
                     onDuplicate={openDuplicateModal}
                     onPublish={handlePublishEvent}
                     onDelete={handleDeleteEvent}
+                    onFeatureRequest={setFeaturingEvent}
                     todayStart={todayStart}
                   />
                 ))}
               </section>
             )}
-          </div>
+          </>
         </div>
       </div>
     </div>

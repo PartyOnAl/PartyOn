@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import './ManagerDashboard.css'
 import './ManagerAnalytics.css'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
@@ -68,6 +69,11 @@ function formatChartTooltipEuro(value: number) {
   }).format(value)
 }
 
+/** Same format as the Dashboard's formatCurrency — whole-number, EUR prefix, no compact. */
+function formatRevenueDash(value: number) {
+  return `€${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
 function weeklyVolumePhrase(count: number, suffix: string) {
   if (count === 1) {
     if (suffix === 'reservations') return '1 reservation'
@@ -83,17 +89,6 @@ function monthKey(date: Date) {
 
 function dayKey(date: Date) {
   return date.toISOString().slice(0, 10)
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
-}
-
-function formatTrend(current: number, previous: number) {
-  if (previous === 0) return current > 0 ? '+100%' : '+0%'
-  const pct = ((current - previous) / previous) * 100
-  const sign = pct >= 0 ? '+' : ''
-  return `${sign}${Math.round(pct)}%`
 }
 
 function IconMoney() {
@@ -132,22 +127,18 @@ function IconTrend() {
 function MetricCard({
   label,
   value,
-  trend,
   icon,
+  accent = 'default',
 }: {
   label: string
   value: string
-  trend: string
   icon: ReactNode
+  accent?: 'pink' | 'green' | 'blue' | 'amber' | 'default'
 }) {
-  const positive = !trend.startsWith('-')
   return (
-    <article className="manager-analytics__metric">
+    <article className={`manager-analytics__metric manager-analytics__metric--${accent}`}>
       <div className="manager-analytics__metric-top">
-        <span className="manager-analytics__metric-icon-wrap">{icon}</span>
-        <span className={positive ? 'manager-analytics__trend manager-analytics__trend--up' : 'manager-analytics__trend manager-analytics__trend--down'}>
-          {trend}
-        </span>
+        <span className={`manager-analytics__metric-icon-wrap manager-analytics__metric-icon-wrap--${accent}`}>{icon}</span>
       </div>
       <p className="manager-analytics__metric-value">{value}</p>
       <p className="manager-analytics__metric-label">{label}</p>
@@ -177,6 +168,23 @@ export default function ManagerAnalytics() {
   const [error, setError] = useState<string | null>(null)
   const [hoveredMonthIndex, setHoveredMonthIndex] = useState<number | null>(null)
   const [hoveredWeekIndex, setHoveredWeekIndex] = useState<number | null>(null)
+
+  // ── Revenue from the backend API (same source as Dashboard) ─────────────────
+  // This ensures the "Total Revenue" figure is identical across all pages.
+  const { session } = useAuth()
+  const [backendRevenue, setBackendRevenue] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!session?.access_token) return
+    void fetch('/api/dashboard/stats', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ totalRevenue?: number }>) : Promise.resolve(null)))
+      .then((data) => {
+        if (data?.totalRevenue != null) setBackendRevenue(data.totalRevenue)
+      })
+      .catch(() => {})
+  }, [session?.access_token])
 
   useEffect(() => {
     if (!clubId || !supabase || !isSupabaseConfigured) {
@@ -243,9 +251,6 @@ export default function ManagerAnalytics() {
 
   const analytics = useMemo(() => {
     const now = new Date()
-    const currentMonth = startOfMonth(now)
-    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
     const reservationById = Object.fromEntries(reservations.map((reservation) => [reservation.reservation_id, reservation]))
     const eventById = Object.fromEntries(events.map((event) => [event.event_id, event]))
     const completedPayments = payments.filter((payment) => isCompletedPayment(payment.status))
@@ -253,68 +258,6 @@ export default function ManagerAnalytics() {
     const ticketSales = reservations.filter(isTicketSale)
     const uniqueCustomers = new Set(reservations.map((reservation) => reservation.user_id).filter(Boolean)).size
     const averageTicketPrice = ticketSales.length > 0 ? totalRevenue / ticketSales.length : 0
-
-    const currentMonthRevenue = completedPayments
-      .filter((payment) => {
-        const date = payment.payment_date ? new Date(payment.payment_date) : null
-        return date !== null && date >= currentMonth && date < nextMonth
-      })
-      .reduce((sum, payment) => sum + parseAmount(payment.amount), 0)
-    const previousMonthRevenue = completedPayments
-      .filter((payment) => {
-        const date = payment.payment_date ? new Date(payment.payment_date) : null
-        return date !== null && date >= previousMonth && date < currentMonth
-      })
-      .reduce((sum, payment) => sum + parseAmount(payment.amount), 0)
-
-    const currentMonthCustomers = new Set(
-      reservations
-        .filter((reservation) => {
-          const date = reservation.created_at ? new Date(reservation.created_at) : null
-          return date !== null && date >= currentMonth && date < nextMonth
-        })
-        .map((reservation) => reservation.user_id)
-        .filter(Boolean),
-    ).size
-    const previousMonthCustomers = new Set(
-      reservations
-        .filter((reservation) => {
-          const date = reservation.created_at ? new Date(reservation.created_at) : null
-          return date !== null && date >= previousMonth && date < currentMonth
-        })
-        .map((reservation) => reservation.user_id)
-        .filter(Boolean),
-    ).size
-
-    const currentMonthEvents = events.filter((event) => {
-      const date = new Date(event.event_starting_date)
-      return date >= currentMonth && date < nextMonth
-    }).length
-    const previousMonthEvents = events.filter((event) => {
-      const date = new Date(event.event_starting_date)
-      return date >= previousMonth && date < currentMonth
-    }).length
-
-    const previousMonthTickets = reservations.filter((reservation) => {
-      const date = reservation.created_at ? new Date(reservation.created_at) : null
-      const event = reservation.event_id ? eventById[reservation.event_id] : undefined
-      return (
-        date !== null &&
-        date >= previousMonth &&
-        date < currentMonth &&
-        countsTowardVolumeMetrics(reservation, event)
-      )
-    }).length
-    const currentMonthTickets = reservations.filter((reservation) => {
-      const date = reservation.created_at ? new Date(reservation.created_at) : null
-      const event = reservation.event_id ? eventById[reservation.event_id] : undefined
-      return (
-        date !== null &&
-        date >= currentMonth &&
-        date < nextMonth &&
-        countsTowardVolumeMetrics(reservation, event)
-      )
-    }).length
 
     const monthlyRevenue = Array.from({ length: 6 }, (_, index) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1)
@@ -396,12 +339,6 @@ export default function ManagerAnalytics() {
       averageTicketPrice,
       weeklyChartTitle,
       weeklyBarTitleSuffix,
-      trends: {
-        revenue: formatTrend(currentMonthRevenue, previousMonthRevenue),
-        customers: formatTrend(currentMonthCustomers, previousMonthCustomers),
-        events: formatTrend(currentMonthEvents, previousMonthEvents),
-        ticketPrice: formatTrend(currentMonthTickets, previousMonthTickets),
-      },
       monthlyRevenue,
       weeklySales,
       topEvents,
@@ -417,6 +354,16 @@ export default function ManagerAnalytics() {
       return `${x},${y}`
     })
     .join(' ')
+
+  const chartFillPoints = analytics.monthlyRevenue.length === 0 ? '' : (() => {
+    const pts = analytics.monthlyRevenue.map((item, index) => {
+      const x = analytics.monthlyRevenue.length === 1 ? 50 : (index / (analytics.monthlyRevenue.length - 1)) * 100
+      const y = 92 - (item.value / maxMonthlyRevenue) * 72
+      return `${x},${y}`
+    })
+    if (analytics.monthlyRevenue.length === 1) return `50,92 ${pts[0] ?? '50,20'} 50,92`
+    return ['0,92', ...pts, '100,92'].join(' ')
+  })()
 
   if (loading) {
     return <Shell><span style={{ color: '#8a8a8a' }}>Loading analytics...</span></Shell>
@@ -441,10 +388,10 @@ export default function ManagerAnalytics() {
             </div>
 
             <section className="manager-analytics__metrics" aria-label="Analytics metrics">
-              <MetricCard label="Total Revenue" value={formatCurrency(analytics.totalRevenue, true)} trend={analytics.trends.revenue} icon={<IconMoney />} />
-              <MetricCard label="Total Customers" value={analytics.uniqueCustomers.toLocaleString('en-US')} trend={analytics.trends.customers} icon={<IconUsers />} />
-              <MetricCard label="Events Hosted" value={analytics.eventsHosted.toLocaleString('en-US')} trend={analytics.trends.events} icon={<IconCalendar />} />
-              <MetricCard label="Avg. Ticket Price" value={formatCurrency(analytics.averageTicketPrice)} trend={analytics.trends.ticketPrice} icon={<IconTrend />} />
+              <MetricCard label="Total Revenue" value={formatRevenueDash(backendRevenue ?? analytics.totalRevenue)} icon={<IconMoney />} accent="pink" />
+              <MetricCard label="Total Customers" value={analytics.uniqueCustomers.toLocaleString('en-US')} icon={<IconUsers />} accent="blue" />
+              <MetricCard label="Events Hosted" value={analytics.eventsHosted.toLocaleString('en-US')} icon={<IconCalendar />} accent="green" />
+              <MetricCard label="Avg. Ticket Price" value={formatCurrency(analytics.averageTicketPrice)} icon={<IconTrend />} accent="amber" />
             </section>
 
             <section className="manager-analytics__charts" aria-label="Analytics charts">
@@ -453,7 +400,7 @@ export default function ManagerAnalytics() {
                 <div className="manager-analytics__line-chart">
                   <div className="manager-analytics__y-axis">
                     {[1, 0.75, 0.5, 0.25, 0].map((ratio) => (
-                      <span key={ratio}>{formatCurrency(maxMonthlyRevenue * ratio, true)}</span>
+                      <span key={ratio}>{formatRevenueDash(maxMonthlyRevenue * ratio)}</span>
                     ))}
                   </div>
                   <div
@@ -461,6 +408,13 @@ export default function ManagerAnalytics() {
                     onMouseLeave={() => setHoveredMonthIndex(null)}
                   >
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+                      <defs>
+                        <linearGradient id="mgr-rev-grad" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#ec4899" stopOpacity="0.22" />
+                          <stop offset="100%" stopColor="#ec4899" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      {chartFillPoints && <polygon points={chartFillPoints} fill="url(#mgr-rev-grad)" />}
                       <polyline points={chartPoints} />
                       {hoveredMonthIndex !== null && (() => {
                         const gx =
@@ -568,7 +522,7 @@ export default function ManagerAnalytics() {
                 <ul className="manager-analytics__event-list">
                   {analytics.topEvents.map((event, index) => (
                     <li key={event.eventId} className="manager-analytics__event-row">
-                      <span className="manager-analytics__event-rank">#{index + 1}</span>
+                      <span className={`manager-analytics__event-rank manager-analytics__event-rank--${index + 1}`}>#{index + 1}</span>
                       <div className="manager-analytics__event-info">
                         <p>{event.name}</p>
                         <span>

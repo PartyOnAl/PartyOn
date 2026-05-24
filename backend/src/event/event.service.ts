@@ -127,6 +127,25 @@ console.log('QUANTITY:', quantity);
    return { url: session.url };
 }
 
+async createFeaturePayment(eventId: string, fee: number) {
+  const session = await this.getStripe().checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'payment',
+    line_items: [{
+      price_data: {
+        currency: 'eur',
+        product_data: { name: 'Featured Event Slot' },
+        unit_amount: Math.round(fee * 100),
+      },
+      quantity: 1,
+    }],
+    metadata: { event_id: eventId, payment_type: 'featured_event', amount: String(fee) },
+    success_url: `http://localhost:5173/manager/events?featured_paid=${eventId}`,
+    cancel_url: 'http://localhost:5173/manager/events',
+  });
+  return { url: session.url };
+}
+
 private getStripe(): InstanceType<typeof Stripe> {
   if (this.stripe) {
     return this.stripe;

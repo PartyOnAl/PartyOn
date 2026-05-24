@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Bookmark,
+  Check,
   Gift,
   MapPin,
   Share2,
@@ -41,6 +42,10 @@ function promoDiscountPillLabel(badge: string) {
   const s = badge.trim()
   if (/^free$/i.test(s)) return 'FREE'
   return s
+}
+
+function stripLeadingEmoji(text: string) {
+  return text.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim()
 }
 
 const heroGlassBtn =
@@ -294,17 +299,24 @@ export default function PromotionOfferDetailPage() {
                   className="flex flex-col gap-4 sm:flex-row sm:items-stretch"
                 >
                   {/* What's Included */}
-                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                      <Gift className="h-5 w-5 text-primary" aria-hidden />
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <Gift className="h-4 w-4" aria-hidden />
+                      </div>
                       <p className="text-sm font-medium text-muted-foreground">What&apos;s Included</p>
-                      <ul className="mt-2 space-y-2 text-sm font-semibold leading-6 text-foreground">
+                    </div>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="min-w-0 pt-4">
+                      <ul className="flex flex-col gap-2">
                         {offer.included.map((item, i) => (
-                          <li key={i} className="flex items-start gap-2">
-                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                            {item}
+                          <li key={i}>
+                            <div className="flex items-center gap-2">
+                              <Check className="h-3.5 w-3.5 shrink-0 text-[#ec4899]" aria-hidden />
+                              <span className="whitespace-nowrap text-sm font-normal leading-5 text-white">
+                                {stripLeadingEmoji(item)}
+                              </span>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -312,24 +324,30 @@ export default function PromotionOfferDetailPage() {
                   </div>
 
                   {/* Valid Until */}
-                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                      <Tag className="h-5 w-5 text-primary" aria-hidden />
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <Tag className="h-4 w-4" aria-hidden />
+                      </div>
                       <p className="text-sm font-medium text-muted-foreground">Valid Until</p>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-foreground">{offer.validUntilShort}</p>
+                    </div>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="flex min-w-0 flex-1 items-center pt-4">
+                      <p className="text-sm font-semibold leading-6 text-foreground">{offer.validUntilShort}</p>
                     </div>
                   </div>
 
                   {/* Location */}
-                  <div className="flex flex-1 items-start gap-4 rounded-2xl border border-border/30 bg-card p-6">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                      <MapPin className="h-5 w-5 text-primary" aria-hidden />
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <MapPin className="h-4 w-4" aria-hidden />
+                      </div>
                       <p className="text-sm font-medium text-muted-foreground">Location</p>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-foreground">{offer.address}</p>
+                    </div>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="flex min-w-0 flex-1 items-center pt-4">
+                      <p className="text-sm font-semibold leading-6 text-foreground">{offer.address}</p>
                     </div>
                   </div>
                 </motion.div>

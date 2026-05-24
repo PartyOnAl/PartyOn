@@ -47,6 +47,7 @@ type ClubTableRow = {
   position: string | null
   minimum_spend: string | number | null
   description: string | null
+  seating_capacity: number
 }
 
 type TableGroup = {
@@ -56,6 +57,7 @@ type TableGroup = {
   total: number
   minSpend: number | null
   description: string | null
+  maxCapacity: number
 }
 
 type ReservationSaved = {
@@ -126,7 +128,7 @@ function formatTableTypeName(type: string): string {
 function buildTableGroups(rows: ClubTableRow[], queried: boolean): TableGroup[] {
   if (!queried) return []
   if (rows.length === 0) {
-    return [{ type: 'standard', label: 'Standard', available: 1, total: 1, minSpend: null, description: null }]
+    return [{ type: 'standard', label: 'Standard', available: 1, total: 1, minSpend: null, description: null, maxCapacity: 20 }]
   }
   const map = new Map<string, TableGroup>()
   for (const row of rows) {
@@ -139,11 +141,15 @@ function buildTableGroups(rows: ClubTableRow[], queried: boolean): TableGroup[] 
         total: 0,
         minSpend: null,
         description: row.description?.trim() || null,
+        maxCapacity: 0,
       })
     }
     const g = map.get(type)!
     g.total++
-    if (isTableAvailable(row)) g.available++
+    if (isTableAvailable(row)) {
+      g.available++
+      if (row.seating_capacity > g.maxCapacity) g.maxCapacity = row.seating_capacity
+    }
     const spend = parseMinSpend(row.minimum_spend)
     if (spend != null) g.minSpend = g.minSpend == null ? spend : Math.min(g.minSpend, spend)
     // Keep first non-empty description found for this type
@@ -271,7 +277,7 @@ export default function ReservationFlow() {
     setClubTablesQueried(false)
     void supabase
       .from('tables')
-      .select('id, type, table_status, position, minimum_spend, description')
+      .select('id, type, table_status, position, minimum_spend, description, seating_capacity')
       .eq('club_id', clubId)
       .then(({ data, error }) => {
         if (!alive) return
@@ -294,6 +300,15 @@ export default function ReservationFlow() {
     const first = tableGroups.find((g) => g.available > 0) ?? tableGroups[0]
     if (first) setTableType(first.type)
   }, [tableGroups, tableType])
+
+  // Clear type selection when party size grows beyond the selected type's max capacity
+  useEffect(() => {
+    if (!tableType) return
+    const group = tableGroups.find((g) => g.type === tableType)
+    if (group && group.available > 0 && people > group.maxCapacity) {
+      setTableType('')
+    }
+  }, [people, tableGroups, tableType])
 
   // ── Init event-specific defaults ──
   useEffect(() => {
@@ -345,6 +360,9 @@ export default function ReservationFlow() {
     if (!tableType) return 'Please select a table type.'
     const group = tableGroups.find((g) => g.type === tableType)
     if (group && group.available === 0 && group.total > 0) return 'This table type is fully booked.'
+    if (group && group.available > 0 && people > group.maxCapacity) {
+      return `No tables of this type can accommodate ${people} guests. Choose a different table type or reduce your party size.`
+    }
     return null
   }
 
@@ -581,14 +599,16 @@ export default function ReservationFlow() {
                       {tableGroups.map((group) => {
                         const selected = tableType === group.type
                         const fullyBooked = group.total > 0 && group.available === 0
+                        const tooSmall = !fullyBooked && group.available > 0 && people > group.maxCapacity
+                        const disabled = fullyBooked || tooSmall
                         return (
                           <button
                             key={group.type}
                             type="button"
-                            disabled={fullyBooked}
-                            onClick={() => { if (!fullyBooked) setTableType(group.type) }}
+                            disabled={disabled}
+                            onClick={() => { if (!disabled) setTableType(group.type) }}
                             className={`relative cursor-pointer rounded-2xl border px-4 py-4 text-left transition ${
-                              fullyBooked
+                              disabled
                                 ? 'cursor-not-allowed border-white/10 bg-white/[0.03] opacity-45'
                                 : selected
                                   ? 'border-[#FF00AA]/80 bg-gradient-to-br from-fuchsia-950/80 via-purple-950/60 to-[#1a1025] shadow-[0_0_24px_rgba(255,0,170,0.3)]'
@@ -596,7 +616,7 @@ export default function ReservationFlow() {
                             }`}
                           >
                             {/* Selected tick */}
-                            {selected && !fullyBooked && (
+                            {selected && !disabled && (
                               <span
                                 className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-white"
                                 style={{ backgroundColor: ACCENT }}
@@ -619,9 +639,11 @@ export default function ReservationFlow() {
                             {/* Label */}
                             <p className="mt-3 text-base font-bold text-white">{group.label}</p>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              {group.available > 0
-                                ? `${group.available} table${group.available !== 1 ? 's' : ''} available`
-                                : fullyBooked ? 'Fully booked' : 'Available'}
+                              {tooSmall
+                                ? `No tables for ${people} guests`
+                                : group.available > 0
+                                  ? `${group.available} table${group.available !== 1 ? 's' : ''} available`
+                                  : fullyBooked ? 'Fully booked' : 'Available'}
                             </p>
 
                             {/* Min spend */}
