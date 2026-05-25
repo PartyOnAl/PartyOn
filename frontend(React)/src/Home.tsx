@@ -36,20 +36,14 @@ export default function Home() {
         />
         {error ? (
           <p className="po-container py-4 text-sm text-destructive">
-            Could not load catalog: {error}. Ensure the API is running (
-            <code className="rounded bg-muted px-1">backend/</code>{' '}
-            <code className="rounded bg-muted px-1">npm run start:dev</code>
-            ) and{' '}
-            <code className="rounded bg-muted px-1">DATABASE_URL</code> is set. In dev, leave{' '}
-            <code className="rounded bg-muted px-1">VITE_API_URL</code> empty so Vite proxies{' '}
-            <code className="rounded bg-muted px-1">/catalog</code> to port 3000.
+            We could not refresh the latest events and offers right now. Please try again in a moment.
           </p>
         ) : null}
         <EventsSection
           events={featuredEvents}
           catalogLoading={loading && events.length === 0}
         />
-        <PromotionsSection promotions={promotions} />
+        <PromotionsSection promotions={promotions} loading={loading && promotions.length === 0} />
         <ClubsSection />
         <GetAppSection />
       </main>

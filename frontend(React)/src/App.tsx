@@ -43,6 +43,7 @@ import EventManagement from './manager/EventManagement'
 import ReservationManagement from './manager/ReservationManagement'
 import ManagerPromotions from './manager/ManagerPromotions'
 import ManagerAnalytics from './manager/ManagerAnalytics'
+import ManagerReviews from './manager/ManagerReviews'
 import ManagerStaffApproval from './manager/ManagerStaffApproval'
 import ManagerDisputes from './manager/ManagerDisputes'
 import ManagerSettings from './manager/ManagerSettings'
@@ -227,6 +228,10 @@ function App() {
               <Route
                 path="/manager/analytics"
                 element={<ManagerRoute><ManagerAnalytics /></ManagerRoute>}
+              />
+              <Route
+                path="/manager/reviews"
+                element={<ManagerRoute><ManagerReviews /></ManagerRoute>}
               />
               <Route
                 path="/manager/staff-approval"

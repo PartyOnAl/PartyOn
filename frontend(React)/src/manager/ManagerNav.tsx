@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { PartyOnLogo } from '../components/PartyOnLogo'
 import { useAuth } from '../contexts/AuthContext'
 import { managerSupabase } from '../lib/supabase'
+import { NO_SHOW_BADGE_EVENT, clearNoShowBadgeCount, getNoShowBadgeCount } from './noShow'
 
 export const MANAGER_NAV = [
   { id: 'dashboard', label: 'Dashboard', to: '/manager/dashboard' },
@@ -12,6 +13,7 @@ export const MANAGER_NAV = [
   { id: 'reservations', label: 'Reservations', to: '/manager/reservations' },
   { id: 'promotions', label: 'Promotions', to: '/manager/promotions' },
   { id: 'analytics', label: 'Analytics', to: '/manager/analytics' },
+  { id: 'reviews', label: 'Reviews', to: '/manager/reviews' },
   { id: 'staff', label: 'Staff Approval', to: '/manager/staff-approval' },
   { id: 'disputes', label: 'Disputes', to: '/manager/disputes' },
   { id: 'settings', label: 'Settings', to: '/manager/settings' },
@@ -86,6 +88,19 @@ function IconMegaphone() {
     <svg className="manager-dash__nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M14 14V6l-4 2H7v4h3l4 2zm4 2a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2v8zM6 18h1a2 2 0 0 0 2-2v-1H6v3z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconStar() {
+  return (
+    <svg className="manager-dash__nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinejoin="round"
@@ -256,6 +271,7 @@ function NavIcon({ id }: { id: string }) {
     case 'reservations': return <IconBookmark />
     case 'promotions': return <IconMegaphone />
     case 'analytics': return <IconChart />
+    case 'reviews': return <IconStar />
     case 'staff': return <IconUsers />
     case 'disputes': return <IconAlert />
     case 'settings': return <IconGear />
@@ -267,6 +283,7 @@ export function ManagerSidebar() {
   const { pathname } = useLocation()
   const { profile, signOut } = useAuth()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [noShowBadgeCount, setNoShowBadgeCount] = useState(getNoShowBadgeCount)
   const initials = getInitials(profile?.name, profile?.surname, profile?.email)
 
   useEffect(() => {
@@ -291,6 +308,18 @@ export function ManagerSidebar() {
     }
   }, [profile?.id])
 
+  useEffect(() => {
+    function syncBadge() {
+      setNoShowBadgeCount(getNoShowBadgeCount())
+    }
+    window.addEventListener(NO_SHOW_BADGE_EVENT, syncBadge)
+    window.addEventListener('storage', syncBadge)
+    return () => {
+      window.removeEventListener(NO_SHOW_BADGE_EVENT, syncBadge)
+      window.removeEventListener('storage', syncBadge)
+    }
+  }, [])
+
   function getActiveId(): ManagerNavId | null {
     if (pathname === '/manager/dashboard') return 'dashboard'
     if (pathname.startsWith('/manager/tables')) return 'tables'
@@ -299,6 +328,7 @@ export function ManagerSidebar() {
     if (pathname.startsWith('/manager/reservations')) return 'reservations'
     if (pathname.startsWith('/manager/promotions')) return 'promotions'
     if (pathname.startsWith('/manager/analytics')) return 'analytics'
+    if (pathname.startsWith('/manager/reviews')) return 'reviews'
     if (pathname.startsWith('/manager/staff-approval')) return 'staff'
     if (pathname.startsWith('/manager/disputes')) return 'disputes'
     if (pathname.startsWith('/manager/settings')) return 'settings'
@@ -306,6 +336,12 @@ export function ManagerSidebar() {
   }
 
   const activeId = getActiveId()
+
+  useEffect(() => {
+    if (activeId !== 'reservations') return
+    clearNoShowBadgeCount()
+    setNoShowBadgeCount(0)
+  }, [activeId])
 
   return (
     <aside className="manager-dash__sidebar" aria-label="Manager navigation">
@@ -330,6 +366,11 @@ export function ManagerSidebar() {
             >
               <NavIcon id={item.id} />
               <span>{item.label}</span>
+              {item.id === 'reservations' && noShowBadgeCount > 0 ? (
+                <span className="manager-dash__nav-badge" aria-label={`${noShowBadgeCount} no-show notifications`}>
+                  {noShowBadgeCount > 9 ? '9+' : noShowBadgeCount}
+                </span>
+              ) : null}
             </Link>
           )
         })}
@@ -360,8 +401,10 @@ export function ManagerSidebar() {
 
 export function ManagerTopBar({ clubName }: { clubName?: string }) {
   const { profile, signOut } = useAuth()
+  const navigate = useNavigate()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState(false)
+  const [bellCount, setBellCount] = useState(getNoShowBadgeCount)
   const menuRef = useRef<HTMLDivElement>(null)
   const initials = useMemo(() => getInitials(profile?.name, profile?.surname, profile?.email), [profile?.name, profile?.surname, profile?.email])
   const fullName = profile?.name ? `${profile.name} ${profile.surname ?? ''}`.trim() : 'Manager'
@@ -389,6 +432,16 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   }, [profile?.id])
 
   useEffect(() => {
+    function syncBell() { setBellCount(getNoShowBadgeCount()) }
+    window.addEventListener(NO_SHOW_BADGE_EVENT, syncBell)
+    window.addEventListener('storage', syncBell)
+    return () => {
+      window.removeEventListener(NO_SHOW_BADGE_EVENT, syncBell)
+      window.removeEventListener('storage', syncBell)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!openMenu) return
     function handleMouseDown(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -399,6 +452,10 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
     return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [openMenu])
 
+  function handleBellClick() {
+    navigate(bellCount > 0 ? '/manager/reservations' : '/manager/disputes')
+  }
+
   return (
     <header className="manager-dash__topbar">
       <span className="manager-dash__club-name">{clubName ?? '—'}</span>
@@ -407,14 +464,15 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
         <button
           type="button"
           className="manager-dash__bell-btn"
-          aria-label="Notifications"
-          onClick={() => {
-            // Placeholder action until notifications panel is wired.
-            console.log('notifications clicked')
-          }}
+          aria-label={bellCount > 0 ? `${bellCount} items need attention` : 'Go to disputes'}
+          onClick={handleBellClick}
         >
           <IconBell />
-          <span className="manager-dash__bell-dot" aria-hidden />
+          {bellCount > 0 && (
+            <span className="manager-dash__bell-badge" aria-hidden>
+              {bellCount > 9 ? '9+' : bellCount}
+            </span>
+          )}
         </button>
 
         <div className="manager-dash__profile-menu-wrap" ref={menuRef}>

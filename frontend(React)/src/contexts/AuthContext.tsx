@@ -123,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (authClient) await authClient.auth.signOut()
+    window.location.replace('/login')
   }, [authClient])
 
   const hasRole = useCallback((role: string) => {

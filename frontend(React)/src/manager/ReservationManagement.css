@@ -146,6 +146,7 @@
 .res-mgmt__stat--green  { --stat-accent: #22c55e; }
 .res-mgmt__stat--pink   { --stat-accent: #ec4899; }
 .res-mgmt__stat--red    { --stat-accent: #ef4444; }
+.res-mgmt__stat--amber  { --stat-accent: #f59e0b; }
 
 .res-mgmt__stat-body { min-width: 0; }
 
@@ -181,6 +182,7 @@
 .res-mgmt__stat-icon--green  { color: #22c55e; opacity: 0.6; }
 .res-mgmt__stat-icon--pink   { color: #ec4899; opacity: 0.6; }
 .res-mgmt__stat-icon--red    { color: #ef4444; opacity: 0.6; }
+.res-mgmt__stat-icon--amber  { color: #f59e0b; opacity: 0.6; }
 
 /* ── Combined filter row ──────────────────────────────────────────────────── */
 .res-mgmt__filter-combined {
@@ -564,10 +566,40 @@
   background: rgba(248, 113, 113, 0.08);
 }
 
+.res-mgmt__pill--noshow {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.62);
+  background: rgba(245, 158, 11, 0.12);
+}
+
 .res-mgmt__pill--free {
   color: #a3a3a3;
   border-color: rgba(163, 163, 163, 0.45);
   background: rgba(163, 163, 163, 0.08);
+}
+
+.res-mgmt__status-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.res-mgmt__noshow-countdown {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+.res-mgmt__row--late {
+  background: rgba(251, 191, 36, 0.07) !important;
+  border-left: 3px solid #fbbf24;
+}
+
+.res-mgmt__row--noshow {
+  background: rgba(239, 68, 68, 0.09) !important;
+  border-left: 3px solid #ef4444;
 }
 
 .res-mgmt__actions {
@@ -646,6 +678,15 @@
 .res-mgmt__icon-btn--delete:hover {
   color: #ff6b6b;
   background: rgba(239, 68, 68, 0.15);
+}
+
+.res-mgmt__icon-btn--noshow {
+  color: #f59e0b;
+}
+
+.res-mgmt__icon-btn--noshow:hover {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
 }
 
 /* Delete dialog icon circle */
@@ -1506,6 +1547,27 @@
 
 .res-mgmt__btn--warn:hover {
   background: rgba(245, 158, 11, 0.22);
+}
+
+.res-mgmt__btn--danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.38);
+  flex: 1;
+  min-width: 140px;
+}
+
+.res-mgmt__btn--danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.res-mgmt__sheet-actions--stack {
+  flex-direction: column;
+}
+
+.res-mgmt__sheet-actions--stack .res-mgmt__btn {
+  width: 100%;
+  margin: 0;
 }
 
 .res-mgmt__btn--gold {

@@ -42,9 +42,10 @@ function PromoImage({ src, alt }: { src: string; alt: string }) {
 
 type PromotionsSectionProps = {
   promotions: Promotion[]
+  loading?: boolean
 }
 
-export function PromotionsSection({ promotions }: PromotionsSectionProps) {
+export function PromotionsSection({ promotions, loading = false }: PromotionsSectionProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: false,
@@ -136,12 +137,18 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
           </Link>
         </div>
 
-        {promotions.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-8 rounded-xl border border-border/30 bg-card/40">
-            No active promotions right now. Add rows in{' '}
-            <code className="rounded bg-muted px-1 text-xs">promotions</code> with{' '}
-            <code className="rounded bg-muted px-1 text-xs">status = active</code> and a future{' '}
-            <code className="rounded bg-muted px-1 text-xs">valid_until</code>.
+        {loading ? (
+          <div className="flex gap-4 overflow-hidden">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="min-w-0 shrink-0 grow-0 basis-[75%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] min-h-[28rem] sm:min-h-[30rem] rounded-xl bg-card border border-border/30 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : promotions.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-10 rounded-xl border border-border/30 bg-card/40">
+            Exclusive offers coming soon. Check back for deals and special access.
           </p>
         ) : (
           <>

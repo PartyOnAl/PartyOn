@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, ChevronRight, MapPin, ReceiptText, Ticket, Trash2 } from 'lucide-react'
+import { CalendarDays, ChevronRight, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -102,6 +102,32 @@ function normalizeKind(type: string | null | undefined): 'ticket' | 'reservation
   return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
 }
 
+type ExistingRating = { id: string; rating: number; comment: string | null }
+type ReviewModal = { bookingId: string; eventId: string; eventName: string }
+
+function StarPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [hovered, setHovered] = useState(0)
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          onMouseEnter={() => setHovered(n)}
+          onMouseLeave={() => setHovered(0)}
+          className="p-0.5 transition-transform hover:scale-110 focus:outline-none"
+          aria-label={`Rate ${n} star${n !== 1 ? 's' : ''}`}
+        >
+          <Star
+            className={`h-7 w-7 transition-colors ${n <= (hovered || value) ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-white/20'}`}
+          />
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function MyBookings() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -110,6 +136,11 @@ export default function MyBookings() {
   const [bookings, setBookings] = useState<BookingItem[]>([])
   const [clearing, setClearing] = useState<string | null>(null)
   const [clearingAll, setClearingAll] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [reviewModal, setReviewModal] = useState<ReviewModal | null>(null)
+  const [existingRatings, setExistingRatings] = useState<Record<string, ExistingRating>>({})
+  const [reviewDraft, setReviewDraft] = useState<{ rating: number; comment: string }>({ rating: 0, comment: '' })
+  const [reviewBusy, setReviewBusy] = useState(false)
 
   async function deleteBookingFromDb(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured) return
@@ -189,6 +220,7 @@ export default function MyBookings() {
         navigate('/login', { replace: true })
         return
       }
+      if (active) setUserId(user.id)
 
       const merged: BookingItem[] = []
 
@@ -319,6 +351,61 @@ export default function MyBookings() {
       return filter === 'upcoming' ? bookingDate >= now : bookingDate < now
     })
   }, [bookings, filter])
+
+  useEffect(() => {
+    if (filter !== 'past' || !userId || !supabase || !isSupabaseConfigured) return
+    const now = new Date()
+    const pastEventIds = bookings
+      .filter((b) => {
+        const d = b.eventDate ? new Date(b.eventDate) : null
+        return d && !Number.isNaN(d.getTime()) && d < now && b.eventId
+      })
+      .map((b) => b.eventId)
+    if (pastEventIds.length === 0) return
+
+    void supabase
+      .from('event_ratings')
+      .select('id, event_id, rating, comment')
+      .in('event_id', pastEventIds)
+      .eq('user_id', userId)
+      .then(({ data }) => {
+        if (!data) return
+        const map: Record<string, ExistingRating> = {}
+        for (const row of data as { id: string; event_id: string; rating: number; comment: string | null }[]) {
+          map[row.event_id] = { id: row.id, rating: row.rating, comment: row.comment }
+        }
+        setExistingRatings(map)
+      })
+  }, [filter, userId, bookings])
+
+  function openReviewModal(booking: BookingItem) {
+    const existing = existingRatings[booking.eventId]
+    setReviewDraft({ rating: existing?.rating ?? 0, comment: existing?.comment ?? '' })
+    setReviewModal({ bookingId: booking.bookingId, eventId: booking.eventId, eventName: booking.eventName })
+  }
+
+  async function handleReviewSubmit() {
+    if (!reviewModal || !userId || !supabase || !isSupabaseConfigured || reviewDraft.rating === 0) return
+    setReviewBusy(true)
+    const existing = existingRatings[reviewModal.eventId]
+    const payload = { rating: reviewDraft.rating, comment: reviewDraft.comment.trim() || null }
+    if (existing) {
+      await supabase.from('event_ratings').update(payload).eq('id', existing.id)
+    } else {
+      await supabase.from('event_ratings').insert({
+        user_id: userId,
+        event_id: reviewModal.eventId,
+        reservation_id: reviewModal.bookingId,
+        ...payload,
+      })
+    }
+    setExistingRatings((prev) => ({
+      ...prev,
+      [reviewModal.eventId]: { id: existing?.id ?? '', rating: reviewDraft.rating, comment: payload.comment },
+    }))
+    setReviewBusy(false)
+    setReviewModal(null)
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -466,18 +553,38 @@ export default function MyBookings() {
                         {status[0].toUpperCase() + status.slice(1)}
                       </span>
                       {filter === 'past' ? (
-                        <button
-                          type="button"
-                          title="Remove booking"
-                          disabled={clearing === booking.bookingId || clearingAll}
-                          onClick={(e) => void clearBooking(booking, e)}
-                          className="group flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/30 transition-all duration-150 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-400 disabled:opacity-30"
-                        >
-                          {clearing === booking.bookingId
-                            ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-                            : <Trash2 className="h-3.5 w-3.5" />
-                          }
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            const existing = existingRatings[booking.eventId]
+                            return (
+                              <button
+                                type="button"
+                                title={existing ? 'Edit your review' : 'Rate this event'}
+                                onClick={(e) => { e.stopPropagation(); openReviewModal(booking) }}
+                                className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-all duration-150 ${
+                                  existing
+                                    ? 'border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20'
+                                    : 'border-white/10 bg-white/5 text-white/40 hover:border-primary/40 hover:bg-primary/10 hover:text-primary'
+                                }`}
+                              >
+                                <Star className={`h-3 w-3 ${existing ? 'fill-amber-400 text-amber-400' : ''}`} />
+                                {existing ? `${existing.rating}/5` : 'Rate'}
+                              </button>
+                            )
+                          })()}
+                          <button
+                            type="button"
+                            title="Remove booking"
+                            disabled={clearing === booking.bookingId || clearingAll}
+                            onClick={(e) => void clearBooking(booking, e)}
+                            className="group flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/30 transition-all duration-150 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-400 disabled:opacity-30"
+                          >
+                            {clearing === booking.bookingId
+                              ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+                              : <Trash2 className="h-3.5 w-3.5" />
+                            }
+                          </button>
+                        </div>
                       ) : (
                         <ChevronRight className="h-4 w-4 text-white/25" />
                       )}
@@ -489,6 +596,81 @@ export default function MyBookings() {
           )}
         </div>
       </main>
+
+      {/* ── Review modal ─────────────────────────────────────────────────── */}
+      {reviewModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          onClick={() => setReviewModal(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0e0e14] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-primary/70">Rate your experience</p>
+                <h2 className="mt-0.5 text-lg font-bold text-white leading-snug">{reviewModal.eventName}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewModal(null)}
+                className="shrink-0 rounded-full border border-white/10 p-1.5 text-white/40 hover:text-white/70"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Stars */}
+            <div className="mb-5">
+              <p className="mb-2 text-sm text-muted-foreground">Your rating</p>
+              <StarPicker value={reviewDraft.rating} onChange={(n) => setReviewDraft((d) => ({ ...d, rating: n }))} />
+              {reviewDraft.rating > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {['', 'Poor', 'Below average', 'Average', 'Good', 'Excellent'][reviewDraft.rating]}
+                </p>
+              )}
+            </div>
+
+            {/* Comment */}
+            <div className="mb-6">
+              <label htmlFor="review-comment" className="mb-1.5 block text-sm text-muted-foreground">
+                Share more (optional)
+              </label>
+              <textarea
+                id="review-comment"
+                rows={3}
+                placeholder="What did you think of the event?"
+                value={reviewDraft.comment}
+                onChange={(e) => setReviewDraft((d) => ({ ...d, comment: e.target.value }))}
+                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setReviewModal(null)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reviewDraft.rating === 0 || reviewBusy}
+                onClick={() => void handleReviewSubmit()}
+                className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
+              >
+                {reviewBusy ? 'Saving…' : existingRatings[reviewModal.eventId] ? 'Update review' : 'Submit review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <LovableFooter />
     </div>
   )

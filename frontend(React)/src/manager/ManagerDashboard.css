@@ -120,6 +120,26 @@
   transition: color 0.15s ease, background 0.15s ease;
 }
 
+.manager-dash__nav-link span:not(.manager-dash__nav-badge) {
+  min-width: 0;
+}
+
+.manager-dash__nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f59e0b;
+  color: #0a0a0a;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .manager-dash__nav-link:hover {
   color: #c8c8c8;
   background: rgba(255, 255, 255, 0.04);
@@ -264,15 +284,25 @@
   color: #f1f1f1;
 }
 
-.manager-dash__bell-dot {
+.manager-dash__bell-badge {
   position: absolute;
-  right: 7px;
-  top: 7px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
   background: #ef4444;
-  border: 1px solid #111;
+  border: 1.5px solid #0d0d0d;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .manager-dash__avatar-btn {
@@ -445,6 +475,20 @@
   border-radius: 12px;
   padding: 16px 18px 14px;
   text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.manager-dash__metric::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--metric-accent, transparent);
+  border-radius: 12px 12px 0 0;
+  opacity: 0.85;
 }
 
 .manager-dash__metric-head {
@@ -473,11 +517,11 @@
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--metric-dim, rgba(255, 255, 255, 0.06));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--md-text);
+  color: var(--metric-accent, var(--md-text));
   flex-shrink: 0;
 }
 
@@ -653,7 +697,7 @@
 }
 
 .manager-dash__legend-dot--tickets {
-  background: #a855f7;
+  background: #ec4899;
 }
 
 .manager-dash__legend-dot--tables {
@@ -665,7 +709,7 @@
 }
 
 .manager-dash__legend-dot--free-reservations {
-  background: #22d3ee;
+  background: #a855f7;
 }
 
 .manager-dash__chart-bars {
@@ -710,8 +754,8 @@
 }
 
 .manager-dash__bar--tickets {
-  background: linear-gradient(180deg, #c084fc 0%, #8b5cf6 100%);
-  box-shadow: 0 8px 22px rgba(139, 92, 246, 0.16);
+  background: linear-gradient(180deg, #f9a8d4 0%, #ec4899 55%, #be185d 100%);
+  box-shadow: 0 8px 22px rgba(236, 72, 153, 0.22);
 }
 
 .manager-dash__bar--tables {
@@ -720,8 +764,8 @@
 }
 
 .manager-dash__bar--free-reservations {
-  background: linear-gradient(180deg, #67e8f9 0%, #22d3ee 45%, #0d9488 100%);
-  box-shadow: 0 8px 22px rgba(34, 211, 238, 0.16);
+  background: linear-gradient(180deg, #d8b4fe 0%, #a855f7 55%, #7c3aed 100%);
+  box-shadow: 0 8px 22px rgba(168, 85, 247, 0.22);
 }
 
 .manager-dash__bar--reservations {
@@ -831,8 +875,8 @@
 }
 
 .manager-dash__qa-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: #333;
+  background: rgba(236, 72, 153, 0.07);
+  border-color: rgba(236, 72, 153, 0.25);
 }
 
 .manager-dash__qa-icon-wrap {
@@ -966,7 +1010,7 @@
 .manager-dash__progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+  background: linear-gradient(90deg, #ec4899 0%, #a855f7 100%);
 }
 
 .manager-dash__progress-label {
@@ -1044,6 +1088,140 @@
 .manager-dash__badge--pending {
   color: var(--md-orange);
   background: var(--md-orange-dim);
+}
+
+/* Active Promotions */
+.manager-dash__promo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.manager-dash__promo-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 10px 11px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--md-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.manager-dash__promo-row:hover {
+  background: rgba(236, 72, 153, 0.08);
+  border-color: rgba(236, 72, 153, 0.22);
+}
+
+.manager-dash__promo-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.18) 0%, rgba(168, 85, 247, 0.18) 100%);
+  border: 1px solid rgba(236, 72, 153, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #f472b6;
+  overflow: hidden;
+}
+
+.manager-dash__promo-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.manager-dash__promo-tag-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.manager-dash__promo-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.manager-dash__promo-title {
+  margin: 0 0 3px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--md-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manager-dash__promo-meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--md-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manager-dash__promo-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.manager-dash__promo-right .manager-dash__event-arrow {
+  margin-top: 0;
+}
+
+.manager-dash__promo-discount {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #f472b6;
+  background: rgba(236, 72, 153, 0.12);
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.manager-dash__promo-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.manager-dash__promo-empty p {
+  margin: 0;
+  color: var(--md-muted);
+  font-size: 0.875rem;
+}
+
+.manager-dash__promo-create-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  background: rgba(236, 72, 153, 0.08);
+  color: #f472b6;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.manager-dash__promo-create-btn:hover {
+  background: rgba(236, 72, 153, 0.16);
+  border-color: rgba(236, 72, 153, 0.5);
 }
 
 /* Responsive */

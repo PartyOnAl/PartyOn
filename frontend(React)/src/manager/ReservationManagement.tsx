@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ChevronDown, CheckCircle2, Crown, TrendingUp, Trash2, Users, XCircle } from 'lucide-react'
+import { ChevronDown, Clock, Crown, TrendingUp, Trash2, Users, XCircle } from 'lucide-react'
 import './ManagerDashboard.css'
 import './ReservationManagement.css'
 import DateRangePicker from './DateRangePicker'
@@ -9,6 +9,15 @@ import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent, reservationGuestCount, totalGuestCount } from './eventPaidEntry'
+import {
+  NO_SHOW_STATUS,
+  formatCountdown,
+  getNoShowState,
+  incrementNoShowBadgeCount,
+  loadNoShowGraceMinutes,
+  reservationIsNoShow,
+  normalizeReservationStatus,
+} from './noShow'
 
 type FilterTab = 'all' | 'tickets'
 type DatePreset = 'all' | 'tonight' | 'this_week' | 'custom'
@@ -76,6 +85,7 @@ type TableDisplay = {
   guestName?: string
   eventLabel?: string
   linkedReservationId?: string
+  noShow?: boolean
 }
 
 type VipPackageDraft = { minSpend: string; bottleNote: string }
@@ -352,7 +362,7 @@ function layoutTablesForFloor(rows: DbTableRow[]): FloorTableConfig[] {
 
 function getPrimaryReservationForTable(tableId: string, reservations: ReservationRow[]): ReservationRow | null {
   const list = reservations.filter(
-    (r) => r.table_id === tableId && ['pending', 'confirmed'].includes((r.status ?? '').toLowerCase()),
+    (r) => r.table_id === tableId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)),
   )
   list.sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -391,6 +401,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
       guestName: reservationGuestLabel(primary),
       eventLabel: primary.events?.event_name ?? undefined,
       linkedReservationId: primary.reservation_id,
+      noShow: reservationIsNoShow(primary.status),
     }
   }
 
@@ -534,6 +545,20 @@ function reservationIsCancelled(status: string | null) {
   return s === 'cancelled' || s === 'canceled'
 }
 
+function reservationStatusLabel(status: string | null) {
+  if (reservationIsNoShow(status)) return 'No-Show'
+  if (normalizeReservationStatus(status) === 'confirmed') return 'Confirmed'
+  if (reservationIsCancelled(status)) return 'Cancelled'
+  return 'Pending'
+}
+
+function reservationStatusClass(status: string | null) {
+  if (reservationIsNoShow(status)) return 'res-mgmt__pill res-mgmt__pill--noshow'
+  if (normalizeReservationStatus(status) === 'confirmed') return 'res-mgmt__pill res-mgmt__pill--ok'
+  if (reservationIsCancelled(status)) return 'res-mgmt__pill res-mgmt__pill--cancelled'
+  return 'res-mgmt__pill res-mgmt__pill--pending'
+}
+
 // ─── Custom Event Select (pink hover, no native browser blue) ─────────────────
 function EventSelect({
   value,
@@ -665,6 +690,11 @@ export default function ReservationManagement() {
   const [deleteDialogReservationId, setDeleteDialogReservationId] = useState<string | null>(null)
   const [deleteDialogBusy, setDeleteDialogBusy] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [noShowActionReservationId, setNoShowActionReservationId] = useState<string | null>(null)
+  const [noShowActionBusy, setNoShowActionBusy] = useState(false)
+  const [noShowGraceMinutes, setNoShowGraceMinutes] = useState(loadNoShowGraceMinutes)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const autoNoShowRef = useRef<Set<string>>(new Set())
 
   const cardRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
   const calendarRef = useRef<HTMLDivElement>(null)
@@ -790,6 +820,17 @@ export default function ReservationManagement() {
     return () => window.clearTimeout(t)
   }, [toastMessage])
 
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    setNoShowGraceMinutes(club?.no_show_grace_period_minutes ?? loadNoShowGraceMinutes())
+  }, [club?.no_show_grace_period_minutes])
+
   async function handleApprove(reservationId: string) {
     if (!supabase) return
     const { error: err } = await supabase
@@ -858,6 +899,115 @@ export default function ReservationManagement() {
     }
   }
 
+  async function freeReservationTable(row: ReservationRow) {
+    if (!supabase || !row.table_id) return
+    const table = dbTables.find((t) => t.id === row.table_id)
+    const position = table ? positionJsonWithoutFloorUi(table.position) : undefined
+    const payload: { table_status: string; position?: string | null } = { table_status: 'available' }
+    if (position !== undefined) payload.position = position
+    await supabase.from('tables').update(payload).eq('id', row.table_id)
+  }
+
+  async function markReservationNoShow(row: ReservationRow, openActions = false) {
+    if (!supabase || reservationIsNoShow(row.status)) return
+    const { error: err } = await supabase
+      .from('reservations')
+      .update({ status: NO_SHOW_STATUS })
+      .eq('reservation_id', row.reservation_id)
+    if (err) {
+      setToastMessage(err.message)
+      return
+    }
+    setReservations((prev) =>
+      prev.map((r) => (r.reservation_id === row.reservation_id ? { ...r, status: NO_SHOW_STATUS } : r)),
+    )
+    incrementNoShowBadgeCount()
+    setToastMessage('Reservation marked as No-Show.')
+    if (openActions) setNoShowActionReservationId(row.reservation_id)
+  }
+
+  async function freeNoShowTable(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      await freeReservationTable(row)
+      const { error: err } = await supabase
+        .from('reservations')
+        .update({ status: NO_SHOW_STATUS, table_id: null })
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      setReservations((prev) =>
+        prev.map((r) =>
+          r.reservation_id === row.reservation_id
+            ? { ...r, status: NO_SHOW_STATUS, table_id: null }
+            : r,
+        ),
+      )
+      setNoShowActionReservationId(null)
+      setToastMessage('Table freed and reservation archived as No-Show.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
+  async function removeNoShowReservation(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      await freeReservationTable(row)
+      const { error: err } = await supabase
+        .from('reservations')
+        .delete()
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      setReservations((prev) => prev.filter((r) => r.reservation_id !== row.reservation_id))
+      setNoShowActionReservationId(null)
+      setToastMessage('Reservation removed and table freed.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
+  async function markArrivedLate(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      const { error: err } = await supabase
+        .from('reservations')
+        .update({ status: 'confirmed' })
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      if (row.table_id) {
+        const tryOcc = await supabase.from('tables').update({ table_status: 'occupied' }).eq('id', row.table_id).select('id')
+        if (tryOcc.error) {
+          const table = dbTables.find((t) => t.id === row.table_id)
+          const rec = buildPositionRecord(table?.position ?? null)
+          rec.floor_ui_status = 'occupied'
+          await supabase.from('tables').update({ position: JSON.stringify(rec) }).eq('id', row.table_id)
+        }
+      }
+      setReservations((prev) =>
+        prev.map((r) => (r.reservation_id === row.reservation_id ? { ...r, status: 'confirmed' } : r)),
+      )
+      setNoShowActionReservationId(null)
+      setToastMessage('Guest marked as arrived late.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
   // Close calendar when clicking outside
   useEffect(() => {
     if (!calendarOpen) return
@@ -880,6 +1030,26 @@ export default function ReservationManagement() {
     return m
   }, [dbTables, reservations])
 
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+    for (const row of reservations) {
+      if (autoNoShowRef.current.has(row.reservation_id)) continue
+      const tableOccupied = row.table_id
+        ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
+        : false
+      const noShow = getNoShowState(
+        row.status,
+        row.events?.event_starting_date,
+        noShowGraceMinutes,
+        nowMs,
+        tableOccupied,
+      )
+      if (noShow.state !== 'expired') continue
+      autoNoShowRef.current.add(row.reservation_id)
+      void markReservationNoShow(row, true)
+    }
+  }, [reservations, tableDisplays, noShowGraceMinutes, nowMs])
+
   const visibleRows = useMemo(() => {
     return reservations.filter((r) => {
       if (!matchesFilter(r, filter)) return false
@@ -894,8 +1064,8 @@ export default function ReservationManagement() {
     [reservations],
   )
 
-  const confirmed = totalGuestCount(reservations.filter((r) => r.status === 'confirmed'))
-  const cancelledCount = reservations.filter((r) => reservationIsCancelled(r.status)).length
+  const pendingCount = reservations.filter((r) => normalizeReservationStatus(r.status) === 'pending').length
+  const cancelledCount = reservations.filter((r) => normalizeReservationStatus(r.status) === 'cancelled').length
   // Sum actual payment amounts for completed payments — same logic as the dashboard backend
   const totalRevenue = useMemo(
     () =>
@@ -913,10 +1083,10 @@ export default function ReservationManagement() {
       icon: <Users size={22} aria-hidden />,
     },
     {
-      label: 'Confirmed',
-      value: String(confirmed),
-      accent: 'green',
-      icon: <CheckCircle2 size={22} aria-hidden />,
+      label: 'Pending',
+      value: String(pendingCount),
+      accent: 'amber',
+      icon: <Clock size={22} aria-hidden />,
     },
     {
       label: 'Total Revenue',
@@ -938,6 +1108,14 @@ export default function ReservationManagement() {
         ? reservations.find((r) => r.reservation_id === detailReservationId) ?? null
         : null,
     [detailReservationId, reservations],
+  )
+
+  const noShowActionRow = useMemo(
+    () =>
+      noShowActionReservationId
+        ? reservations.find((r) => r.reservation_id === noShowActionReservationId) ?? null
+        : null,
+    [noShowActionReservationId, reservations],
   )
 
   useEffect(() => {
@@ -1478,9 +1656,28 @@ export default function ReservationManagement() {
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
               const eventFree = reservationEventIsFree(row)
+              const tableOccupied = row.table_id
+                ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
+                : false
+              const noShow = getNoShowState(
+                row.status,
+                row.events?.event_starting_date,
+                noShowGraceMinutes,
+                nowMs,
+                tableOccupied,
+              )
 
               return (
-                <tr key={row.reservation_id}>
+                <tr
+                  key={row.reservation_id}
+                  className={
+                    noShow.state === 'expired' || noShow.state === 'no_show'
+                      ? 'res-mgmt__row--noshow'
+                      : noShow.state === 'countdown'
+                        ? 'res-mgmt__row--late'
+                        : ''
+                  }
+                >
                   <td>
                     <div className="res-mgmt__customer">
                       <span className="res-mgmt__customer-name">{guestName}</span>
@@ -1503,21 +1700,20 @@ export default function ReservationManagement() {
                     {amount != null ? `€${amount.toLocaleString('en-US', { minimumFractionDigits: 0 })}` : '—'}
                   </td>
                   <td>
-                    <span
-                      className={
-                        row.status === 'confirmed'
-                          ? 'res-mgmt__pill res-mgmt__pill--ok'
-                          : reservationIsCancelled(row.status)
-                            ? 'res-mgmt__pill res-mgmt__pill--cancelled'
-                            : 'res-mgmt__pill res-mgmt__pill--pending'
-                      }
-                    >
-                      {row.status === 'confirmed'
-                        ? 'Confirmed'
-                        : reservationIsCancelled(row.status)
-                          ? 'Cancelled'
-                          : 'Pending'}
-                    </span>
+                    <div className="res-mgmt__status-stack">
+                      <span className={reservationStatusClass(row.status)}>
+                        {reservationStatusLabel(row.status)}
+                      </span>
+                      {noShow.state === 'countdown' ? (
+                        <span className="res-mgmt__noshow-countdown">
+                          {(() => {
+                            const lateMs = noShowGraceMinutes * 60_000 - noShow.remainingMs
+                            const lateMin = Math.floor(lateMs / 60_000)
+                            return lateMin < 1 ? 'Late · just now' : `Late · ${lateMin} min`
+                          })()}
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td>
                     {eventFree ? (
@@ -1555,6 +1751,16 @@ export default function ReservationManagement() {
                         >
                           <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
                         </button>
+                      ) : reservationIsNoShow(row.status) ? (
+                        <button
+                          type="button"
+                          className="res-mgmt__icon-btn res-mgmt__icon-btn--noshow"
+                          title="No-show actions"
+                          aria-label={`Open no-show actions for ${guestName}`}
+                          onClick={() => setNoShowActionReservationId(row.reservation_id)}
+                        >
+                          <XCircle className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
+                        </button>
                       ) : (
                         <button
                           type="button"
@@ -1566,7 +1772,7 @@ export default function ReservationManagement() {
                           <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
                         </button>
                       )}
-                      {row.status === 'pending' && (
+                      {normalizeReservationStatus(row.status) === 'pending' && (
                         <>
                           <button
                             type="button"
@@ -2107,6 +2313,67 @@ export default function ReservationManagement() {
         </div>
       ) : null}
 
+      {noShowActionRow ? (
+        <div
+          className="res-mgmt__sheet-backdrop"
+          role="presentation"
+          onClick={() => !noShowActionBusy && setNoShowActionReservationId(null)}
+        >
+          <div
+            className="res-mgmt__sheet res-mgmt__sheet--compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="noshow-actions-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="res-mgmt__sheet-head">
+              <div>
+                <h2 id="noshow-actions-title" className="res-mgmt__sheet-title">
+                  No-Show Reservation
+                </h2>
+                <p className="res-mgmt__sheet-sub">
+                  {reservationGuestLabel(noShowActionRow)} · {noShowActionRow.events?.event_name ?? 'Event'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="res-mgmt__sheet-close"
+                onClick={() => !noShowActionBusy && setNoShowActionReservationId(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="res-mgmt__sheet-actions res-mgmt__sheet-actions--stack">
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--warn"
+                disabled={noShowActionBusy}
+                onClick={() => void freeNoShowTable(noShowActionRow)}
+              >
+                Free the Table
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--ghost"
+                disabled={noShowActionBusy}
+                onClick={() => void markArrivedLate(noShowActionRow)}
+              >
+                Mark as Arrived (Late)
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--danger"
+                disabled={noShowActionBusy}
+                onClick={() => void removeNoShowReservation(noShowActionRow)}
+              >
+                Remove Reservation
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {detailRow ? (
         <div
           className="res-mgmt__sheet-backdrop"
@@ -2171,13 +2438,7 @@ export default function ReservationManagement() {
               </div>
               <div>
                 <dt>Status</dt>
-                <dd>
-                  {detailRow.status === 'confirmed'
-                    ? 'Confirmed'
-                    : reservationIsCancelled(detailRow.status)
-                      ? 'Cancelled'
-                      : 'Pending'}
-                </dd>
+                <dd>{reservationStatusLabel(detailRow.status)}</dd>
               </div>
               <div>
                 <dt>Payment</dt>
