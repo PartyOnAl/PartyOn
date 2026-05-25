@@ -21,7 +21,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCatalog } from '@/contexts/CatalogContext'
 import { useSavedEvents } from '@/contexts/SavedEventsContext'
 import { getJson } from '@/api'
-import type { EventDetail, TicketType } from '@/types'
+import type { EventDetail } from '@/types'
 import { cn } from '@/lib/utils'
 
 const FALLBACK_IMG =

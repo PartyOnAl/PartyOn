@@ -474,13 +474,6 @@ function reservationEventIsFree(row: ReservationRow): boolean {
   return !isPaidTicketEvent(ev)
 }
 
-function reservationTicketPrice(row: ReservationRow): number {
-  const raw = row.events?.final_ticket_price ?? row.events?.ticket_price
-  if (raw === null || raw === undefined) return 0
-  const n = parseFloat(String(raw).trim().replace(',', '.'))
-  return Number.isFinite(n) && n > 0 ? n : 0
-}
-
 function IconUser() {
   return (
     <svg className="res-mgmt__guest-ic" viewBox="0 0 24 24" fill="none" aria-hidden>

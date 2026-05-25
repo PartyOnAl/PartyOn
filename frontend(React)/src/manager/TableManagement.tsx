@@ -62,8 +62,6 @@ type TableDisplay = {
   linkedReservationId?: string
 }
 
-type VipPackageDraft = { minSpend: string; bottleNote: string }
-
 type TablePositionJson = {
   vip_note?: string
   label?: string
@@ -202,16 +200,6 @@ function guestLabel(row: ReservationRow) {
   return row.user ? `${row.user.name ?? ''} ${row.user.surname ?? ''}`.trim() || 'Guest' : 'Guest'
 }
 
-function isTableBookingType(t: string | null) {
-  if (!t) return false
-  const x = t.toLowerCase()
-  return x === 'vip_table' || x === 'standard_table' || x === 'table'
-}
-
-function vipNoteFromDb(row: DbTableRow) {
-  return parseTablePositionJson(row.position)?.vip_note ?? ''
-}
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function TableTypeIcon({ type }: { type: string | null }) {
@@ -302,10 +290,6 @@ export default function TableManagement() {
   // ── Manage slide-out ───────────────────────────────────────────────────────
   const [manageTableId, setManageTableId] = useState<string | null>(null)
   const [reserveGuest, setReserveGuest] = useState('')
-  const [reserveEvent, setReserveEvent] = useState('')
-  const [reserveEventId, setReserveEventId] = useState('')
-  const [reserveLinkId, setReserveLinkId] = useState('')
-  const [vipDraft, setVipDraft] = useState<VipPackageDraft>({ minSpend: '', bottleNote: '' })
 
   // ── Relocate + cancel confirm ──────────────────────────────────────────────
   const [relocateOpen, setRelocateOpen] = useState(false)
@@ -417,11 +401,6 @@ export default function TableManagement() {
     }
     return rows
   }, [sortedTables, activeDisplayMap, eventDisplays, statusFilter, selectedEventId, searchQuery])
-
-  const tableReservationsOptions = useMemo(
-    () => reservations.filter(r => isTableBookingType(r.type)),
-    [reservations],
-  )
 
   const activeReservation = useMemo(() => {
     if (!manageTableId || !selectedEventId) return null
@@ -589,18 +568,10 @@ export default function TableManagement() {
   }
 
   function openTableManage(tableId: string) {
-    const row = dbTables.find(t => t.id === tableId)
-    if (!row) return
+    if (!dbTables.some(t => t.id === tableId)) return
     const disp = (selectedEventId ? eventDisplays : tableDisplays)[tableId]
     setManageTableId(tableId)
     setReserveGuest(disp?.guestName ?? '')
-    setReserveEvent(disp?.eventLabel ?? '')
-    setReserveEventId(selectedEventId || '')
-    setReserveLinkId(disp?.linkedReservationId ?? '')
-    setVipDraft({
-      minSpend: row.minimum_spend != null ? String(Number.parseFloat(row.minimum_spend)) : '',
-      bottleNote: vipNoteFromDb(row),
-    })
   }
 
   function closeTableManage() {
@@ -832,31 +803,6 @@ export default function TableManagement() {
     }
     setActionBusy(false)
     await loadClubData(); setToastMessage('Table marked occupied.'); closeTableManage()
-  }
-
-  async function markAvailableFromOccupied() {
-    if (!supabase || !manageTableId) return
-    setActionBusy(true)
-    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed'])
-    const posNext = positionJsonWithoutFloorUi(activeManageRow?.position ?? null)
-    await supabase.from('tables').update({ table_status: 'available', position: posNext }).eq('id', manageTableId)
-    setActionBusy(false)
-    await loadClubData(); setToastMessage('Table is available again.'); closeTableManage()
-  }
-
-  async function saveVipPackage() {
-    if (!supabase || !manageTableId || !activeManageRow) return
-    const posObj = buildPositionRecord(activeManageRow.position)
-    const note = vipDraft.bottleNote.trim()
-    if (note) posObj.vip_note = note; else delete posObj.vip_note
-    const minNum = Number.parseFloat(vipDraft.minSpend)
-    setActionBusy(true)
-    await supabase.from('tables').update({
-      minimum_spend: Number.isFinite(minNum) ? minNum : null,
-      ...(Object.keys(posObj).length > 0 ? { position: JSON.stringify(posObj) } : {}),
-    }).eq('id', manageTableId)
-    setActionBusy(false)
-    await loadClubData(); setToastMessage('VIP package saved.')
   }
 
   // ── Loading / error screens ────────────────────────────────────────────────

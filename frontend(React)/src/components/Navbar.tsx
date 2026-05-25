@@ -13,6 +13,7 @@ import {
   Settings,
   Calendar,
   Tag,
+  AlertTriangle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
@@ -608,6 +609,17 @@ export function Navbar() {
                       type="button"
                       className="w-full text-left px-3 py-2 text-sm rounded-lg text-foreground/85 hover:text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-2"
                       onClick={() => {
+                        navigate('/my-disputes')
+                        setAuthOpen(false)
+                      }}
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      My disputes
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm rounded-lg text-foreground/85 hover:text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-2"
+                      onClick={() => {
                         navigate('/settings')
                         setAuthOpen(false)
                       }}
@@ -739,6 +751,17 @@ export function Navbar() {
                     >
                       <Ticket className="h-4 w-4 shrink-0 text-muted-foreground" />
                       My Bookings
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2.5 text-sm rounded-lg text-foreground/85 hover:text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-2"
+                      onClick={() => {
+                        navigate('/my-disputes')
+                        setMobileOpen(false)
+                      }}
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      My disputes
                     </button>
                     <button
                       type="button"

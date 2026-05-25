@@ -21,6 +21,7 @@ import Promotions from './Promotions'
 import PromotionOfferDetailPage from './PromotionOfferDetailPage'
 import PurchasedTicket from './PurchasedTicket'
 import MyBookings from './MyBookings'
+import MyDisputes from './MyDisputes'
 import ReservationFlow from './ReservationFlow'
 import Success from './Success'
 import Cancel from './Cancel'
@@ -187,6 +188,7 @@ function App() {
               <Route path="/promotions" element={<Promotions />} />
               <Route path="/promotions/offer/:offerId" element={<PromotionOfferDetailPage />} />
               <Route path="/my-bookings" element={<MyBookings />} />
+              <Route path="/my-disputes" element={<MyDisputes />} />
               <Route path="/my-tickets" element={<Navigate to="/my-bookings" replace />} />
               <Route path="/my-bookings/:bookingId" element={<PurchasedTicket />} />
               <Route path="/purchased-ticket" element={<Navigate to="/my-bookings" replace />} />
