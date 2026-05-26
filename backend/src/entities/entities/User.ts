@@ -1,6 +1,4 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
-
-@Index("USER_pkey", ["id"], { unique: true })
+﻿import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 @Entity("USER", { schema: "public" })
 export class User {
   @PrimaryGeneratedColumn({ type: "integer", name: "id" })

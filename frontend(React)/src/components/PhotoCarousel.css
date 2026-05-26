@@ -1,0 +1,131 @@
+.photo-carousel {
+  position: relative;
+  overflow: hidden;
+}
+
+.photo-carousel__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: photo-carousel-fade 0.22s ease;
+}
+
+@keyframes photo-carousel-fade {
+  from {
+    opacity: 0.72;
+    transform: scale(1.015);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.photo-carousel__arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.48);
+  color: #ffffff;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+  backdrop-filter: blur(8px);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.photo-carousel__arrow:hover {
+  background: rgba(0, 0, 0, 0.68);
+  border-color: rgba(255, 255, 255, 0.32);
+  transform: translateY(-50%) scale(1.04);
+}
+
+.photo-carousel__arrow--prev {
+  left: 14px;
+}
+
+.photo-carousel__arrow--next {
+  right: 14px;
+}
+
+.photo-carousel__dots {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(8px);
+  transform: translateX(-50%);
+}
+
+.photo-carousel__dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition:
+    width 0.15s ease,
+    background 0.15s ease;
+}
+
+.photo-carousel__dot--active {
+  width: 18px;
+  background: #ffffff;
+}
+
+.photo-carousel--public {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.photo-carousel--public::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0.34) 100%);
+}
+
+.photo-carousel--public .photo-carousel__arrow {
+  width: 44px;
+  height: 44px;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.photo-carousel--public .photo-carousel__arrow--prev {
+  left: max(18px, calc((100vw - 1180px) / 2 + 18px));
+}
+
+.photo-carousel--public .photo-carousel__arrow--next {
+  right: max(18px, calc((100vw - 1180px) / 2 + 18px));
+}
+
+.photo-carousel--manager {
+  height: 220px;
+  min-height: 220px;
+  border-radius: 10px;
+  background: #1c1c1c;
+  border: 1px solid #2a2a2a;
+}

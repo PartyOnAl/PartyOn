@@ -1,67 +1,30 @@
-import { useState, type ReactNode } from 'react'
+/**
+ * Standalone `/search` page — route is disabled in `App.tsx` (visitors are sent to `/#events`).
+ * Restore: uncomment `import Search` and the `<Route path="/search" element={<Search />} />` in `App.tsx`, and remove the `<Navigate …>` route for `/search`.
+ */
+import { useMemo, useState, type ReactNode, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useCatalog } from '@/contexts/CatalogContext'
+import type { Club } from '@/types'
+import {
+  defaultSearchFilters,
+  eventMatchesSearchFilters,
+  clubMatchesSuggestionCityFilter,
+  parseSearchParams,
+  searchFiltersToQueryString,
+  type SearchFilters,
+} from '@/lib/searchFilters'
 import './Search.css'
 
-type EventResult = {
-  id: string
-  title: string
-  date: string
-  location: string
-  price: string
-  thumb: string
+const FALLBACK_THUMB = 'linear-gradient(135deg, #6366f1, #a855f7)'
+
+function eventThumb(imageUrl: string): string {
+  const u = imageUrl?.trim()
+  if (u && (u.startsWith('http://') || u.startsWith('https://'))) {
+    return `url(${u}) center/cover no-repeat`
+  }
+  return FALLBACK_THUMB
 }
-
-type ClubResult = {
-  id: string
-  title: string
-  hours: string
-  location: string
-  thumb: string
-}
-
-const EVENTS: EventResult[] = [
-  {
-    id: '1',
-    title: 'Electric Nights Festival',
-    date: 'Mar 29, 2026',
-    location: 'Downtown Arena',
-    price: '45',
-    thumb: 'linear-gradient(135deg, #6366f1, #a855f7)',
-  },
-  {
-    id: '2',
-    title: 'Underground House Party',
-    date: 'Mar 30, 2026',
-    location: 'Secret Location',
-    price: '25',
-    thumb: 'linear-gradient(135deg, #0ea5e9, #7c3aed)',
-  },
-  {
-    id: '3',
-    title: 'Live Jazz & Cocktails',
-    date: 'Apr 2, 2026',
-    location: 'The Blue Note',
-    price: '35',
-    thumb: 'linear-gradient(135deg, #f59e0b, #dc2626)',
-  },
-  {
-    id: '4',
-    title: 'Techno Warehouse Rave',
-    date: 'Apr 8, 2026',
-    location: 'Industrial District',
-    price: '30',
-    thumb: 'linear-gradient(135deg, #ec4899, #581c87)',
-  },
-]
-
-const CLUBS: ClubResult[] = [
-  {
-    id: '1',
-    title: 'Bass Factory',
-    hours: 'Open Fri-Sat',
-    location: 'Industrial District',
-    thumb: 'linear-gradient(135deg, #1e293b, #7c2d12)',
-  },
-]
 
 function SearchIcon() {
   return (
@@ -138,17 +101,41 @@ function DollarIcon() {
   )
 }
 
+function clubMatchesSearchFilters(club: Club, f: SearchFilters): boolean {
+  if (!clubMatchesSuggestionCityFilter(club, f)) return false
+  const q = f.clubQuery.trim().toLowerCase()
+  if (!q) return true
+  return (
+    club.name.toLowerCase().includes(q) ||
+    (club.city?.toLowerCase().includes(q) ?? false) ||
+    (club.address?.toLowerCase().includes(q) ?? false)
+  )
+}
+
 function ResultRow({
   title,
   thumb,
   children,
+  onActivate,
 }: {
   title: string
   thumb: string
   children: ReactNode
+  onActivate: () => void
 }) {
   return (
-    <div className="search-page__row" role="button" tabIndex={0}>
+    <div
+      className="search-page__row"
+      role="button"
+      tabIndex={0}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onActivate()
+        }
+      }}
+    >
       <div
         className="search-page__thumb"
         style={{ background: thumb }}
@@ -163,7 +150,29 @@ function ResultRow({
 }
 
 export default function Search() {
-  const [query, setQuery] = useState('c')
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [filters, setFilters] = useState<SearchFilters>(defaultSearchFilters)
+  const { events, clubs, loading, error } = useCatalog()
+
+  useEffect(() => {
+    setFilters(parseSearchParams(searchParams))
+  }, [searchParams])
+
+  const filteredEvents = useMemo(
+    () => events.filter((ev) => eventMatchesSearchFilters(ev, filters)),
+    [events, filters],
+  )
+
+  const filteredClubs = useMemo(
+    () => clubs.filter((c) => clubMatchesSearchFilters(c, filters)),
+    [clubs, filters],
+  )
+
+  const applyFromBar = () => {
+    const qs = searchFiltersToQueryString(filters)
+    navigate(qs ? `/search?${qs}` : '/search', { replace: true })
+  }
 
   return (
     <div className="search-page">
@@ -171,33 +180,75 @@ export default function Search() {
       <div className="search-page__dim-layer" aria-hidden={true} />
       <div className="search-page__content">
         <div className="search-page__bar-wrap">
+          {filters.clubQuery.trim() ? (
+            <p className="search-page__category mb-2 text-sm text-muted-foreground">
+              Club search (from header):{' '}
+              <span className="font-medium text-foreground">
+                &ldquo;{filters.clubQuery.trim()}&rdquo;
+              </span>
+            </p>
+          ) : null}
           <div className="search-page__bar">
             <SearchIcon />
             <input
               className="search-page__input"
               type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search"
+              value={filters.query}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, query: e.target.value }))
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  applyFromBar()
+                }
+              }}
+              aria-label="Search events"
+              placeholder="Search events…"
               autoComplete="off"
             />
-            {query.length > 0 ? (
+            {filters.query.length > 0 ? (
               <button
                 type="button"
                 className="search-page__clear"
                 aria-label="Clear search"
-                onClick={() => setQuery('')}
+                onClick={() => setFilters((f) => ({ ...f, query: '' }))}
               >
                 <ClearIcon />
               </button>
             ) : null}
+            <button
+              type="button"
+              className="search-page__submit"
+              aria-label="Apply search"
+              onClick={() => applyFromBar()}
+            >
+              Search
+            </button>
           </div>
         </div>
 
         <div className="search-page__results">
+          {error ? (
+            <p className="search-page__category text-destructive text-sm">{error}</p>
+          ) : null}
+          {loading ? (
+            <p className="search-page__category text-muted-foreground text-sm">Loading…</p>
+          ) : null}
+
           <h2 className="search-page__category">Events</h2>
-          {EVENTS.map((ev) => (
-            <ResultRow key={ev.id} title={ev.title} thumb={ev.thumb}>
+          {filteredEvents.length === 0 && !loading ? (
+            <p className="search-page__category text-muted-foreground text-sm">
+              No events found.
+            </p>
+          ) : null}
+          {filteredEvents.map((ev) => (
+            <ResultRow
+              key={ev.id}
+              title={ev.title}
+              thumb={eventThumb(ev.imageUrl)}
+              onActivate={() => navigate(`/event/${encodeURIComponent(ev.id)}`)}
+            >
               <span className="search-page__meta-item">
                 <CalendarIcon />
                 {ev.date}
@@ -207,31 +258,42 @@ export default function Search() {
               </span>
               <span className="search-page__meta-item">
                 <PinIcon />
-                {ev.location}
+                {ev.club}
+                {ev.city ? ` · ${ev.city}` : ''}
               </span>
               <span className="search-page__meta-sep" aria-hidden={true}>
                 |
               </span>
               <span className="search-page__meta-item">
                 <DollarIcon />
-                <span>{`$${ev.price}`}</span>
+                <span>{`${ev.currency}${ev.price.toFixed(0)}`}</span>
               </span>
             </ResultRow>
           ))}
 
           <h2 className="search-page__category">Clubs</h2>
-          {CLUBS.map((club) => (
-            <ResultRow key={club.id} title={club.title} thumb={club.thumb}>
+          {filteredClubs.length === 0 && !loading ? (
+            <p className="search-page__category text-muted-foreground text-sm">
+              No clubs found.
+            </p>
+          ) : null}
+          {filteredClubs.map((club) => (
+            <ResultRow
+              key={club.id}
+              title={club.name}
+              thumb={eventThumb(club.imageUrl)}
+              onActivate={() => navigate(`/clubs/${encodeURIComponent(club.id)}`)}
+            >
               <span className="search-page__meta-item">
                 <CalendarIcon />
-                {club.hours}
+                Venue
               </span>
               <span className="search-page__meta-sep" aria-hidden={true}>
                 |
               </span>
               <span className="search-page__meta-item">
                 <PinIcon />
-                {club.location}
+                {club.address ?? club.city ?? '—'}
               </span>
             </ResultRow>
           ))}

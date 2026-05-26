@@ -1,0 +1,100 @@
+.partyon-logo {
+  --logo-font-size: clamp(1.65rem, 4vw, 2.2rem);
+  --ball-size: clamp(2.2rem, 4.6vw, 2.65rem);
+  --gap: 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap);
+  font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: var(--logo-font-size);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.partyon-logo--centered {
+  justify-content: center;
+  width: 100%;
+}
+
+.partyon-logo--text-only {
+  gap: 0;
+}
+
+.partyon-logo--sm {
+  --logo-font-size: clamp(1.6rem, 3.4vw, 2.05rem);
+  --ball-size: clamp(2.25rem, 4.3vw, 2.55rem);
+}
+
+.partyon-logo--md {
+  --logo-font-size: clamp(1.8rem, 4vw, 2.35rem);
+  --ball-size: clamp(2.2rem, 4.4vw, 2.5rem);
+}
+
+.partyon-logo--lg {
+  --logo-font-size: clamp(2.2rem, 5vw, 3rem);
+  --ball-size: clamp(2.7rem, 5.4vw, 3.2rem);
+}
+
+.partyon-logo__ball-wrap {
+  position: relative;
+  width: var(--ball-size);
+  height: var(--ball-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.partyon-logo__ball-glow {
+  display: none;
+}
+
+.partyon-logo__ball-shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.partyon-logo__ball-image {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.6),
+    0 0 22px rgba(167, 85, 247, 0.45),
+    0 0 40px rgba(59, 130, 246, 0.18);
+  object-fit: cover;
+  object-position: center;
+  filter: saturate(1.2) contrast(1.05) brightness(1.04);
+  z-index: 0;
+}
+
+.partyon-logo__text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
+
+.partyon-logo__party {
+  color: #f8fafc;
+  text-shadow:
+    0 0 10px rgba(99, 102, 241, 0.25),
+    0 0 22px rgba(255, 255, 255, 0.12);
+}
+
+/* Matches @utility gradient-text in index.css (primary → accent) */
+.partyon-logo__on {
+  background-image: linear-gradient(
+    to right,
+    hsl(var(--primary)),
+    hsl(var(--accent))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+

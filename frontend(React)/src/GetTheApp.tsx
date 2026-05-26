@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import './GetTheApp.css'
 
 function DownloadIcon() {
@@ -100,6 +101,8 @@ function FeatureCard({
 }
 
 export default function GetTheApp() {
+  const navigate = useNavigate()
+
   return (
     <div className="get-app">
       <div className="get-app__stars" aria-hidden={true} />
@@ -114,7 +117,11 @@ export default function GetTheApp() {
               <DownloadIcon />
               Download App
             </button>
-            <button type="button" className="get-app__btn get-app__btn--outline">
+            <button
+              type="button"
+              className="get-app__btn get-app__btn--outline"
+              onClick={() => void navigate({ pathname: '/', hash: 'events' })}
+            >
               <SparkleIcon />
               Explore Events
             </button>

@@ -1,305 +1,407 @@
-import './EventClicked.css'
+import { useEffect, useState } from 'react'
+import {
+  AlignLeft,
+  ArrowLeft,
+  Calendar,
+  Clock,
+  ExternalLink,
+  Heart,
+  MapPin,
+  Music,
+  Phone,
+  Share2,
+  Star,
+  Users,
+} from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Navbar } from '@/components/Navbar'
+import { LovableFooter } from '@/components/LovableFooter'
+import { Button } from '@/components/ui/Button'
+import { useAuth } from '@/contexts/AuthContext'
+import { useCatalog } from '@/contexts/CatalogContext'
+import { useSavedEvents } from '@/contexts/SavedEventsContext'
+import { getJson } from '@/api'
+import type { EventDetail } from '@/types'
+import { cn } from '@/lib/utils'
 
-function HeartIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M12 21s-7-4.35-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 5.65-7 10-7 10z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+const FALLBACK_IMG =
+  'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&q=80'
+
+function formatFullDate(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
 }
 
-function ShareIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <circle cx="18" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.75" />
-      <circle cx="6" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.75" />
-      <circle cx="18" cy="19" r="2.5" stroke="currentColor" strokeWidth="1.75" />
-      <path
-        d="M8.5 10.5 15 7.5M8.5 13.5 15 16.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
+function formatTime(iso: string | undefined, hoursText?: string): string {
+  if (hoursText?.trim()) return hoursText.trim()
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
-function CalendarIcon() {
+function EventPageSkeleton() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M4 9h16M8 5V3M16 5V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function PinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
-function MusicIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M9 18V5l12-2v13M9 13l12-2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <circle cx="7" cy="18" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="19" cy="16" r="3" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
-function UserIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <path d="M4 20a8 8 0 0 1 16 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ExternalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M14 3h7v7M10 14L21 3M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function TicketSmallIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
-      <path
-        d="M4 8.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.5M4 15.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.5M8 8.5v7M12 8.5v7M16 8.5v7"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function AppleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden={true}>
-      <path d="M16.36 3.2c-.35.4-1.22 1.35-2.3 1.33-.12-1.12.58-2.23.98-2.65.48-.52 1.88-1.1 2.62-.92-.1.85-.52 1.67-1.3 2.24zm1.6 2.55c-1.45-.09-2.68.82-3.37.82-.72 0-1.82-.78-3-.76-1.54.02-2.96.9-3.75 2.28-1.6 2.78-.42 6.9 1.15 9.17.76 1.1 1.67 2.34 2.87 2.3 1.15-.05 1.58-.74 2.96-.74 1.38 0 1.77.74 2.98.72 1.23-.02 2.02-1.12 2.78-2.24.88-1.28 1.24-2.52 1.26-2.58-.02-.02-2.42-.93-2.44-3.68-.02-2.35 1.88-3.48 1.97-3.54-1.08-1.58-2.75-1.76-3.35-1.8z" />
-    </svg>
-  )
-}
-
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden={true}>
-      <path d="M3 3v18l15-9L3 3z" />
-    </svg>
+    <div className="po-container animate-pulse py-8 md:py-12">
+      <div className="mb-8 h-10 w-10 rounded-full bg-muted" />
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start">
+        <div className="aspect-[4/3] rounded-2xl bg-muted lg:aspect-square" />
+        <div className="space-y-4">
+          <div className="h-8 w-3/4 rounded-lg bg-muted" />
+          <div className="h-4 w-full rounded bg-muted/80" />
+          <div className="h-4 w-2/3 rounded bg-muted/80" />
+          <div className="mt-8 h-40 rounded-2xl bg-muted" />
+        </div>
+      </div>
+    </div>
   )
 }
 
 export default function EventClicked() {
-  return (
-    <div className="event-clicked">
-      <div className="event-clicked__layout">
-        <aside className="event-clicked__media" aria-label="Event image">
-          <div className="event-clicked__hero" />
-          <div className="event-clicked__hero-actions">
-            <button type="button" className="event-clicked__icon-btn" aria-label="Save event">
-              <HeartIcon />
-            </button>
-            <button type="button" className="event-clicked__icon-btn" aria-label="Share">
-              <ShareIcon />
-            </button>
-          </div>
-        </aside>
+  const { id, eventId } = useParams<{ id?: string; eventId?: string }>()
+  const navigate = useNavigate()
+  const { events, loading: catalogLoading } = useCatalog()
+  const { user } = useAuth()
+  const { isSaved, saveEvent, removeEvent } = useSavedEvents()
 
-        <div className="event-clicked__main">
-          <h1 className="event-clicked__title">ECHOES: Underground Techno Night</h1>
+  const resolvedId = (id ?? eventId ?? '').trim()
 
-          <ul className="event-clicked__quick">
-            <li>
-              <CalendarIcon />
-              <span>Saturday, March 29, 2026 • 23:00</span>
-            </li>
-            <li>
-              <PinIcon />
-              <span>Warehouse Roma • Roma</span>
-            </li>
-            <li>
-              <MusicIcon />
-              <span>Techno / Electronic</span>
-            </li>
-          </ul>
+  const [detail, setDetail] = useState<EventDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(true)
+  const [aboutExpanded, setAboutExpanded] = useState(false)
 
-          <div className="event-clicked__ticket">
-            <p className="event-clicked__price">From €20</p>
-            <p className="event-clicked__price-note">
-              No hidden fees. Final price shown upfront.
-            </p>
-            <button type="button" className="event-clicked__buy">
-              Buy Now
-            </button>
-          </div>
+  // Catalog entry for quick display while detail loads
+  const fromCatalog = resolvedId
+    ? events.find((e) => e.id === resolvedId)
+    : undefined
 
-          <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="event-clicked__section-title">
-              About
-            </h2>
-            <p className="event-clicked__about-text">
-              Step into a raw industrial warehouse transformed into a cathedral of sound. ECHOES
-              brings together cutting-edge techno selectors and analog-heavy production for a night
-              built on deep kicks, hypnotic grooves, and relentless energy until sunrise.
-            </p>
-            <button type="button" className="event-clicked__read-more">
-              Read more
-              <ChevronDownIcon />
-            </button>
+  useEffect(() => {
+    if (!resolvedId) {
+      navigate('/', { replace: true })
+      return
+    }
+    setDetailLoading(true)
+    getJson<EventDetail>(`/catalog/events/${resolvedId}`).then(({ data }) => {
+      if (data) setDetail(data)
+      setDetailLoading(false)
+    })
+  }, [resolvedId, navigate])
 
-            <div className="event-clicked__chips">
-              <div className="event-clicked__chip">
-                <UserIcon />
-                <div className="event-clicked__chip-label">18+</div>
-              </div>
-              <div className="event-clicked__chip">
-                <MusicIcon />
-                <div className="event-clicked__chip-label">Techno</div>
-              </div>
-              <div className="event-clicked__chip">
-                <UsersIcon />
-                <div className="event-clicked__chip-label">PartyOn Events</div>
-              </div>
-            </div>
-          </section>
+  const ev = detail ?? (fromCatalog as EventDetail | undefined)
+  const loading = detailLoading && !ev && catalogLoading
 
-          <section aria-labelledby="venue-heading">
-            <h2 id="venue-heading" className="event-clicked__section-title">
-              Venue
-            </h2>
-            <div className="event-clicked__venue-card">
-              <h3 className="event-clicked__venue-name">Warehouse Roma</h3>
-              <p className="event-clicked__venue-address">
-                Via dei Magazzini 42, 00153 Roma RM, Italy
-              </p>
-              <button type="button" className="event-clicked__maps-btn">
-                Open in Maps
-                <ExternalIcon />
-              </button>
-              <hr className="event-clicked__venue-rule" />
-              <div className="event-clicked__doors">
-                <ClockIcon />
-                <span>Doors open: 22:30</span>
-              </div>
-            </div>
-          </section>
-        </div>
+  const saved = user && ev ? isSaved(ev.id) : false
+
+  async function toggleSave() {
+    if (!ev) return
+    if (!user) { navigate('/login'); return }
+    if (saved) await removeEvent(ev.id)
+    else await saveEvent(ev.id)
+  }
+
+  async function share() {
+    const url = window.location.href
+    if (navigator.share) {
+      try { await navigator.share({ title: ev?.title, url }) } catch { /* dismissed */ }
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => {})
+    }
+  }
+
+  function primaryAction() {
+    if (!ev) return
+    const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+    const eid = ev.id?.trim()
+    if (!eid || eid === 'undefined') return
+    if (!user) {
+      navigate(`/login?from=${encodeURIComponent(`/event/${ev.id}`)}`)
+      return
+    }
+    if (isReservation) {
+      navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
+    } else {
+      navigate(`/payment/${encodeURIComponent(eid)}`, {
+        state: { event: ev, ticketTypes },
+      })
+    }
+  }
+
+  function openMaps(address: string) {
+    window.open(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+      '_blank',
+    )
+  }
+
+  if (!resolvedId) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <div className="po-container py-20 text-center text-muted-foreground">Redirecting…</div>
+        <LovableFooter />
       </div>
+    )
+  }
 
-      <section className="event-clicked__app" aria-labelledby="app-heading">
-        <h2 id="app-heading" className="event-clicked__app-title">
-          Get the PartyOn app
-        </h2>
-        <p className="event-clicked__app-sub">
-          Discover the best nights, manage your tickets, and reserve tables seamlessly.
-        </p>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <EventPageSkeleton />
+        <LovableFooter />
+      </div>
+    )
+  }
 
-        <div className="event-clicked__features">
-          <div className="event-clicked__feature">
-            <HeartIcon />
-            <div>
-              <h4>Save events</h4>
-              <p>Save and track your events in one place.</p>
+  if (!ev) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-20 text-center">
+          <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
+          <Button variant="outline" onClick={() => navigate(-1)}>Go back</Button>
+          <Button variant="ghost" onClick={() => navigate('/')}>Home</Button>
+        </div>
+        <LovableFooter />
+      </div>
+    )
+  }
+
+  const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+  const ticketTypes = detail?.ticketTypes ?? []
+  const lowestPrice = ticketTypes.length > 0
+    ? Math.min(...ticketTypes.map((t) => t.price))
+    : ev.price
+  const priceLabel = isReservation
+    ? 'Free reservation'
+    : lowestPrice > 0
+      ? `From ${ev.currency ?? '€'}${lowestPrice.toFixed(2)}`
+      : 'Free entry'
+  const ctaLabel = isReservation ? 'Reserve a table' : 'Buy ticket'
+
+  const rawDate = ev.rawDate ?? ev.date
+  const fullDate = formatFullDate(rawDate)
+  const timeStr = formatTime(ev.rawDate, ev.doorsOpen)
+
+  const venueAddress = detail?.clubFullAddress ?? ev.address ?? ev.city ?? ''
+  const venueName = ev.club && ev.club !== '—' ? ev.club : 'Venue'
+  const clubPhone = detail?.clubPhone
+
+  const specialGuests =
+    Array.isArray(ev.specialGuests) && ev.specialGuests.length > 0
+      ? ev.specialGuests.join(', ')
+      : typeof ev.specialGuests === 'string' && (ev.specialGuests as string).trim()
+        ? (ev.specialGuests as string).trim()
+        : null
+
+  const about = ev.description?.trim() || null
+  const aboutLong = (about?.length ?? 0) > 220
+  const imgSrc = ev.imageUrl?.trim() || FALLBACK_IMG
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <Navbar />
+
+      <main className="pb-16 pt-4 md:pt-8">
+        <div className="po-container">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="mb-6 h-10 w-10 rounded-full border border-border/50 text-muted-foreground hover:text-foreground"
+            aria-label="Go back"
+            onClick={() => navigate(-1)}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
+            {/* Image */}
+            <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-muted/20 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+              <div className="aspect-[4/3] w-full sm:aspect-[16/10] lg:aspect-square">
+                <img
+                  src={imgSrc}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = FALLBACK_IMG }}
+                />
+              </div>
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" aria-hidden />
+              {ev.isFeatured ? (
+                <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
+                  <Star className="h-3 w-3 fill-current" />
+                  Featured
+                </div>
+              ) : null}
+              <div className="absolute right-3 top-3 flex gap-2">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  className={cn('h-10 w-10 rounded-full border-0 bg-black/50 text-white backdrop-blur-md hover:bg-black/65', saved && 'text-pink-400')}
+                  aria-label={saved ? 'Remove from saved' : 'Save event'}
+                  onClick={() => void toggleSave()}
+                >
+                  <Heart className={cn('h-4 w-4', saved && 'fill-current')} strokeWidth={1.75} />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  className="h-10 w-10 rounded-full border-0 bg-black/50 text-white backdrop-blur-md hover:bg-black/65"
+                  aria-label="Share"
+                  onClick={() => void share()}
+                >
+                  <Share2 className="h-4 w-4" strokeWidth={1.75} />
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="event-clicked__feature">
-            <ShareIcon />
-            <div>
-              <h4>Share instantly</h4>
-              <p>Send lineups and tickets to your crew in seconds.</p>
-            </div>
-          </div>
-          <div className="event-clicked__feature">
-            <TicketSmallIcon />
-            <div>
-              <h4>Easy tickets</h4>
-              <p>Easy ticket access at the door with QR check-in.</p>
-            </div>
-          </div>
-          <div className="event-clicked__feature">
-            <UsersIcon />
-            <div>
-              <h4>Go together</h4>
-              <p>Coordinate plans and table bookings with friends.</p>
+
+            {/* Details */}
+            <div className="flex min-w-0 flex-col gap-6">
+              <div>
+                <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+                  {ev.title}
+                </h1>
+                {isReservation && (
+                  <span className="mt-2 inline-block rounded-full border border-primary/40 bg-primary/10 px-3 py-0.5 text-xs font-semibold text-primary">
+                    Reservation only
+                  </span>
+                )}
+              </div>
+
+              {/* Info block */}
+              <div className="rounded-xl border border-border/50 bg-card/40 p-4 md:p-5">
+                <ul className="flex flex-col gap-3 text-sm text-muted-foreground">
+                  {fullDate ? (
+                    <li className="flex items-start gap-3">
+                      <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{fullDate}</span>
+                    </li>
+                  ) : null}
+                  {timeStr ? (
+                    <li className="flex items-start gap-3">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{timeStr}</span>
+                    </li>
+                  ) : null}
+                  {venueAddress || venueName ? (
+                    <li className="flex items-start gap-3">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">
+                        {venueName !== 'Venue' ? `${venueName}` : ''}
+                        {venueName !== 'Venue' && venueAddress ? ' · ' : ''}
+                        {venueAddress}
+                      </span>
+                    </li>
+                  ) : null}
+                  {ev.musicType && ev.musicType !== '—' ? (
+                    <li className="flex items-start gap-3">
+                      <Music className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{ev.musicType}</span>
+                    </li>
+                  ) : null}
+                  {ev.capacity ? (
+                    <li className="flex items-start gap-3">
+                      <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">Capacity: {ev.capacity.toLocaleString()}</span>
+                    </li>
+                  ) : null}
+                  {specialGuests ? (
+                    <li className="flex items-start gap-3">
+                      <Star className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">Special guests: {specialGuests}</span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+
+
+              {/* Price + CTA */}
+              <div className="rounded-2xl border border-border/50 bg-card/40 p-5 shadow-sm backdrop-blur-sm md:p-6">
+                <p className="text-lg font-bold text-foreground md:text-xl">{priceLabel}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isReservation
+                    ? 'No payment required — reserve your spot with the venue.'
+                    : 'No hidden fees. Final price shown upfront.'}
+                </p>
+                <Button
+                  type="button"
+                  className="mt-5 w-full rounded-full gradient-primary py-6 text-base font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95"
+                  onClick={primaryAction}
+                >
+                  {ctaLabel}
+                </Button>
+              </div>
+
+              {/* About */}
+              {about ? (
+                <section className="rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
+                  <h2 className="flex items-center gap-2 text-lg font-bold text-foreground md:text-xl">
+                    <AlignLeft className="h-4 w-4 shrink-0 text-primary/80" />
+                    About
+                  </h2>
+                  <p
+                    className={cn(
+                      'mt-3 text-base leading-relaxed text-muted-foreground',
+                      !aboutExpanded && aboutLong && 'line-clamp-3',
+                    )}
+                  >
+                    {about}
+                  </p>
+                  {aboutLong ? (
+                    <button
+                      type="button"
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                      onClick={() => setAboutExpanded((o) => !o)}
+                    >
+                      {aboutExpanded ? 'Show less' : 'Read more'}
+                    </button>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {/* Venue */}
+              <section className="rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
+                <h2 className="flex items-center gap-2 text-lg font-bold text-foreground md:text-xl">
+                  <MapPin className="h-4 w-4 shrink-0 text-primary/80" />
+                  Venue Information
+                </h2>
+                <h3 className="mt-3 text-lg font-bold text-foreground">{venueName}</h3>
+                {venueAddress ? (
+                  <p className="mt-1.5 text-[15px] text-muted-foreground">{venueAddress}</p>
+                ) : null}
+                {clubPhone ? (
+                  <div className="mt-2 flex items-center gap-2 text-[15px] text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                    <span>{clubPhone}</span>
+                  </div>
+                ) : null}
+                {venueAddress ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-4 gap-2 rounded-full gradient-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95"
+                    onClick={() => openMaps(venueAddress)}
+                  >
+                    Open in Maps
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
+              </section>
             </div>
           </div>
         </div>
+      </main>
 
-        <div className="event-clicked__downloads">
-          <button type="button" className="event-clicked__store-btn">
-            <AppleIcon />
-            Download on iOS
-          </button>
-          <button type="button" className="event-clicked__store-btn">
-            <PlayIcon />
-            Download on Android
-          </button>
-        </div>
-      </section>
+      <LovableFooter />
     </div>
   )
 }

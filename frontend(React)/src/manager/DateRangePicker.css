@@ -1,0 +1,212 @@
+/* ── DateRangePicker ────────────────────────────────────────────────────────── */
+
+.drp {
+  background: #1a1a1a;
+  border: 1px solid #282828;
+  border-radius: 16px;
+  padding: 18px 16px 14px;
+  width: 280px;
+  font-family: Inter, system-ui, sans-serif;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.drp__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.drp__nav-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 1.375rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: color 0.13s, background 0.13s;
+  font-family: inherit;
+}
+
+.drp__nav-btn:hover {
+  color: #ec4899;
+  background: rgba(236, 72, 153, 0.12);
+}
+
+.drp__month-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #e5e5e5;
+  letter-spacing: -0.01em;
+}
+
+/* ── Weekday row ──────────────────────────────────────────────────────────── */
+.drp__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.drp__weekday {
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #484848;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 0;
+}
+
+/* ── Day grid ─────────────────────────────────────────────────────────────── */
+.drp__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.drp__day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border-radius: 9px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #bbb;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+  position: relative;
+  transition: background 0.12s, color 0.12s;
+}
+
+.drp__day:hover:not(.drp__day--selected):not(.drp__day--pad) {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+}
+
+/* Start / end — solid pink pill */
+.drp__day--selected {
+  background: #ec4899;
+  color: #fff !important;
+  font-weight: 700;
+  border-radius: 9px;
+}
+
+.drp__day--selected:hover {
+  background: #d63b84;
+}
+
+/* In-range — light pink wash, no border-radius so it looks continuous */
+.drp__day--in-range {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+  border-radius: 0;
+}
+
+/* First in-range after start: round left edge */
+.drp__day--in-range:first-of-type {
+  border-radius: 9px 0 0 9px;
+}
+
+/* Today indicator — pink dot */
+.drp__day--today {
+  color: #ec4899;
+  font-weight: 600;
+}
+
+.drp__day--today::after {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ec4899;
+}
+
+/* Padding cells (empty) */
+.drp__day--pad {
+  cursor: default;
+  pointer-events: none;
+  background: none;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.drp__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #242424;
+  gap: 8px;
+}
+
+.drp__today-btn {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #ec4899;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.drp__today-btn:hover {
+  background: rgba(236, 72, 153, 0.12);
+}
+
+.drp__footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drp__range-label {
+  font-size: 0.6875rem;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drp__clear-btn {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: #555;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 7px;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+
+.drp__clear-btn:hover {
+  color: #e5e5e5;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ── Hint text ───────────────────────────────────────────────────────────── */
+.drp__hint {
+  margin: 8px 0 0;
+  font-size: 0.6875rem;
+  color: #4a4a4a;
+  text-align: center;
+}

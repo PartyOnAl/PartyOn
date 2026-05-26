@@ -113,6 +113,24 @@ body {
   height: 18px;
 }
 
+.search-page__submit {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 9999px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  transition: opacity 0.15s ease;
+}
+
+.search-page__submit:hover {
+  opacity: 0.92;
+}
+
 /* Results panel */
 .search-page__results {
   border-radius: 16px;

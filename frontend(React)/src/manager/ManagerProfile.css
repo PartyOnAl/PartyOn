@@ -1,0 +1,790 @@
+.manager-profile__main {
+  background: #000;
+}
+
+.manager-profile__bound {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.manager-profile__head {
+  margin-bottom: 20px;
+}
+
+.manager-profile__shell {
+  width: 100%;
+  padding: 26px 28px 32px;
+  background: #101010;
+  border: 1px solid #262626;
+  border-radius: 14px;
+  box-sizing: border-box;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 12px 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.manager-profile__loading {
+  margin: 0;
+  padding: 18px;
+  border-radius: 12px;
+  color: #8a8a8a;
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.9rem;
+}
+
+/* ── Hero ── */
+.manager-profile__hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 22px 20px;
+  border-radius: 14px;
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.15s ease;
+}
+
+.manager-profile__hero:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.manager-profile__hero-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* ── Avatar photo upload ── */
+.manager-profile__avatar-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.manager-profile__avatar-file-input {
+  display: none;
+}
+
+.manager-profile__avatar-btn-wrap {
+  position: relative;
+  display: block;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.manager-profile__avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 100%);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.manager-profile__avatar-img {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  display: block;
+}
+
+.manager-profile__avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.manager-profile__avatar-overlay svg {
+  width: 17px;
+  height: 17px;
+}
+
+.manager-profile__avatar-btn-wrap:hover .manager-profile__avatar-overlay {
+  opacity: 1;
+}
+
+.manager-profile__avatar-badge {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: 2px solid #111111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: none;
+}
+
+.manager-profile__avatar-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+.manager-profile__remove-photo {
+  margin-top: 8px;
+  border: none;
+  background: transparent;
+  color: #a78bfa;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.manager-profile__remove-photo:hover:not(:disabled) {
+  color: #c4b5fd;
+  text-decoration: underline;
+}
+
+.manager-profile__remove-photo:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Hero info ── */
+.manager-profile__hero-info {
+  min-width: 0;
+}
+
+.manager-profile__name {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.manager-profile__handle {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: #8a8a8a;
+  font-weight: 500;
+}
+
+.manager-profile__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 4px 9px;
+  margin-top: 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.14);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.manager-profile__role svg {
+  width: 12px;
+  height: 12px;
+}
+
+.manager-profile__hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ── */
+.manager-profile__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  font-family: inherit;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.manager-profile__btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.manager-profile__btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.manager-profile__btn--primary {
+  color: #0a0a0a;
+  background: #f5f5f5;
+  border-color: #f5f5f5;
+}
+
+.manager-profile__btn--primary:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.manager-profile__btn--ghost {
+  color: #e5e5e5;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.manager-profile__btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* ── Card ── */
+.manager-profile__card {
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 20px 22px 18px;
+  margin-bottom: 16px;
+  transition: border-color 0.15s ease;
+}
+
+.manager-profile__card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.manager-profile__card-head {
+  margin-bottom: 16px;
+}
+
+.manager-profile__card-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.manager-profile__card-title--readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.manager-profile__card-title--readonly svg {
+  width: 14px;
+  height: 14px;
+  color: #a78bfa;
+}
+
+.manager-profile__card-sub {
+  margin: 3px 0 0;
+  font-size: 0.8125rem;
+  color: #8a8a8a;
+  font-weight: 500;
+}
+
+.manager-profile__card-sub--info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9a9a9a;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.manager-profile__card-sub--info svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #a78bfa;
+}
+
+.manager-profile__card--readonly {
+  background: #141414;
+}
+
+/* ── Field grid ── */
+.manager-profile__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 22px;
+}
+
+.manager-profile__field {
+  min-width: 0;
+}
+
+.manager-profile__field-label {
+  margin: 0 0 5px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #5f5f5f;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.manager-profile__field-value {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e5e5e5;
+  word-wrap: break-word;
+}
+
+.manager-profile__field-value--readonly {
+  color: #a3a3a3;
+}
+
+.manager-profile__field-hint {
+  margin: 7px 0 0;
+  color: #a78bfa;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* ── Inputs ── */
+.manager-profile__input {
+  width: 100%;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #ffffff;
+  background: #1a1a1a;
+  font: inherit;
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.manager-profile__input::placeholder {
+  color: #5f5f5f;
+}
+
+.manager-profile__input:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.manager-profile__input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ── Form actions at bottom ── */
+.manager-profile__form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── Inline error ── */
+.manager-profile__error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.14);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* ── Club ID tooltip ── */
+.manager-profile__club-id-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.manager-profile__club-id-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.manager-profile__club-id-text {
+  cursor: default;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: #444;
+}
+
+.manager-profile__club-id-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.72rem;
+  font-family: 'Courier New', 'Consolas', monospace;
+  color: #c4b5fd;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.manager-profile__club-id-wrap:hover .manager-profile__club-id-tooltip {
+  opacity: 1;
+}
+
+.manager-profile__copy-id-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  background: rgba(124, 58, 237, 0.1);
+  color: #c4b5fd;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.manager-profile__copy-id-btn:hover {
+  background: rgba(124, 58, 237, 0.18);
+  border-color: rgba(167, 139, 250, 0.48);
+  color: #ffffff;
+}
+
+.manager-profile__copy-id-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.manager-profile__copy-id-btn::after {
+  content: 'Copy full ID';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  z-index: 60;
+  transform: translateX(-50%);
+  border: 1px solid #333;
+  border-radius: 7px;
+  background: #1e1e1e;
+  color: #e5e5e5;
+  padding: 5px 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.manager-profile__copy-id-btn:hover::after {
+  opacity: 1;
+}
+
+/* ── Custom Date Picker ── */
+.manager-profile__datepicker-wrap {
+  position: relative;
+  margin-top: 6px;
+}
+
+.manager-profile__datepicker-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #ffffff;
+  background: #1a1a1a;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.manager-profile__datepicker-trigger:hover:not(:disabled) {
+  border-color: #555;
+}
+
+.manager-profile__datepicker-trigger:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.manager-profile__datepicker-trigger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.manager-profile__datepicker-trigger span {
+  flex: 1;
+  color: inherit;
+  padding-right: 22px;
+}
+
+.manager-profile__datepicker-trigger--placeholder span {
+  color: #5f5f5f;
+}
+
+.manager-profile__datepicker-icon {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: #a78bfa;
+  pointer-events: none;
+}
+
+.manager-profile__datepicker-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  width: 284px;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.7);
+}
+
+.manager-profile__datepicker-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.manager-profile__datepicker-nav-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid #2e2e2e;
+  background: #111;
+  color: #d5d5d5;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.manager-profile__datepicker-nav-btn:hover {
+  background: #252525;
+  border-color: #444;
+}
+
+.manager-profile__datepicker-month-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.manager-profile__datepicker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 14px;
+}
+
+.manager-profile__datepicker-dayname {
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #555;
+  text-transform: uppercase;
+  padding: 5px 0;
+  letter-spacing: 0.04em;
+}
+
+.manager-profile__datepicker-day {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #c5c5c5;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.manager-profile__datepicker-day:hover {
+  background: hsl(var(--primary) / 0.22);
+  color: #fff;
+}
+
+.manager-profile__datepicker-day--selected {
+  background: hsl(var(--primary));
+  color: #fff;
+  font-weight: 700;
+}
+
+.manager-profile__datepicker-day--selected:hover {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.manager-profile__datepicker-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid #222;
+}
+
+.manager-profile__datepicker-clear {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid #2e2e2e;
+  background: transparent;
+  color: #8a8a8a;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.manager-profile__datepicker-clear:hover {
+  border-color: #555;
+  color: #d5d5d5;
+}
+
+.manager-profile__datepicker-confirm {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.manager-profile__datepicker-confirm:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+
+/* ── Toast ── */
+.manager-profile__toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 300;
+  max-width: min(92vw, 380px);
+  padding: 14px 18px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: manager-profile-toast-in 220ms ease both;
+}
+
+@keyframes manager-profile-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.manager-profile__toast--success {
+  color: #bbf7d0;
+  background: #0f1c14;
+  border: 1px solid rgba(22, 163, 74, 0.45);
+}
+
+.manager-profile__toast--error {
+  color: #fecaca;
+  background: #1c1414;
+  border: 1px solid rgba(220, 38, 38, 0.45);
+}
+
+@media (max-width: 700px) {
+  .manager-profile__bound {
+    max-width: 100%;
+  }
+
+  .manager-profile__shell {
+    padding: 22px 20px 28px;
+  }
+
+  .manager-profile__hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .manager-profile__grid {
+    grid-template-columns: 1fr;
+  }
+  .manager-profile__datepicker-popover {
+    width: 100%;
+    min-width: 260px;
+  }
+}
