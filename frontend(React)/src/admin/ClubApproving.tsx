@@ -14,6 +14,7 @@ import {
   updateAdminClubStatus,
   type AdminClub,
   type AdminClubsData,
+  type AdminSuspensionRefunds,
 } from './adminApi'
 import { setCachedAdminData } from './adminDataCache'
 import { useAdminData } from './useAdminData'
@@ -46,6 +47,50 @@ const NAV: NavItem[] = [
   { id: 'analysis', label: 'Platform Analytics', href: '/admin/platform-analytics' },
   { id: 'settings', label: 'Settings', href: '/admin/settings' },
 ]
+
+function summarizeSuspensionRefunds(r: AdminSuspensionRefunds): {
+  tone: 'success' | 'error' | 'neutral'
+  text: string
+} {
+  const systemFail = r.failed.length === 1 && !r.failed[0].paymentId
+  if (systemFail) {
+    return { tone: 'error', text: r.failed[0].reason }
+  }
+
+  const hardFails = r.failed.filter((f) => f.paymentId)
+  const parts: string[] = []
+
+  if (r.succeeded.length > 0) {
+    const names = r.succeeded.map((s) => s.eventName).filter(Boolean)
+    const nameSample = names.slice(0, 3).join(', ')
+    const more = names.length > 3 ? ` (+${names.length - 3} more)` : ''
+    const rowTotal = r.succeeded.reduce((n, s) => n + (s.paymentRowCount ?? 1), 0)
+    parts.push(
+      `Automatic refunds completed: ${r.succeeded.length} Stripe charge(s), ${rowTotal} ticket line(s) in the database${nameSample ? ` — ${nameSample}${more}` : ''}.`,
+    )
+  }
+  if (r.skippedNoIntent > 0) {
+    parts.push(
+      `${r.skippedNoIntent} payment(s) had no saved Stripe PaymentIntent and could not be refunded automatically.`,
+    )
+  }
+  if (hardFails.length > 0) {
+    parts.push(`Some refunds failed: ${hardFails.map((f) => f.reason).join('; ')}`)
+  }
+
+  if (parts.length === 0) {
+    return {
+      tone: 'neutral',
+      text: 'Club suspended. No completed same-day ticket payments matched the refund rules (paid today, event active today, Stripe PaymentIntent on file).',
+    }
+  }
+
+  let tone: 'success' | 'error' | 'neutral' = 'neutral'
+  if (r.succeeded.length > 0 && hardFails.length === 0) tone = 'success'
+  else if (hardFails.length > 0 && r.succeeded.length === 0) tone = 'error'
+
+  return { tone, text: parts.join(' ') }
+}
 
 type TabFilter = 'pending' | 'approved' | 'rejected' | 'suspended' | 'all'
 
@@ -253,6 +298,10 @@ export default function ClubApproving() {
   }>({})
   const [addClubError, setAddClubError] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [refundBanner, setRefundBanner] = useState<{
+    tone: 'success' | 'error' | 'neutral'
+    text: string
+  } | null>(null)
   const [addingClub, setAddingClub] = useState(false)
   const { session } = useAuth()
   const {
@@ -284,6 +333,11 @@ export default function ClubApproving() {
     if (!token) return false
     const result = await updateAdminClubStatus(token, clubId, status)
     if (result.error) return false
+    if (status === 'suspended' && result.data?.refunds) {
+      setRefundBanner(summarizeSuspensionRefunds(result.data.refunds))
+    } else {
+      setRefundBanner(null)
+    }
     setData((prev) => {
       if (!prev) return prev
       const clubs = prev.clubs.map((club) =>
@@ -681,6 +735,23 @@ export default function ClubApproving() {
             </div>
             <p className="cap__sub">Review and approve clubs before they can operate on the platform</p>
           </header>
+
+          {refundBanner ? (
+            <div
+              className={`cap__refund-banner cap__refund-banner--${refundBanner.tone}`}
+              role="status"
+            >
+              <p className="cap__refund-banner-text">{refundBanner.text}</p>
+              <button
+                type="button"
+                className="cap__refund-banner-dismiss"
+                aria-label="Dismiss refund notice"
+                onClick={() => setRefundBanner(null)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
 
           {loading ? <p className="cap__empty">Loading club applications...</p> : null}
           {error || mutationError ? (

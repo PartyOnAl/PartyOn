@@ -1,5 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { getSupabaseClient } from '../supabase/supabase.client';
+import {
+  ClubSuspensionRefundService,
+  type SuspensionRefundReport,
+} from './club-suspension-refund.service';
 
 type SupabaseClient = ReturnType<typeof getSupabaseClient>;
 
@@ -185,6 +189,8 @@ export class AdminService {
   /** Avoids a profiles round-trip on every admin API call within the TTL window. */
   private readonly adminRoleCache = new Map<string, number>();
   private static readonly ADMIN_ROLE_CACHE_MS = 60_000;
+
+  constructor(private readonly clubSuspensionRefund: ClubSuspensionRefundService) {}
 
   private async assertAdmin(supabase: SupabaseClient, userId: string): Promise<void> {
     const cachedUntil = this.adminRoleCache.get(userId);
@@ -764,7 +770,23 @@ export class AdminService {
 
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException('Club not found.');
-    return { success: true };
+
+    let refunds: SuspensionRefundReport | undefined;
+    if (status === 'suspended') {
+      try {
+        refunds = await this.clubSuspensionRefund.refundEligiblePayments(clubId, new Date());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        refunds = {
+          eligibleCount: 0,
+          succeeded: [],
+          failed: [{ paymentId: '', reason: message }],
+          skippedNoIntent: 0,
+        };
+      }
+    }
+
+    return { success: true as const, refunds };
   }
 
   async deleteClub(userId: string, clubId: string) {

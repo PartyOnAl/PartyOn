@@ -40,6 +40,13 @@ export class Payments {
   })
   batch_id: string | null;
 
+  /** Stripe PaymentIntent id (`pi_...`) when Checkout completes; optional until webhook. */
+  @Column("text", {
+    name: "intent",
+    nullable: true,
+  })
+  intent: string | null;
+
   @ManyToOne(() => Reservations, (reservations) => reservations.payments, {
     onDelete: "CASCADE",
   })

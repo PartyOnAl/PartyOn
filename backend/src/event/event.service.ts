@@ -181,9 +181,19 @@ async handleEvent(event: any) {
         );
       }
 
+      const pi = session.payment_intent
+      const intentId =
+        pi == null
+          ? null
+          : typeof pi === 'string'
+            ? pi
+            : typeof (pi as { id?: string }).id === 'string'
+              ? (pi as { id: string }).id
+              : null
+
       const result = await this.paymentRepository.update(
         { batch_id: String(batchId) },
-        { status: 'completed' },
+        { status: 'completed', intent: intentId },
       );
       if (result.affected === 0) {
         console.warn(

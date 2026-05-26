@@ -15,6 +15,7 @@ export type PaymentListItem = {
   status: string | null;
   event_id: string | null;
   times_used: number | null;
+  intent: string | null;
   event_starting_date: Date | null;
   event_ending_date: Date | null;
   event_hours: string | null;
@@ -218,6 +219,7 @@ async findPaymentIds(batch_id: string) {
       status: payment.status,
       event_id: payment.event.eventId,
       times_used: payment.timesUsed,
+      intent: payment.intent ?? null,
       event_starting_date: payment.event.eventStartingDate,
       event_ending_date: payment.event.eventEndingDate,
       event_hours: payment.event.eventHours,

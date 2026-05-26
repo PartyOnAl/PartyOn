@@ -845,3 +845,72 @@ body {
   justify-content: flex-end;
   gap: 0.5rem;
 }
+
+.cap__refund-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--cap-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cap__refund-banner-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--cap-text);
+}
+
+.cap__refund-banner-dismiss {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--cap-text);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cap__refund-banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cap__refund-banner--success {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.cap__refund-banner--success .cap__refund-banner-text {
+  color: #bbf7d0;
+}
+
+.cap__refund-banner--error {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.cap__refund-banner--error .cap__refund-banner-text {
+  color: #fecaca;
+}
+
+.cap__refund-banner--neutral {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.cap__refund-banner--neutral .cap__refund-banner-text {
+  color: #fde68a;
+}

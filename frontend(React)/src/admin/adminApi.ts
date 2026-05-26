@@ -144,6 +144,20 @@ export type AdminRevenueData = {
   rates: { title: string; value: string; hint: string }[]
 }
 
+/** Returned when PATCH admin/clubs/:id/status sets status to `suspended`. */
+export type AdminSuspensionRefunds = {
+  eligibleCount: number
+  succeeded: {
+    paymentId: string
+    intent: string | null
+    amount: string
+    eventName: string
+    paymentRowCount: number
+  }[]
+  failed: { paymentId: string; reason: string }[]
+  skippedNoIntent: number
+}
+
 export function fetchAdminOverview(token: string) {
   return getJsonAuth<AdminOverviewData>('/api/admin/overview', token)
 }
@@ -157,7 +171,11 @@ export function updateAdminClubStatus(
   clubId: string,
   status: AdminClub['status'],
 ) {
-  return patchJsonAuth<{ success: true }>(`/api/admin/clubs/${clubId}/status`, token, { status })
+  return patchJsonAuth<{ success: true; refunds?: AdminSuspensionRefunds }>(
+    `/api/admin/clubs/${clubId}/status`,
+    token,
+    { status },
+  )
 }
 
 export function createAdminClub(
