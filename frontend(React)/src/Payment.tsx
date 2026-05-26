@@ -4,7 +4,7 @@ import { ArrowLeft, Check, ChevronRight, Lock, Minus, Plus, Ticket } from 'lucid
 import { motion, AnimatePresence } from 'framer-motion'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
-import type { EventDetail, TicketType } from '@/types'
+import type { EventDetail } from '@/types'
 
 type Step = 'ticket' | 'payment'
 
@@ -44,8 +44,7 @@ export default function Payment() {
   const location = useLocation()
 
   // Accept state from EventClicked navigation
-  const stateEvent = (location.state as { event?: EventDetail; ticketTypes?: TicketType[] } | null)?.event
-  const stateTicketTypes = (location.state as { ticketTypes?: TicketType[] } | null)?.ticketTypes ?? []
+  const stateEvent = (location.state as { event?: EventDetail } | null)?.event
 
   const [step, setStep] = useState<Step>('ticket')
   const [legacyEvent, setLegacyEvent] = useState<LegacyEvent | null>(null)
