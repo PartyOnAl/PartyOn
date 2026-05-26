@@ -423,16 +423,17 @@ export default function MyBookings() {
   // Load claimed offers when the user switches to the Offers tab
   useEffect(() => {
     if (activeTab !== 'offers' || !supabase || !isSupabaseConfigured) return
+    const sb = supabase
     setOffersLoading(true)
-    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+    void sb.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
-      const { data } = await supabase
+      const { data } = await sb
         .from('claimed_promotions')
         .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, clubs(club_name, club_address))')
         .eq('user_id', user.id)
         .neq('status', 'cancelled')
         .order('claimed_at', { ascending: false })
-      setClaimedOffers((data ?? []) as ClaimedOffer[])
+      setClaimedOffers((data ?? []) as unknown as ClaimedOffer[])
       setOffersLoading(false)
     })
   }, [activeTab])

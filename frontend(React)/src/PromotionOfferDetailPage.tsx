@@ -100,15 +100,6 @@ export default function PromotionOfferDetailPage() {
       .then(({ data }) => setClaimedCode((data as { redemption_code: string } | null)?.redemption_code ?? null))
   }, [user, resolvedId])
 
-  function requireAuthThen(go: () => void) {
-    if (!user) {
-      const from = encodeURIComponent(location.pathname + location.search)
-      navigate(`/login?from=${from}`, { state: { from: location.pathname + location.search } })
-      return
-    }
-    go()
-  }
-
   async function handleToggleSave() {
     if (!user) {
       const from = encodeURIComponent(location.pathname + location.search)
