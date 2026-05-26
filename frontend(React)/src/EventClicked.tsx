@@ -225,9 +225,10 @@ export default function EventClicked() {
                 type="button"
                 onClick={() => navigate(-1)}
                 aria-label="Go back"
-                className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full border-0 bg-black/50 text-white backdrop-blur-md transition hover:bg-black/70"
+                className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border-0 bg-black/50 px-3 py-2 text-sm font-medium text-white backdrop-blur-md transition hover:bg-black/70"
               >
                 <ArrowLeft className="h-4 w-4" />
+                Back
               </button>
               {ev.isFeatured ? (
                 <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
