@@ -9,6 +9,7 @@ import {
   isMobileOnlyStaffRole,
 } from './lib/staffRoles'
 import styles from './LoginPage.module.css'
+import { API_BASE_URL } from './api'
 
 function GoogleIcon() {
   return (
@@ -281,7 +282,7 @@ export default function LoginPage() {
 
         if (!profileData) {
           // No profile row yet — create one via the backend so they can log in
-          await fetch('/auth/create-profile', {
+          await fetch(`${API_BASE_URL}/auth/create-profile`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

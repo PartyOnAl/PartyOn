@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { DatePicker } from '@/components/DatePicker'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { API_BASE_URL } from '@/api'
 
 type ProfileRow = {
   id: string
@@ -201,7 +202,7 @@ export default function MyProfile() {
         const meta = user.user_metadata ?? {}
         const fullName = (meta.full_name as string | undefined)?.trim() ?? ''
         const parts = fullName.split(/\s+/)
-        await fetch('/auth/create-profile', {
+        await fetch(`${API_BASE_URL}/auth/create-profile`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -360,7 +361,7 @@ export default function MyProfile() {
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-secondary/50 px-4 py-2 text-sm font-medium text-foreground transition hover:border-primary/70 hover:bg-primary/10"
+            className="mb-8 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary/20 hover:border-primary/80"
           >
             <ArrowLeft className="h-4 w-4" />
             Back

@@ -10,6 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import styles from './SignupPage.module.css'
+import { API_BASE_URL } from './api'
 
 const TERMS_SECTIONS = [
   {
@@ -443,7 +444,7 @@ export default function SignupPage() {
       }
 
       // Use backend endpoint (service role key) to upsert profile — bypasses RLS entirely.
-      const profileRes = await fetch('/auth/create-profile', {
+      const profileRes = await fetch(`${API_BASE_URL}/auth/create-profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -206,18 +206,16 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      <main className="pb-16 pt-4 md:pt-8">
+      <main className="pb-16 pt-8 md:pt-12">
         <div className="po-container">
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="mb-6 h-10 w-10 rounded-full border border-border/50 text-muted-foreground hover:text-foreground"
-            aria-label="Go back"
             onClick={() => navigate(-1)}
+            className="mb-8 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary/20 hover:border-primary/80"
           >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
 
           <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
             {/* Image */}
