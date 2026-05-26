@@ -269,7 +269,7 @@ export default function LoginPage() {
           .from('profiles')
           .select('id, role')
           .eq('id', userId)
-          .single()
+          .maybeSingle()
 
         if (profileError) {
           setRequestError(
@@ -277,6 +277,18 @@ export default function LoginPage() {
           )
           await supabase.auth.signOut()
           return
+        }
+
+        if (!profileData) {
+          // No profile row yet — create one via the backend so they can log in
+          await fetch('/auth/create-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: userId,
+              email: normalizedEmail,
+            }),
+          })
         }
 
         const roleNorm = String(profileData?.role ?? '').toLowerCase().trim()
