@@ -24,6 +24,7 @@ type PromotionRow = {
   included_items: string | null
   terms_conditions: string | null
   created_at: string | null
+  deleted_at: string | null
 }
 
 type PromotionFormState = {
@@ -885,9 +886,10 @@ export default function ManagerPromotions() {
     void supabase
       .from('promotions')
       .select(
-        'promotion_id, title, description, category, discount_value, original_price, valid_from, valid_until, status, image_url, included_items, terms_conditions, created_at',
+        'promotion_id, title, description, category, discount_value, original_price, valid_from, valid_until, status, image_url, included_items, terms_conditions, created_at, deleted_at',
       )
       .eq('club_id', clubId)
+      .is('deleted_at', null)
       .order('valid_until', { ascending: true, nullsFirst: false })
       .order('promotion_id', { ascending: true })
       .then(({ data, error: err }) => {
@@ -1107,21 +1109,21 @@ export default function ManagerPromotions() {
     }
   }
 
-  // ── Delete (called only after confirmation) ───────────────────────────────
+  // ── Archive (soft-delete) — preserves claimed_promotions rows ────────────
 
   async function confirmDelete() {
     if (!deleteTarget || !supabase || !isSupabaseConfigured) return
     setIsDeleting(true)
     const { error: delErr } = await supabase
       .from('promotions')
-      .delete()
+      .update({ status: 'archived', deleted_at: new Date().toISOString() })
       .eq('promotion_id', deleteTarget.id)
     setIsDeleting(false)
     setDeleteTarget(null)
     if (delErr) {
       setToast({ type: 'error', message: delErr.message })
     } else {
-      setToast({ type: 'success', message: 'Promotion deleted.' })
+      setToast({ type: 'success', message: 'Promotion archived.' })
       setRefreshKey((k) => k + 1)
     }
   }
@@ -1228,10 +1230,10 @@ export default function ManagerPromotions() {
                       <line x1="12" y1="17" x2="12.01" y2="17" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                   </div>
-                  <h2 className="promo-mgmt__confirm-title">Delete Promotion?</h2>
+                  <h2 className="promo-mgmt__confirm-title">Archive Promotion?</h2>
                   <p className="promo-mgmt__confirm-msg">
                     <span className="promo-mgmt__confirm-name">"{deleteTarget.title}"</span>
-                    {' '}will be permanently deleted. This cannot be undone.
+                    {' '}will be hidden from users. Users who already claimed it can still redeem their code.
                   </p>
                   <div className="promo-mgmt__confirm-actions">
                     <button
@@ -1248,7 +1250,7 @@ export default function ManagerPromotions() {
                       onClick={confirmDelete}
                       disabled={isDeleting}
                     >
-                      {isDeleting ? 'Deleting…' : 'Delete'}
+                      {isDeleting ? 'Archiving…' : 'Archive'}
                     </button>
                   </div>
                 </div>

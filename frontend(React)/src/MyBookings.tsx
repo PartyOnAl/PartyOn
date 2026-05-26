@@ -1,9 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays, ChevronRight, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Gift, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+
+type ClaimedOffer = {
+  id: string
+  redemption_code: string
+  status: string
+  claimed_at: string
+  promotion: {
+    promotion_id: string
+    title: string
+    image_url: string | null
+    description: string | null
+    valid_until: string | null
+    clubs: { club_name: string | null; club_address: string | null } | null
+  } | null
+}
 
 type BookingItem = {
   bookingId: string
@@ -140,10 +155,16 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
 
 export default function MyBookings() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterKind>('upcoming')
+  const [activeTab, setActiveTab] = useState<'bookings' | 'offers'>(
+    searchParams.get('tab') === 'offers' ? 'offers' : 'bookings',
+  )
   const [bookings, setBookings] = useState<BookingItem[]>([])
+  const [claimedOffers, setClaimedOffers] = useState<ClaimedOffer[]>([])
+  const [offersLoading, setOffersLoading] = useState(false)
   const [clearing, setClearing] = useState<string | null>(null)
   const [clearingAll, setClearingAll] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
@@ -399,6 +420,23 @@ export default function MyBookings() {
       })
   }, [filter, userId, bookings])
 
+  // Load claimed offers when the user switches to the Offers tab
+  useEffect(() => {
+    if (activeTab !== 'offers' || !supabase || !isSupabaseConfigured) return
+    setOffersLoading(true)
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase
+        .from('claimed_promotions')
+        .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, clubs(club_name, club_address))')
+        .eq('user_id', user.id)
+        .neq('status', 'cancelled')
+        .order('claimed_at', { ascending: false })
+      setClaimedOffers((data ?? []) as ClaimedOffer[])
+      setOffersLoading(false)
+    })
+  }, [activeTab])
+
   function openReviewModal(booking: BookingItem) {
     const existing = existingRatings[booking.eventId]
     setReviewDraft({ rating: existing?.rating ?? 0, comment: existing?.comment ?? '' })
@@ -484,30 +522,30 @@ export default function MyBookings() {
               <div className="flex gap-6">
                 <button
                   type="button"
-                  onClick={() => setFilter('upcoming')}
+                  onClick={() => setActiveTab('bookings')}
                   className={`relative pb-3 text-sm font-semibold transition-colors ${
-                    filter === 'upcoming' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                    activeTab === 'bookings' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  Upcoming
-                  {filter === 'upcoming' ? (
+                  Bookings
+                  {activeTab === 'bookings' ? (
                     <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
                   ) : null}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFilter('past')}
+                  onClick={() => setActiveTab('offers')}
                   className={`relative pb-3 text-sm font-semibold transition-colors ${
-                    filter === 'past' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                    activeTab === 'offers' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  Past
-                  {filter === 'past' ? (
+                  Offers
+                  {activeTab === 'offers' ? (
                     <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
                   ) : null}
                 </button>
               </div>
-              {filter === 'past' && filteredBookings.length > 0 && (
+              {activeTab === 'bookings' && filter === 'past' && filteredBookings.length > 0 && (
                 <button
                   type="button"
                   disabled={clearingAll || !!clearing}
@@ -519,9 +557,123 @@ export default function MyBookings() {
                 </button>
               )}
             </div>
+
+            {/* Upcoming / Past sub-tabs only for Bookings */}
+            {activeTab === 'bookings' && (
+              <div className="mt-4 flex gap-5 border-b border-white/8 pb-0">
+                {(['upcoming', 'past'] as FilterKind[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFilter(f)}
+                    className={`relative pb-3 text-xs font-medium capitalize transition-colors ${
+                      filter === f ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {f}
+                    {filter === f && (
+                      <span className="absolute inset-x-0 -bottom-px h-px bg-white/40" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </header>
 
-          {loading ? (
+          {activeTab === 'offers' ? (
+            /* ── Claimed Offers ─────────────────────────────────────────── */
+            offersLoading ? (
+              <section className="space-y-3">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <div key={idx} className="h-28 animate-pulse rounded-2xl border border-white/10 bg-[#111118]/80" />
+                ))}
+              </section>
+            ) : claimedOffers.length === 0 ? (
+              <section className="rounded-2xl border border-white/10 bg-[#101016]/80 px-6 py-12 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-primary/10">
+                  <Gift className="h-6 w-6 text-primary" />
+                </div>
+                <h2 className="text-xl font-bold text-white">No claimed offers yet</h2>
+                <p className="mt-2 text-sm text-muted-foreground">Browse promotions and claim an offer to see it here</p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="mt-5 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-95"
+                >
+                  Explore Offers
+                </button>
+              </section>
+            ) : (
+              <section className="space-y-3">
+                {claimedOffers.map((offer) => {
+                  const promo = offer.promotion
+                  const isRedeemed = offer.status === 'redeemed'
+                  const isExpired = offer.status === 'expired'
+                  const statusColor = isRedeemed
+                    ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300'
+                    : isExpired
+                      ? 'border-white/20 bg-white/5 text-white/40'
+                      : 'border-primary/30 bg-primary/10 text-primary'
+                  return (
+                    <article
+                      key={offer.id}
+                      className="grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 md:grid-cols-[96px_1fr_auto] md:items-center"
+                    >
+                      {/* Thumbnail */}
+                      <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                        {promo?.image_url ? (
+                          <img src={promo.image_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Gift className="h-8 w-8 text-white/20" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Info */}
+                      <div className="min-w-0 space-y-1">
+                        <h3 className="truncate font-semibold text-white">{promo?.title ?? 'Promotion'}</h3>
+                        {promo?.clubs?.club_name && (
+                          <p className="text-sm text-muted-foreground">{promo.clubs.club_name}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${statusColor}`}>
+                            {offer.status}
+                          </span>
+                          {promo?.valid_until && (
+                            <span className="text-xs text-muted-foreground">
+                              Valid until {new Date(promo.valid_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Code */}
+                      <div className="flex flex-col items-start gap-2 md:items-end">
+                        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-3 py-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                          <div>
+                            <p className="text-[10px] font-medium text-emerald-400">Redemption Code</p>
+                            <p className="font-mono text-sm font-bold tracking-widest text-white">
+                              {offer.redemption_code.toUpperCase()}
+                            </p>
+                          </div>
+                        </div>
+                        {promo && (
+                          <Link
+                            to={`/promotions/offer/${encodeURIComponent(promo.promotion_id)}`}
+                            className="text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                          >
+                            View offer
+                          </Link>
+                        )}
+                      </div>
+                    </article>
+                  )
+                })}
+              </section>
+            )
+          ) : loading ? (
             <section className="space-y-3">
               {Array.from({ length: 3 }).map((_, idx) => (
                 <div

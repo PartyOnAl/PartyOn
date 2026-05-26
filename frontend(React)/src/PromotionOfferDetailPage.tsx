@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Bookmark,
   Check,
+  CheckCircle2,
   Gift,
   MapPin,
   Share2,
@@ -22,6 +23,7 @@ import {
   buildPromotionOfferDetail,
   relatedOfferCards,
 } from '@/lib/promotionOfferDetail'
+import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const FALLBACK_IMG =
@@ -62,6 +64,9 @@ export default function PromotionOfferDetailPage() {
   const { user } = useAuth()
   const { promotions, terms: globalTerms, loading } = useCatalog()
   const [saved, setSaved] = useState(false)
+  const [savedLoading, setSavedLoading] = useState(false)
+  const [claimedCode, setClaimedCode] = useState<string | null>(null)
+  const [claiming, setClaiming] = useState(false)
 
   const resolvedId = (offerId ?? '').trim()
 
@@ -75,6 +80,26 @@ export default function PromotionOfferDetailPage() {
     [offer, promotions],
   )
 
+  // Load saved + claimed state from Supabase on mount / user change
+  useEffect(() => {
+    if (!user || !resolvedId || !supabase || !isSupabaseConfigured) return
+    void supabase
+      .from('saved_promotions')
+      .select('promotion_id')
+      .eq('user_id', user.id)
+      .eq('promotion_id', resolvedId)
+      .maybeSingle()
+      .then(({ data }) => setSaved(!!data))
+    void supabase
+      .from('claimed_promotions')
+      .select('redemption_code')
+      .eq('user_id', user.id)
+      .eq('promotion_id', resolvedId)
+      .neq('status', 'cancelled')
+      .maybeSingle()
+      .then(({ data }) => setClaimedCode((data as { redemption_code: string } | null)?.redemption_code ?? null))
+  }, [user, resolvedId])
+
   function requireAuthThen(go: () => void) {
     if (!user) {
       const from = encodeURIComponent(location.pathname + location.search)
@@ -84,27 +109,60 @@ export default function PromotionOfferDetailPage() {
     go()
   }
 
-  function handleToggleSave() {
-    requireAuthThen(() => setSaved((s) => !s))
+  async function handleToggleSave() {
+    if (!user) {
+      const from = encodeURIComponent(location.pathname + location.search)
+      navigate(`/login?from=${from}`, { state: { from: location.pathname + location.search } })
+      return
+    }
+    if (!supabase || !isSupabaseConfigured || !resolvedId) return
+    setSavedLoading(true)
+    if (saved) {
+      await supabase.from('saved_promotions').delete()
+        .eq('user_id', user.id).eq('promotion_id', resolvedId)
+      setSaved(false)
+    } else {
+      await supabase.from('saved_promotions').insert({ user_id: user.id, promotion_id: resolvedId })
+      setSaved(true)
+    }
+    setSavedLoading(false)
   }
 
-  function handleClaimOffer() {
+  async function handleClaimOffer() {
     if (!offer) return
-    requireAuthThen(() =>
-      navigate('/payment', {
-        state: {
-          offer: {
-            id: offer.id,
-            title: offer.title,
-            venue: offer.venue,
-            city: offer.city,
-            image: offer.image,
-            price: offer.checkoutPrice,
-            currency: offer.currency,
-          },
-        },
-      }),
-    )
+    if (!user) {
+      const from = encodeURIComponent(location.pathname + location.search)
+      navigate(`/login?from=${from}`, { state: { from: location.pathname + location.search } })
+      return
+    }
+    // Already claimed — navigate to the offers tab in bookings
+    if (claimedCode) {
+      navigate('/my-bookings?tab=offers')
+      return
+    }
+    if (!supabase || !isSupabaseConfigured) return
+    setClaiming(true)
+    const { data, error } = await supabase
+      .from('claimed_promotions')
+      .insert({ user_id: user.id, promotion_id: resolvedId })
+      .select('redemption_code')
+      .single()
+    setClaiming(false)
+    if (error) {
+      // Unique violation = already claimed by this user; reload the existing code
+      if (error.code === '23505') {
+        const { data: existing } = await supabase
+          .from('claimed_promotions')
+          .select('redemption_code')
+          .eq('user_id', user.id)
+          .eq('promotion_id', resolvedId)
+          .neq('status', 'cancelled')
+          .maybeSingle()
+        if (existing) setClaimedCode((existing as { redemption_code: string }).redemption_code)
+      }
+      return
+    }
+    if (data) setClaimedCode((data as { redemption_code: string }).redemption_code)
   }
 
   async function shareOffer() {
@@ -221,7 +279,7 @@ export default function PromotionOfferDetailPage() {
                   size="icon"
                   className={heroGlassBtn}
                   aria-label={saved ? 'Saved' : 'Save offer'}
-                  onClick={handleToggleSave}
+                  onClick={() => void handleToggleSave()}
                 >
                   <Bookmark
                     className={cn(
@@ -413,13 +471,29 @@ export default function PromotionOfferDetailPage() {
                       </>
                     ) : null}
 
+                    {claimedCode && (
+                      <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-emerald-400">Offer Claimed</p>
+                          <p className="font-mono text-sm font-bold tracking-widest text-white">
+                            {claimedCode.toUpperCase()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     <Button
                       type="button"
-                      variant="gradient"
-                      className="h-12 w-full rounded-full text-base font-semibold"
-                      onClick={handleClaimOffer}
+                      variant={claimedCode ? 'outline' : 'gradient'}
+                      className={cn(
+                        'h-12 w-full rounded-full text-base font-semibold',
+                        claimedCode && 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10',
+                      )}
+                      onClick={() => void handleClaimOffer()}
+                      disabled={claiming}
                     >
-                      Claim Offer
+                      {claiming ? 'Claiming…' : claimedCode ? 'View in Your Offers' : offer.ctaLabel}
                     </Button>
 
                     <div className="flex gap-3">
@@ -427,7 +501,8 @@ export default function PromotionOfferDetailPage() {
                         type="button"
                         variant="outline"
                         className={saveShareOutlineHoverGlow}
-                        onClick={handleToggleSave}
+                        onClick={() => void handleToggleSave()}
+                        disabled={savedLoading}
                       >
                         <Bookmark
                           className={cn(
@@ -436,7 +511,7 @@ export default function PromotionOfferDetailPage() {
                             'group-hover:fill-primary/70 group-hover:text-primary/80',
                           )}
                         />
-                        Save
+                        {saved ? 'Saved' : 'Save'}
                       </Button>
                       <Button
                         type="button"
