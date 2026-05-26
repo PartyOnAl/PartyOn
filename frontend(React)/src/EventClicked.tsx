@@ -206,17 +206,8 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      <main className="pb-16 pt-24 md:pt-28">
+      <main className="pb-16 pt-20">
         <div className="po-container">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="mb-8 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary/20 hover:border-primary/80"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
-
           <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
             {/* Image */}
             <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-muted/20 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
@@ -229,8 +220,17 @@ export default function EventClicked() {
                 />
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" aria-hidden />
+              {/* Back button — top-left overlay */}
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                aria-label="Go back"
+                className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full border-0 bg-black/50 text-white backdrop-blur-md transition hover:bg-black/70"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
               {ev.isFeatured ? (
-                <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
+                <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
                   <Star className="h-3 w-3 fill-current" />
                   Featured
                 </div>
