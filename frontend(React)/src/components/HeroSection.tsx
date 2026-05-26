@@ -9,7 +9,7 @@ type HeroSectionProps = {
 
 export function HeroSection({ onBrowseClubs }: HeroSectionProps) {
   return (
-    <section className="relative m-0 flex items-center justify-center overflow-hidden h-[100vh] h-[100svh] min-h-[600px] pt-16">
+    <section className="relative m-0 flex items-center justify-center overflow-hidden h-[100vh] h-[100svh] min-h-[600px] pt-16 bg-[radial-gradient(ellipse_at_top,hsl(280_65%_12%)_0%,hsl(240_10%_4%)_60%)]">
       <video
         className="absolute inset-0 z-0 h-full w-full object-cover object-center blur-[1.2px] scale-[1.02] opacity-80"
         autoPlay
