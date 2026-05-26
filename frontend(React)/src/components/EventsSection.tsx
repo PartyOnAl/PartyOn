@@ -163,19 +163,19 @@ export function EventsSection({
   return (
     <section
       id="events"
-      className="scroll-mt-24 py-20 border-t border-border/30"
+      className="scroll-mt-24 py-12 md:py-20 border-t border-border/30"
     >
-      <div className="po-container space-y-8">
-        <div className="flex items-end justify-between">
+      <div className="po-container space-y-5 md:space-y-8">
+        <div className="flex flex-wrap items-end justify-between gap-y-2">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <p className="text-sm font-medium text-primary uppercase tracking-widest mb-2">
+            <p className="text-xs sm:text-sm font-medium text-primary uppercase tracking-widest mb-1 sm:mb-2">
               Handpicked
             </p>
-            <h2 className="font-display text-3xl md:text-4xl font-bold uppercase tracking-wider">
+            <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-bold uppercase tracking-wider">
               Featured Events
             </h2>
           </motion.div>

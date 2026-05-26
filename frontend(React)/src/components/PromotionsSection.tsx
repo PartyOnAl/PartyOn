@@ -117,15 +117,15 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
   }
 
   return (
-    <section id="promotions" className="py-20 border-t border-border/30">
-      <div className="po-container space-y-10">
-        <div className="flex items-end justify-between">
+    <section id="promotions" className="py-12 md:py-20 border-t border-border/30">
+      <div className="po-container space-y-5 md:space-y-10">
+        <div className="flex flex-wrap items-end justify-between gap-y-2">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="font-display text-3xl md:text-4xl font-bold">
+            <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-bold">
               Exclusive offers
             </h2>
           </motion.div>
@@ -142,7 +142,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
             {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="min-w-0 shrink-0 grow-0 basis-[75%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] min-h-[28rem] sm:min-h-[30rem] rounded-xl bg-card border border-border/30 animate-pulse"
+                className="min-w-0 shrink-0 grow-0 basis-[80%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] min-h-[22rem] sm:min-h-[28rem] md:min-h-[30rem] rounded-xl bg-card border border-border/30 animate-pulse"
               />
             ))}
           </div>
@@ -158,7 +158,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
                 onClick={scrollPrev}
                 disabled={promotions.length <= 1}
                 aria-label="Previous promotion"
-                className="absolute left-1 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70 sm:-left-5"
+                className="absolute -left-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -167,7 +167,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
                 onClick={scrollNext}
                 disabled={promotions.length <= 1}
                 aria-label="Next promotion"
-                className="absolute right-1 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70 sm:-right-5"
+                className="absolute -right-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
@@ -190,11 +190,11 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     transition={{ delay: i * 0.1 }}
-                    className="min-w-0 shrink-0 grow-0 basis-[75%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] flex h-auto"
+                    className="min-w-0 shrink-0 grow-0 basis-[80%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] flex h-auto"
                   >
                     <Link
                       to={`/promotions/offer/${encodeURIComponent(promo.id)}`}
-                      className="group flex h-full min-h-[28rem] sm:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 text-inherit no-underline transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group flex h-full min-h-[22rem] sm:min-h-[26rem] md:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 text-inherit no-underline transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden">
                         <PromoImage src={promo.image} alt={promo.title} />

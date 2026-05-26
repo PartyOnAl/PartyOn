@@ -49,7 +49,7 @@ export function EventCard({ event, index = 0 }: EventCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: index * 0.08 }}
     >
-      <div className="group/card mx-auto flex h-full min-h-[20.5rem] sm:min-h-[22rem] w-full max-w-[18rem] flex-col">
+      <div className="group/card mx-auto flex h-full min-h-[18rem] sm:min-h-[20.5rem] md:min-h-[22rem] w-full max-w-[18rem] flex-col">
         <div className="relative aspect-[4/5] max-h-[18.5rem] w-full shrink-0 overflow-hidden rounded-lg">
           <Link
             to={`/event/${event.id}`}

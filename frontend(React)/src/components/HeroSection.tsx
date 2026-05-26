@@ -26,33 +26,33 @@ export function HeroSection({ onBrowseClubs }: HeroSectionProps) {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0)_38%,rgba(0,0,0,0.5)_100%)]" />
       </div>
 
-      <div className="relative z-[2] w-full max-w-[900px] mx-auto px-6 text-center">
+      <div className="relative z-[2] w-full max-w-[900px] mx-auto px-4 sm:px-6 text-center">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="max-w-3xl mx-auto space-y-8"
+          className="max-w-3xl mx-auto space-y-4 sm:space-y-6 md:space-y-8"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-sm text-primary">
-            <Music className="h-3.5 w-3.5" />
+          <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs sm:text-sm text-primary">
+            <Music className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
             Your Nightlife, Simplified
           </div>
 
-          <h1 className="font-display text-[2.2rem] sm:text-[2.5rem] md:text-[3rem] lg:text-6xl font-bold leading-[0.95] tracking-tight">
+          <h1 className="font-display text-[1.9rem] sm:text-[2.5rem] md:text-[3rem] lg:text-6xl font-bold leading-[0.95] tracking-tight">
             Discover the
             <br />
             <span className="gradient-text">Night</span>
           </h1>
 
-          <p className="text-base max-[480px]:text-[0.9rem] text-muted-foreground max-w-xl mx-auto leading-relaxed">
+          <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto leading-relaxed px-2">
             Find the best clubs, reserve tables, and book tickets for the hottest
             events across Albania. Your night starts here.
           </p>
 
-          <div className="flex flex-col md:flex-row items-center justify-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Button
               size="lg"
-              className="gradient-primary text-primary-foreground px-8 font-semibold shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow max-[480px]:w-[90%]"
+              className="gradient-primary text-primary-foreground px-8 font-semibold shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow w-[85%] sm:w-auto"
               asChild
             >
               <Link to="/events">
@@ -63,7 +63,7 @@ export function HeroSection({ onBrowseClubs }: HeroSectionProps) {
             <Button
               variant="outline"
               size="lg"
-              className="border-border/50 text-foreground hover:bg-secondary px-8 max-[480px]:w-[90%]"
+              className="border-border/50 text-foreground hover:bg-secondary px-8 w-[85%] sm:w-auto"
               onClick={onBrowseClubs}
             >
               <MapPin className="h-4 w-4 mr-2" />
@@ -71,7 +71,7 @@ export function HeroSection({ onBrowseClubs }: HeroSectionProps) {
             </Button>
           </div>
 
-          <div className="flex items-center justify-center gap-8 pt-4 text-xs md:text-sm text-muted-foreground">
+          <div className="flex items-center justify-center gap-4 sm:gap-8 pt-2 sm:pt-4 text-xs md:text-sm text-muted-foreground">
             <div>
               <span className="text-foreground font-semibold">50+</span> Clubs
             </div>
