@@ -189,11 +189,44 @@ export default function MyProfile() {
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single()
+        .maybeSingle()
       if (!active) return
-      if (profileError || !data) {
+      if (profileError) {
         setLoading(false)
-        setError(profileError?.message ?? 'Could not load your profile.')
+        setError(profileError.message)
+        return
+      }
+      if (!data) {
+        // No profile row yet — create one from OAuth metadata (e.g. Google sign-in)
+        const meta = user.user_metadata ?? {}
+        const fullName = (meta.full_name as string | undefined)?.trim() ?? ''
+        const parts = fullName.split(/\s+/)
+        await fetch('/auth/create-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: user.id,
+            email: user.email ?? null,
+            name: parts[0] ?? null,
+            surname: parts.slice(1).join(' ') || null,
+          }),
+        })
+        if (!active) return
+        const { data: created, error: createdError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        if (!active) return
+        if (createdError || !created) {
+          setLoading(false)
+          setError(createdError?.message ?? 'Could not set up your profile.')
+          return
+        }
+        const loaded = created as ProfileRow
+        setProfile(loaded)
+        setForm(toForm(loaded))
+        setLoading(false)
         return
       }
       const loaded = data as ProfileRow

@@ -336,7 +336,7 @@ function ChangePasswordForm({ onSuccess, onCancel }: { onSuccess: () => void; on
 
   async function handleSubmit() {
     setFieldError(null)
-    if (newPassword.length < 6) { setFieldError('Password must be at least 6 characters.'); return }
+    if (newPassword.length < 8) { setFieldError('Password must be at least 8 characters.'); return }
     if (newPassword !== confirmPassword) { setFieldError('Passwords do not match.'); return }
     if (!supabase || !isSupabaseConfigured) { setFieldError('Authentication not configured.'); return }
     setSaving(true)
@@ -356,7 +356,7 @@ function ChangePasswordForm({ onSuccess, onCancel }: { onSuccess: () => void; on
     >
       <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-[#0d0d10] p-5">
         {[
-          { label: 'New password', val: newPassword, set: setNewPassword, show: showNew, toggle: () => setShowNew(v => !v), ph: 'Min. 6 characters' },
+          { label: 'New password', val: newPassword, set: setNewPassword, show: showNew, toggle: () => setShowNew(v => !v), ph: 'Min. 8 characters' },
           { label: 'Confirm new password', val: confirmPassword, set: setConfirmPassword, show: showConfirm, toggle: () => setShowConfirm(v => !v), ph: 'Re-enter password' },
         ].map(({ label, val, set, show, toggle, ph }) => (
           <div key={label}>
