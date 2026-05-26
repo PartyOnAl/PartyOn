@@ -1,5 +1,5 @@
-﻿import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native'
+import { useCallback, useEffect, useState } from 'react'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl, Image } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -13,7 +13,13 @@ import { subscriptionPlanLabel } from '@/lib/subscriptions'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-type WeeklyMetric = 'reservations' | 'sales'
+type WeeklyMetric = 'bookings' | 'sales'
+type WeeklySummary = {
+  bookings: number
+  tables: number
+  tickets: number
+  sales: number
+}
 
 type DashEvent = {
   event_id: string
@@ -22,16 +28,19 @@ type DashEvent = {
   event_ending_date: string | null
   event_hours: string | null
   final_ticket_price: number | null
+  event_image: string | null
+  event_type: string | null
   event_status: string
 }
 type DashPromotion = {
   promotion_id: string; title: string; category: string | null
-  discount_value: number | null; discounted_price: number | null
+  discount_value: number | null; original_price: number | null
+  discounted_price: number | null; image_url: string | null
   valid_until: string | null; status: string
 }
 type DashReservation = {
   reservation_id: string; type: string; status: string; created_at: string | null
-  events:    { event_name: string } | null
+  events:    { event_name: string; final_ticket_price?: number | null } | null
   profiles:  { name: string | null; surname: string | null } | null
   tables: { minimum_spend: number | null; table_number: string } | null
   final_ticket_price?: number | null
@@ -60,12 +69,13 @@ export default function DashboardScreen() {
   const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   // Weekly chart - real data, last 7 days rolling
-  const [weeklyReservations, setWeeklyReservations] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
-  const [weeklySales, setWeeklySales]               = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
-  const [weeklyLabels, setWeeklyLabels]             = useState<string[]>(['', '', '', '', '', '', ''])
-  const [weeklyMetric, setWeeklyMetric]             = useState<WeeklyMetric>('reservations')
+  const [weeklyBookings, setWeeklyBookings] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [weeklySales, setWeeklySales]       = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [weeklyLabels, setWeeklyLabels]     = useState<string[]>(['', '', '', '', '', '', ''])
+  const [weeklySummary, setWeeklySummary]   = useState<WeeklySummary>({ bookings: 0, tables: 0, tickets: 0, sales: 0 })
+  const [weeklyMetric, setWeeklyMetric]     = useState<WeeklyMetric>('bookings')
 
-  const activeWeekly = weeklyMetric === 'sales' ? weeklySales : weeklyReservations
+  const activeWeekly = weeklyMetric === 'sales' ? weeklySales : weeklyBookings
   const maxVal       = Math.max(...activeWeekly, 1)
   const weeklyTotal  = activeWeekly.reduce((a, b) => a + b, 0)
 
@@ -81,7 +91,7 @@ export default function DashboardScreen() {
       // Candidate published events; filter upcoming/live client-side using hours & end dates
       supabase
         .from('events')
-        .select('event_id,event_name,event_starting_date,event_ending_date,event_hours,final_ticket_price,event_status')
+        .select('event_id,event_name,event_starting_date,event_ending_date,event_hours,final_ticket_price,event_image,event_type,event_status')
         .eq('club_id', clubId)
         .eq('event_status', 'published')
         .gte('event_starting_date', today.toISOString())
@@ -117,7 +127,7 @@ export default function DashboardScreen() {
       // Active promotions
       supabase
         .from('promotions')
-        .select('promotion_id,title,category,discount_value,discounted_price,valid_until,status')
+        .select('promotion_id,title,category,discount_value,original_price,discounted_price,image_url,valid_until,status')
         .eq('club_id', clubId)
         .in('status', ['active', 'approved'])
         .order('created_at', { ascending: false })
@@ -181,33 +191,89 @@ export default function DashboardScreen() {
     }
     setWeeklyLabels(labels)
 
-    const resvBuckets  = new Array(7).fill(0) as number[]
+    const bookingBuckets  = new Array(7).fill(0) as number[]
     const salesBuckets = new Array(7).fill(0) as number[]
+    const summary: WeeklySummary = { bookings: 0, tables: 0, tickets: 0, sales: 0 }
 
     if (eventIds.length > 0) {
-      const { data: weekResv } = await supabase
+      const { data: weekBookingsData } = await supabase
         .from('reservations')
-        .select('created_at, payments(amount, status)')
+        .select(`
+          reservation_id, type, status, created_at, nr_of_people,
+          events(final_ticket_price),
+          ticket_types(price)
+        `)
         .in('event_id', eventIds)
         .gte('created_at', since.toISOString())
 
-      ;(weekResv ?? []).forEach((r: any) => {
+      const reservationById: Record<string, any> = {}
+
+      ;(weekBookingsData ?? []).forEach((r: any) => {
+        if (r.status === 'cancelled') return
         if (!r.created_at) return
         const day = new Date(r.created_at); day.setHours(0, 0, 0, 0)
         const idx = Math.floor((day.getTime() - since.getTime()) / 86400000)
         if (idx < 0 || idx > 6) return
-        resvBuckets[idx] += 1
-        const pays: any[] = Array.isArray(r.payments) ? r.payments : (r.payments ? [r.payments] : [])
-        pays.forEach(p => {
-          if (p?.status === 'completed' && typeof p.amount === 'number') {
-            salesBuckets[idx] += p.amount
-          }
-        })
+        reservationById[r.reservation_id] = { ...r, _bucketIndex: idx }
+        bookingBuckets[idx] += 1
+        summary.bookings += 1
+        if (r.type === 'ticket') summary.tickets += Number(r.nr_of_people ?? 1)
+        else summary.tables += 1
       })
+
+      const weekReservationIds = Object.keys(reservationById)
+      const paidReservationIds = new Set<string>()
+
+      if (weekReservationIds.length > 0) {
+        const { data: paymentsData } = await supabase
+          .from('payments')
+          .select('reservation_id, amount, gross_amount, status, payment_date')
+          .in('reservation_id', weekReservationIds)
+          .eq('status', 'completed')
+
+        ;(paymentsData ?? []).forEach((p: any) => {
+          const reservationId = p.reservation_id as string | null
+          if (!reservationId) return
+          const r = reservationById[reservationId]
+          if (!r) return
+          const paymentDate = p.payment_date ? new Date(p.payment_date) : null
+          const idx = paymentDate && !Number.isNaN(paymentDate.getTime())
+            ? Math.floor((new Date(paymentDate.getFullYear(), paymentDate.getMonth(), paymentDate.getDate()).getTime() - since.getTime()) / 86400000)
+            : r._bucketIndex
+          if (idx < 0 || idx > 6) return
+          const gross = Number(p.gross_amount ?? p.amount ?? 0)
+          if (!Number.isFinite(gross) || gross <= 0) return
+          salesBuckets[idx] += gross
+          summary.sales += gross
+          paidReservationIds.add(reservationId)
+        })
+
+        // Older rows may have confirmed ticket bookings before payments were
+        // fully backfilled. Keep the manager dashboard useful by estimating
+        // ticket sales from the ticket/event price when no completed payment
+        // row exists for that booking.
+        Object.values(reservationById).forEach((r: any) => {
+          if (r.type !== 'ticket' || paidReservationIds.has(r.reservation_id)) return
+          if (r.status !== 'confirmed' && r.status !== 'completed') return
+          const ticketType = Array.isArray(r.ticket_types) ? r.ticket_types[0] : r.ticket_types
+          const eventRow = Array.isArray(r.events) ? r.events[0] : r.events
+          const unitPrice = Number(ticketType?.price ?? eventRow?.final_ticket_price ?? 0)
+          const gross = unitPrice * Number(r.nr_of_people ?? 1)
+          if (!Number.isFinite(gross) || gross <= 0) return
+          const idx = r._bucketIndex
+          if (idx < 0 || idx > 6) return
+          salesBuckets[idx] += gross
+          summary.sales += gross
+        })
+      }
     }
 
-    setWeeklyReservations(resvBuckets)
+    setWeeklyBookings(bookingBuckets)
     setWeeklySales(salesBuckets.map(v => Math.round(v * 100) / 100))
+    setWeeklySummary({
+      ...summary,
+      sales: Math.round(summary.sales * 100) / 100,
+    })
 
     setLoading(false)
     setRefreshing(false)
@@ -215,6 +281,14 @@ export default function DashboardScreen() {
 
   useEffect(() => { fetchData() }, [fetchData])
   const onRefresh = () => { setRefreshing(true); fetchData() }
+
+  function formatWeeklyValue(value: number) {
+    if (weeklyMetric === 'sales') {
+      if (value >= 1000) return `€${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`
+      return `€${Math.round(value)}`
+    }
+    return String(value)
+  }
 
   // Unread notification count + realtime updates
   useEffect(() => {
@@ -256,6 +330,29 @@ export default function DashboardScreen() {
     if (!d) return '–'
     const dt = new Date(d)
     return dt.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
+  }
+
+  function formatEventTime(d: string | null, hours?: string | null) {
+    if (hours) return hours
+    if (!d) return 'Time TBA'
+    return new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function eventPriceLabel(ev: DashEvent) {
+    if (ev.final_ticket_price == null) return 'Reservation'
+    if (Number(ev.final_ticket_price) === 0) return 'Free'
+    return `€${Number(ev.final_ticket_price).toFixed(0)}`
+  }
+
+  function promoPriceLabel(promo: DashPromotion) {
+    const calculatedPrice =
+      promo.original_price != null && promo.discount_value != null
+        ? Math.round(Math.max(0, Number(promo.original_price) * (1 - Math.min(100, Math.max(0, Number(promo.discount_value))) / 100)) * 100) / 100
+        : null
+    if (promo.discounted_price != null) return `€${Number(promo.discounted_price).toFixed(2)}`
+    if (calculatedPrice != null) return `€${calculatedPrice.toFixed(2)}`
+    if (promo.original_price != null) return `€${Number(promo.original_price).toFixed(2)}`
+    return 'Offer'
   }
 
   function getReservName(r: DashReservation) {
@@ -330,9 +427,6 @@ export default function DashboardScreen() {
             )}
           </TouchableOpacity>
         </View>
-
-        <Text style={s.pageTitle}>Dashboard Overview</Text>
-        <Text style={s.pageSubtitle}>{"Track your club's performance"}</Text>
 
         {/* Subscription banner */}
         {subBannerColor !== null && (
@@ -422,11 +516,11 @@ export default function DashboardScreen() {
             <Text style={s.sectionTitle}>Weekly Activity</Text>
             <View style={s.metricToggle}>
               <TouchableOpacity
-                style={[s.metricPill, weeklyMetric === 'reservations' && s.metricPillActive]}
-                onPress={() => setWeeklyMetric('reservations')}
+                style={[s.metricPill, weeklyMetric === 'bookings' && s.metricPillActive]}
+                onPress={() => setWeeklyMetric('bookings')}
                 activeOpacity={0.85}
               >
-                <Text style={[s.metricPillText, weeklyMetric === 'reservations' && s.metricPillTextActive]}>Reservations</Text>
+                <Text style={[s.metricPillText, weeklyMetric === 'bookings' && s.metricPillTextActive]}>Bookings</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.metricPill, weeklyMetric === 'sales' && s.metricPillActive]}
@@ -438,33 +532,49 @@ export default function DashboardScreen() {
             </View>
           </View>
           <Text style={s.chartSub}>
-            {weeklyMetric === 'sales' ? 'Completed payments by day' : 'New reservations by day'}
+            {weeklyMetric === 'sales' ? 'Revenue from completed payments by booking day' : 'Ticket purchases and table reservations by day'}
           </Text>
 
-          {weeklyTotal === 0 ? (
-            <View style={s.chartEmpty}>
-              <Ionicons name="bar-chart-outline" size={28} color={COLORS.mutedDark} />
-              <Text style={s.chartEmptyText}>No activity yet this week</Text>
+          <View style={s.weeklySummaryRow}>
+            <View style={s.weeklySummaryChip}>
+              <Text style={s.weeklySummaryValue}>{weeklySummary.bookings}</Text>
+              <Text style={s.weeklySummaryLabel}>Bookings</Text>
             </View>
-          ) : (
-            <>
-              <View style={s.chart}>
-                {activeWeekly.map((val, i) => (
-                  <View key={i} style={s.barCol}>
-                    <View style={s.barTrack}>
-                      <View style={[s.bar, {
-                        height: `${(val / maxVal) * 100}%`,
-                        backgroundColor: i === activeWeekly.length - 1 ? COLORS.purpleDark : 'rgba(255,255,255,0.12)',
-                      }]} />
-                    </View>
-                    <Text style={s.barLabel}>{weeklyLabels[i] || ''}</Text>
-                  </View>
-                ))}
+            <View style={s.weeklySummaryChip}>
+              <Text style={s.weeklySummaryValue}>{weeklySummary.tickets}</Text>
+              <Text style={s.weeklySummaryLabel}>Tickets</Text>
+            </View>
+            <View style={s.weeklySummaryChip}>
+              <Text style={s.weeklySummaryValue}>{weeklySummary.tables}</Text>
+              <Text style={s.weeklySummaryLabel}>Tables</Text>
+            </View>
+            <View style={s.weeklySummaryChip}>
+              <Text style={s.weeklySummaryValue}>€{weeklySummary.sales.toFixed(0)}</Text>
+              <Text style={s.weeklySummaryLabel}>Sales</Text>
+            </View>
+          </View>
+
+          <View style={s.chart}>
+            {activeWeekly.map((val, i) => (
+              <View key={i} style={s.barCol}>
+                <Text style={s.barValue}>{formatWeeklyValue(val)}</Text>
+                <View style={s.barTrack}>
+                  <View style={[s.bar, {
+                    height: val > 0 ? `${Math.max((val / maxVal) * 100, 8)}%` : 2,
+                    backgroundColor: val > 0
+                      ? (i === activeWeekly.length - 1 ? COLORS.purpleDark : COLORS.purple)
+                      : 'rgba(255,255,255,0.08)',
+                  }]} />
+                </View>
+                <Text style={s.barLabel}>{weeklyLabels[i] || ''}</Text>
               </View>
-              <Text style={s.chartTotal}>
-                Total: {weeklyMetric === 'sales' ? `€${weeklyTotal.toFixed(2)}` : `${weeklyTotal} reservation${weeklyTotal !== 1 ? 's' : ''}`}
-              </Text>
-            </>
+            ))}
+          </View>
+          <Text style={s.chartTotal}>
+            Total: {weeklyMetric === 'sales' ? `€${weeklyTotal.toFixed(2)}` : `${weeklyTotal} booking${weeklyTotal !== 1 ? 's' : ''}`}
+          </Text>
+          {weeklyTotal === 0 && (
+            <Text style={s.chartHint}>No {weeklyMetric === 'sales' ? 'sales' : 'bookings'} found in the last 7 days.</Text>
           )}
         </View>
 
@@ -538,26 +648,44 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            upcomingEvents.map((ev, i) => (
-              <TouchableOpacity
-                key={ev.event_id}
-                style={s.eventRow}
-                activeOpacity={0.85}
-                onPress={() => router.push({ pathname: '/(manager)/edit-event', params: { id: ev.event_id } })}
-              >
-                <View style={[s.eventThumb, { backgroundColor: ACCENT_COLORS[i % ACCENT_COLORS.length] + '33' }]}>
-                  <Ionicons name="musical-notes" size={18} color={ACCENT_COLORS[i % ACCENT_COLORS.length]} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.eventName} numberOfLines={1}>{ev.event_name}</Text>
-                  <Text style={s.eventDate}>
-                    {formatEventDate(ev.event_starting_date)}
-                    {ev.final_ticket_price ? ` • €${ev.final_ticket_price.toFixed(2)}` : ''}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
-              </TouchableOpacity>
-            ))
+            <View style={s.eventList}>
+              {upcomingEvents.map((ev, i) => (
+                <TouchableOpacity
+                  key={ev.event_id}
+                  style={s.eventCard}
+                  activeOpacity={0.85}
+                  onPress={() => router.push({ pathname: '/(manager)/edit-event', params: { id: ev.event_id } })}
+                >
+                  {ev.event_image ? (
+                    <Image source={{ uri: ev.event_image }} style={s.eventCardThumb} resizeMode="cover" />
+                  ) : (
+                    <View style={[s.eventCardThumb, { backgroundColor: ACCENT_COLORS[i % ACCENT_COLORS.length] + '33' }]}>
+                      <Ionicons name="musical-notes" size={24} color={ACCENT_COLORS[i % ACCENT_COLORS.length]} />
+                    </View>
+                  )}
+                  <View style={s.eventCardInfo}>
+                    <Text style={s.eventCardTitle} numberOfLines={1}>{ev.event_name}</Text>
+                    <View style={s.eventMetaRow}>
+                      <Ionicons name="calendar-outline" size={13} color={COLORS.purple} />
+                      <Text style={s.eventMetaText} numberOfLines={1}>{formatEventDate(ev.event_starting_date)}</Text>
+                    </View>
+                    <View style={s.eventMetaRow}>
+                      <Ionicons name="time-outline" size={13} color={COLORS.purple} />
+                      <Text style={s.eventMetaText} numberOfLines={1}>{formatEventTime(ev.event_starting_date, ev.event_hours)}</Text>
+                    </View>
+                    <View style={s.eventMetaRow}>
+                      <Ionicons name="musical-notes-outline" size={13} color={COLORS.purple} />
+                      <Text style={s.eventMetaText} numberOfLines={1}>{ev.event_type || 'Live Music'}</Text>
+                    </View>
+                  </View>
+                  <View style={s.eventPricePill}>
+                    <Ionicons name="ticket-outline" size={12} color={COLORS.purple} />
+                    <Text style={s.eventPriceText}>{eventPriceLabel(ev)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
         </View>
 
@@ -578,38 +706,51 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            activePromotions.map(p => {
-              const expiringSoon = p.valid_until &&
-                new Date(p.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
-              return (
-                <TouchableOpacity
-                  key={p.promotion_id}
-                  style={s.promoRow}
-                  onPress={() => router.push('/(manager)/promotions' as any)}
-                  activeOpacity={0.8}
-                >
-                  <View style={s.promoIcon}>
-                    <Ionicons name="pricetag-outline" size={18} color={COLORS.cta} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.promoTitle} numberOfLines={1}>{p.title}</Text>
-                    <Text style={s.promoMeta}>
-                      {p.category ?? 'General'}
-                      {p.discount_value != null ? ` • ${p.discount_value}% off` : ''}
-                      {p.discounted_price != null ? ` • €${p.discounted_price}` : ''}
-                    </Text>
-                  </View>
-                  {expiringSoon && (
-                    <View style={s.expireBadge}>
-                      <Text style={s.expireText}>Ending soon</Text>
+            <View style={s.promoList}>
+              {activePromotions.map(p => {
+                const expiringSoon = p.valid_until &&
+                  new Date(p.valid_until).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000
+                return (
+                  <TouchableOpacity
+                    key={p.promotion_id}
+                    style={s.promoCard}
+                    onPress={() => router.push('/(manager)/promotions' as any)}
+                    activeOpacity={0.84}
+                  >
+                    {p.image_url ? (
+                      <Image source={{ uri: p.image_url }} style={s.promoThumb} resizeMode="cover" />
+                    ) : (
+                      <View style={s.promoThumb}>
+                        <Ionicons name="pricetag-outline" size={24} color={COLORS.cta} />
+                      </View>
+                    )}
+                    <View style={s.promoInfo}>
+                      <Text style={s.promoTitle} numberOfLines={1}>{p.title}</Text>
+                      <View style={s.promoMetaRow}>
+                        <Ionicons name="bookmark-outline" size={12} color={COLORS.cta} />
+                        <Text style={s.promoMeta} numberOfLines={1}>{p.category ?? 'General'}</Text>
+                      </View>
+                      <View style={s.promoMetaRow}>
+                        <Ionicons name="cash-outline" size={12} color={COLORS.green} />
+                        <Text style={s.promoMeta} numberOfLines={1}>{promoPriceLabel(p)}</Text>
+                      </View>
                     </View>
-                  )}
-                  {!expiringSoon && (
-                    <View style={s.activeDot} />
-                  )}
-                </TouchableOpacity>
-              )
-            })
+                    {p.discount_value != null && (
+                      <View style={s.discountPill}>
+                        <Text style={s.discountPillText}>{p.discount_value}%</Text>
+                      </View>
+                    )}
+                    {expiringSoon ? (
+                      <View style={s.expireBadge}>
+                        <Text style={s.expireText}>Ending soon</Text>
+                      </View>
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
           )}
         </View>
 
@@ -669,7 +810,7 @@ const s = StyleSheet.create({
   center:{ flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg },
-  appName:      { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  appName:      { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   managerLabel: { color: COLORS.mutedDark, fontSize: 12, marginTop: 2 },
   bellBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
   bellBadge:    {
@@ -701,14 +842,26 @@ const s = StyleSheet.create({
   metricPillText:    { color: COLORS.mutedDark, fontSize: 11, fontWeight: '600' },
   metricPillTextActive: { color: COLORS.white },
 
-  chartEmpty:     { alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.lg, gap: SPACING.xs },
-  chartEmptyText: { color: COLORS.mutedDark, fontSize: FONT.sm },
+  weeklySummaryRow: { flexDirection: 'row', gap: 6, marginBottom: SPACING.md },
+  weeklySummaryChip: {
+    flex: 1,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SPACING.xs,
+    alignItems: 'center',
+  },
+  weeklySummaryValue: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '800' },
+  weeklySummaryLabel: { color: COLORS.mutedDark, fontSize: 10, marginTop: 1 },
 
-  chart:    { flexDirection: 'row', alignItems: 'flex-end', height: 100, gap: 6 },
+  chart:    { flexDirection: 'row', alignItems: 'flex-end', height: 124, gap: 6 },
   barCol:   { flex: 1, alignItems: 'center', gap: 4 },
   barTrack: { flex: 1, width: '100%', justifyContent: 'flex-end' },
   bar:      { width: '100%', borderRadius: 4 },
+  barValue: { color: COLORS.muted, fontSize: 9, fontWeight: '700', minHeight: 12 },
   barLabel: { color: COLORS.mutedDark, fontSize: 9 },
+  chartHint:{ color: COLORS.mutedDark, fontSize: 11, marginTop: SPACING.xs, textAlign: 'center' },
 
   subBanner: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
@@ -749,8 +902,35 @@ const s = StyleSheet.create({
   actionLabel: { color: COLORS.white, fontSize: FONT.base, fontWeight: '500' },
   divider:     { height: 1, backgroundColor: COLORS.border, marginHorizontal: SPACING.md },
 
-  eventRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md },
-  eventThumb: { width: 48, height: 48, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  eventList: { gap: 8 },
+  eventCard: {
+    minHeight: 96,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  eventCardThumb: { width: 92, height: 78, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  eventCardInfo: { flex: 1, minWidth: 0 },
+  eventCardTitle: { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '800', marginBottom: 5 },
+  eventMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
+  eventMetaText: { color: COLORS.mutedDark, fontSize: 11, fontWeight: '700', flex: 1 },
+  eventPricePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: COLORS.purple + '88',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    maxWidth: 92,
+  },
+  eventPriceText: { color: COLORS.white, fontSize: 10, fontWeight: '800' },
   eventName:  { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '600', marginBottom: 3 },
   eventDate:  { color: COLORS.mutedDark, fontSize: 12 },
 
@@ -758,10 +938,25 @@ const s = StyleSheet.create({
   emptyInlineText: { color: COLORS.mutedDark, fontSize: FONT.sm },
   emptyInlineLink: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '600' },
 
-  promoRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md },
-  promoIcon:   { width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: COLORS.cta + '22', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  promoTitle:  { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '600', marginBottom: 3 },
-  promoMeta:   { color: COLORS.mutedDark, fontSize: 12 },
+  promoList: { gap: 8 },
+  promoCard: {
+    minHeight: 84,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  promoThumb: { width: 72, height: 64, borderRadius: RADIUS.md, backgroundColor: COLORS.cta + '22', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  promoInfo: { flex: 1, minWidth: 0 },
+  promoTitle:  { color: COLORS.white, fontSize: FONT.sm + 1, fontWeight: '800', marginBottom: 5 },
+  promoMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
+  promoMeta:   { color: COLORS.mutedDark, fontSize: 11, fontWeight: '700', flex: 1 },
+  discountPill: { borderRadius: RADIUS.pill, backgroundColor: COLORS.purpleDark, paddingHorizontal: 9, paddingVertical: 5 },
+  discountPillText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
   expireBadge: { backgroundColor: COLORS.pink + '22', borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
   expireText:  { color: COLORS.pink, fontSize: 10, fontWeight: '700' },
   activeDot:   { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.green },

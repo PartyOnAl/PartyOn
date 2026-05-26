@@ -13,6 +13,7 @@ import type { Reservation, Attendee, ClaimedPromotion } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { downloadTicketPdf } from '@/lib/ticketPdf'
 import { isEventPast } from '@/lib/eventDates'
+import { normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateLong(iso: string) {
@@ -286,8 +287,19 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
   const reservationId = reservation?.reservation_id
   const reservationType = reservation?.type
 
+  // Stripe batch payments linked to this reservation (payment_id per ticket).
+  // Present when the user bought via the Stripe flow and we've linked the records.
+  const batchPayments: Array<{ payment_id: string; amount: string; status: string }> =
+    (reservationType !== 'table' && reservation)
+      ? (((reservation as any).payments ?? []) as Array<{ payment_id?: string; amount: string; status: string }>)
+          .filter((p): p is { payment_id: string; amount: string; status: string } => !!p.payment_id)
+      : []
+  const hasBatchPayments = batchPayments.length > 0
+
   useEffect(() => {
-    if (!reservationId || reservationType === 'table') { setAttendees([]); return }
+    // Skip attendee fetch when Stripe payment records are available — the
+    // QR codes come from payment_id UUIDs in that case.
+    if (!reservationId || reservationType === 'table' || hasBatchPayments) { setAttendees([]); return }
     let cancelled = false
     setAttendees(null)
     supabase.from('attendees')
@@ -296,7 +308,7 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
       .order('created_at', { ascending: true })
       .then(({ data }) => { if (!cancelled) setAttendees((data as Attendee[]) ?? []) })
     return () => { cancelled = true }
-  }, [reservationId, reservationType])
+  }, [reservationId, reservationType, hasBatchPayments])
 
   if (!reservation) return null
   const currentReservation = reservation
@@ -304,6 +316,8 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
   const isTable = reservation.type === 'table'
   const past = bookingIsPast(reservation)
   const effectiveStatus = past && reservation.status === 'confirmed' ? 'completed' : reservation.status
+  const reservationHoldMinutes = normalizeReservationHoldMinutes(ev?.clubs?.reservation_hold_minutes)
+  const reservationHoldText = reservationHoldPolicyText(reservationHoldMinutes)
 
   const qrUrl = reservation.qr_code && !past ? qrUrlFor(reservation.qr_code) : null
 
@@ -395,6 +409,13 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
               </View>
             </View>
 
+            {isTable && !past && (
+              <View style={styles.holdPolicyBox}>
+                <Ionicons name="time-outline" size={16} color={COLORS.pink} />
+                <Text style={styles.holdPolicyText}>{reservationHoldText}</Text>
+              </View>
+            )}
+
             {past ? (
               <View style={styles.qrPast}>
                 <Ionicons name="checkmark-done-circle-outline" size={52} color={COLORS.mutedDark} />
@@ -414,11 +435,48 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
                   <Text style={styles.qrPastSub}>Booking ID: {reservation.reservation_id}</Text>
                 </View>
               )
+            ) : hasBatchPayments ? (
+              /* ── Stripe batch: one QR per payment_id ─────────────────────── */
+              <View style={styles.qrWrap}>
+                <Text style={styles.attendeesHeader}>
+                  {batchPayments.length === 1 ? 'Your ticket QR' : `${batchPayments.length} tickets — one QR per guest`}
+                </Text>
+                <View style={styles.stripeBadge}>
+                  <Ionicons name="shield-checkmark-outline" size={13} color={COLORS.green} />
+                  <Text style={styles.stripeBadgeText}>Payment verified by Stripe · Each QR admits one person</Text>
+                </View>
+                {batchPayments.map((p, i) => (
+                  <View key={p.payment_id} style={[styles.attendeeBlock, i > 0 && styles.attendeeBlockDivider]}>
+                    <View style={styles.attendeeHeader}>
+                      <View style={styles.attendeeIndex}>
+                        <Text style={styles.attendeeIndexText}>{i + 1}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.attendeeName} numberOfLines={1}>
+                          {i === 0 ? 'Your ticket' : `Guest ${i + 1}`}
+                        </Text>
+                        <Text style={styles.attendeeRole}>
+                          Ticket {i + 1} of {batchPayments.length}
+                        </Text>
+                      </View>
+                      {p.status === 'completed' && (
+                        <View style={styles.checkedPill}>
+                          <Ionicons name="checkmark" size={11} color={COLORS.green} />
+                          <Text style={styles.checkedText}>Paid</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Image source={{ uri: qrUrlFor(p.payment_id) }} style={styles.qrImage} resizeMode="contain" />
+                    <Text style={styles.qrCaption} numberOfLines={1} selectable>{p.payment_id}</Text>
+                  </View>
+                ))}
+              </View>
             ) : attendees === null ? (
               <View style={[styles.qrWrap, { paddingVertical: SPACING.xl }]}>
                 <ActivityIndicator color={COLORS.purple} />
               </View>
             ) : attendees.length > 0 ? (
+              /* ── Legacy attendee QR codes ─────────────────────────────────── */
               <View style={styles.qrWrap}>
                 <Text style={styles.attendeesHeader}>
                   {attendees.length === 1 ? 'Your QR code' : `${attendees.length} tickets — one QR per guest`}
@@ -854,7 +912,7 @@ export default function BookingsScreen() {
       Promise.all([
         supabase
           .from('reservations')
-          .select('*, events(event_id, event_name, event_starting_date, event_ending_date, event_hours, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
+          .select('*, events(event_id, event_name, event_starting_date, event_ending_date, event_hours, event_image, club_id, clubs(*)), ticket_types(name,price), payments(payment_id,amount,status)')
           .eq('user_id', user.id)
           .is('user_hidden_at', null)
           .order('created_at', { ascending: false }),
@@ -1381,6 +1439,23 @@ const styles = StyleSheet.create({
   sheetBadgeText: { fontSize: FONT.sm, fontWeight: '700' },
   sheetStatusBadge: { borderWidth: 1, borderRadius: RADIUS.pill, paddingHorizontal: SPACING.sm + 2, paddingVertical: 5 },
   sheetStatusText: { fontSize: FONT.sm, fontWeight: '600', textTransform: 'capitalize' },
+  holdPolicyBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.xs,
+    backgroundColor: 'rgba(244,114,182,0.10)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: 'rgba(244,114,182,0.25)',
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  holdPolicyText: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: FONT.sm,
+    lineHeight: FONT.sm * 1.5,
+  },
   qrWrap: {
     alignItems: 'center', backgroundColor: '#ffffff',
     borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: SPACING.lg,
@@ -1471,4 +1546,14 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginTop: SPACING.sm,
   },
   submitBtnText: { color: '#fff', fontWeight: '800', fontSize: FONT.base },
+
+  // Stripe batch QR badge
+  stripeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(16,185,129,0.10)', borderRadius: RADIUS.pill,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.30)',
+    paddingHorizontal: SPACING.md, paddingVertical: 5,
+    marginBottom: SPACING.md, alignSelf: 'center',
+  },
+  stripeBadgeText: { color: COLORS.green, fontSize: 11, fontWeight: '700' },
 })

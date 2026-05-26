@@ -1,8 +1,13 @@
 import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { COLORS } from '@/lib/theme'
+import { getTabBarBottomPadding } from '@/lib/tabBarInsets'
 
 export default function ManagerTabsLayout() {
+  const insets = useSafeAreaInsets()
+  const bottomPad = getTabBarBottomPadding(insets.bottom)
+
   return (
     <Tabs
       screenOptions={{
@@ -11,7 +16,8 @@ export default function ManagerTabsLayout() {
           backgroundColor: '#0a0a0f',
           borderTopColor: 'rgba(255,255,255,0.08)',
           borderTopWidth: 1,
-          /** Do not set height/paddingBottom here — RN Tabs applies bottom safe-area inset; overriding it caused excess black space above the icons. */
+          /** Edge-to-edge: explicit inset so tabs sit above Android system navigation */
+          paddingBottom: bottomPad,
           paddingTop: 8,
         },
         tabBarActiveTintColor: COLORS.purple,

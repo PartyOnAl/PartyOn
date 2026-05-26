@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { usePlatformSettings } from '@/lib/platformSettings'
 import { useAuth } from '@/lib/AuthContext'
+import { supabase } from '@/lib/supabase'
+import { DEFAULT_RESERVATION_HOLD_MINUTES, normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 export default function PaymentScreen() {
   const router = useRouter()
@@ -34,6 +36,7 @@ export default function PaymentScreen() {
   // Pre-fill from the guest count the user chose on the table picker
   const [nrOfPeople, setNrOfPeople] = useState(params.nrOfPeople ? Number(params.nrOfPeople) : 2)
   const [updates, setUpdates] = useState(false)
+  const [reservationHoldMinutes, setReservationHoldMinutes] = useState(DEFAULT_RESERVATION_HOLD_MINUTES)
 
   const buyerName = useMemo(() => {
     const full = [profile?.name, profile?.surname].filter(Boolean).join(' ').trim()
@@ -52,6 +55,22 @@ export default function PaymentScreen() {
       return next
     })
   }, [quantity, buyerName])
+
+  useEffect(() => {
+    if (!isReservation || !params.eventId) return
+    let cancelled = false
+    supabase
+      .from('events')
+      .select('clubs(*)')
+      .eq('event_id', params.eventId)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return
+        const club = Array.isArray((data as any)?.clubs) ? (data as any).clubs[0] : (data as any)?.clubs
+        setReservationHoldMinutes(normalizeReservationHoldMinutes(club?.reservation_hold_minutes))
+      })
+    return () => { cancelled = true }
+  }, [isReservation, params.eventId])
 
   function setAttendeeName(i: number, v: string) {
     setAttendeeNames(prev => prev.map((n, idx) => (idx === i ? v : n)))
@@ -151,6 +170,15 @@ export default function PaymentScreen() {
                 Seats up to {params.tableCapacity} guests
               </Text>
             ) : null}
+          </View>
+        )}
+
+        {isReservation && (
+          <View style={styles.holdPolicyCard}>
+            <Ionicons name="time-outline" size={16} color={COLORS.pink} />
+            <Text style={styles.holdPolicyText}>
+              {reservationHoldPolicyText(reservationHoldMinutes)}
+            </Text>
           </View>
         )}
 
@@ -327,6 +355,8 @@ const styles = StyleSheet.create({
   totalValue: { color: COLORS.purple, fontSize: FONT.md, fontWeight: '800' },
   freeNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: SPACING.md, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: RADIUS.sm, padding: SPACING.sm, borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)' },
   freeNoticeText: { color: COLORS.green, fontSize: FONT.sm, flex: 1 },
+  holdPolicyCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: 'rgba(244,114,182,0.08)', borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.md, borderWidth: 1, borderColor: 'rgba(244,114,182,0.25)' },
+  holdPolicyText: { color: COLORS.muted, fontSize: FONT.sm, flex: 1, lineHeight: FONT.sm * 1.5 },
   optinRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, padding: SPACING.sm },
   checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
   checkboxActive: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },

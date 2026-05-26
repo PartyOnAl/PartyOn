@@ -297,7 +297,7 @@ const s = StyleSheet.create({
 
   header:   { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg, gap: SPACING.sm },
   backBtn:  { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
-  appName:  { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  appName:  { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:      { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
 
   pageTitle:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },

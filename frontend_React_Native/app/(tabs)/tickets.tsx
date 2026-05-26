@@ -3,10 +3,11 @@ import {
   View, Text, FlatList, TouchableOpacity, Image,
   StyleSheet, Modal, RefreshControl, ActivityIndicator, Share,
 } from 'react-native'
-import { CalendarDays, MapPin, QrCode, X, Ticket, Eye, Download, Calendar } from 'lucide-react-native'
+import { CalendarDays, MapPin, QrCode, X, Ticket, Eye, Download, Calendar, Clock } from 'lucide-react-native'
 import Svg, { Rect } from 'react-native-svg'
 import { supabase } from '@/lib/supabase'
 import type { Reservation } from '@/types'
+import { normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 const YELLOW = '#a78bfa'
 
@@ -61,7 +62,7 @@ export default function TicketsScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { data } = await supabase.from('reservations')
-      .select('*, events(*, clubs(club_name,club_address)), ticket_types(name,price), payments(*), tables(table_number,sector,minimum_spend)')
+      .select('*, events(*, clubs(*)), ticket_types(name,price), payments(*), tables(table_number,sector,minimum_spend)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
     let rows = data ?? []
@@ -205,6 +206,7 @@ function QRModal({ reservation, onClose }: { reservation: Reservation; onClose: 
   const event = reservation.events as any
   const dateStr = event ? new Date(event.event_starting_date).toLocaleDateString('en-GB', { weekday: 'long', month: 'long', day: 'numeric' }) : ''
   const timeStr = event?.event_hours ?? ''
+  const reservationHoldText = reservationHoldPolicyText(normalizeReservationHoldMinutes(event?.clubs?.reservation_hold_minutes))
 
   async function shareTicket() {
     await Share.share({ message: `My ticket for ${event?.event_name} at ${event?.clubs?.club_name} 🎉` })
@@ -229,6 +231,13 @@ function QRModal({ reservation, onClose }: { reservation: Reservation; onClose: 
           </View>
 
           {/* QR */}
+          {reservation.type === 'table' && (
+            <View style={s.holdPolicyBox}>
+              <Clock size={16} color="#f472b6" />
+              <Text style={s.holdPolicyText}>{reservationHoldText}</Text>
+            </View>
+          )}
+
           <View style={s.qrContainer}>
             <QRCode size={170} />
           </View>
@@ -309,6 +318,8 @@ const s = StyleSheet.create({
   modalTitle: { color: '#fff', fontSize: 15, fontWeight: '700', flex: 1 },
   modalMeta: { color: '#555', fontSize: 12, marginTop: 2 },
   modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' },
+  holdPolicyBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: 'rgba(244,114,182,0.10)', borderWidth: 1, borderColor: 'rgba(244,114,182,0.25)', borderRadius: 14, padding: 12, marginBottom: 14 },
+  holdPolicyText: { color: '#aaa', fontSize: 12, lineHeight: 18, flex: 1 },
   qrContainer: { alignItems: 'center', backgroundColor: '#fff', padding: 18, borderRadius: 20, marginBottom: 10 },
   qrHint: { color: '#444', fontSize: 12, textAlign: 'center', marginBottom: 16 },
   detailsGrid: { flexDirection: 'row', gap: 24, marginBottom: 16, paddingHorizontal: 4 },

@@ -1,7 +1,9 @@
 import { Tabs } from 'expo-router'
-import { Platform, View } from 'react-native'
+import { View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { COLORS } from '@/lib/theme'
+import { getTabBarBottomPadding } from '@/lib/tabBarInsets'
 
 function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focused: boolean }) {
   return (
@@ -12,6 +14,9 @@ function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focu
 }
 
 export default function AdminTabsLayout() {
+  const insets = useSafeAreaInsets()
+  const bottomPad = getTabBarBottomPadding(insets.bottom)
+
   return (
     <Tabs
       screenOptions={{
@@ -21,9 +26,8 @@ export default function AdminTabsLayout() {
           backgroundColor: '#000',
           borderTopColor: 'rgba(255,255,255,0.07)',
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 6,
-          paddingTop: 6,
-          height: Platform.OS === 'ios' ? 84 : 58,
+          paddingBottom: bottomPad,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: COLORS.purple,
         tabBarInactiveTintColor: COLORS.mutedDark,

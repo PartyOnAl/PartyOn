@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import type { Event, TicketType, VenueTable } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -243,6 +244,8 @@ export default function EventDetailScreen() {
   }
 
   const club = event.clubs
+  const reservationHoldMinutes = normalizeReservationHoldMinutes(club?.reservation_hold_minutes)
+  const reservationHoldText = reservationHoldPolicyText(reservationHoldMinutes)
   const hasTicketOffer = ticketTypes.length > 0 || event.final_ticket_price != null || event.ticket_price != null
   const isReservationOnly = !hasTicketOffer && ((event.reservation_only ?? club?.reservation_only) ?? false)
   const lowestPrice = selectedTicket ? Number(selectedTicket.price) : Number(event.final_ticket_price ?? event.ticket_price ?? 0)
@@ -453,6 +456,10 @@ export default function EventDetailScreen() {
               <Text style={styles.peopleStepSub}>
                 {"We'll show the best table categories for your group."}
               </Text>
+              <View style={styles.holdPolicyBox}>
+                <Ionicons name="time-outline" size={16} color={COLORS.pink} />
+                <Text style={styles.holdPolicyText}>{reservationHoldText}</Text>
+              </View>
 
               <View style={styles.guestCounter}>
                 <TouchableOpacity
@@ -719,7 +726,25 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.lg,
   },
   peopleStepTitle: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '800', marginBottom: SPACING.sm, textAlign: 'center' },
-  peopleStepSub: { color: COLORS.muted, fontSize: FONT.base, textAlign: 'center', marginBottom: SPACING.xl * 1.5, lineHeight: FONT.base * 1.6 },
+  peopleStepSub: { color: COLORS.muted, fontSize: FONT.base, textAlign: 'center', marginBottom: SPACING.md, lineHeight: FONT.base * 1.6 },
+  holdPolicyBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.xs,
+    backgroundColor: 'rgba(244,114,182,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(244,114,182,0.25)',
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.xl,
+    width: '100%',
+  },
+  holdPolicyText: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: FONT.sm,
+    lineHeight: FONT.sm * 1.5,
+  },
   guestCounter: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xl, marginBottom: SPACING.xl },
   counterBtn: {
     width: 52, height: 52, borderRadius: 26,

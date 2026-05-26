@@ -497,7 +497,7 @@ const s = StyleSheet.create({
   scroll:  { flex: 1, paddingHorizontal: SPACING.md },
   center:  { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg },
-  appName: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  appName: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:     { color: COLORS.mutedDark, fontSize: 12, marginTop: 2 },
   createBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 4 },
   createBtnText: { color: '#fff', fontSize: FONT.sm, fontWeight: '600' },

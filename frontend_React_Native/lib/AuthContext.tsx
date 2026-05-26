@@ -21,6 +21,12 @@ type AuthCtx = {
 
 const AuthContext = createContext<AuthCtx | null>(null)
 
+function isRefreshTokenError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalized = message.toLowerCase()
+  return normalized.includes('refresh token') || normalized.includes('invalid refresh token')
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -33,11 +39,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    function clearAuthState() {
+      setSession(null)
+      setUser(null)
+      setProfile(null)
+      setLoading(false)
+    }
+
+    async function clearStaleSession() {
+      clearAuthState()
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    }
+
     supabase.auth.getSession().then(({ data, error }) => {
       // Invalid / expired refresh token — wipe the stale session so the user
       // lands on the login screen instead of seeing a red error in the console.
-      if (error && (error.message?.toLowerCase().includes('refresh token') || error.message?.toLowerCase().includes('invalid'))) {
-        supabase.auth.signOut()
+      if (error && isRefreshTokenError(error)) {
+        void clearStaleSession()
         setLoading(false)
         return
       }
@@ -48,13 +66,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setLoading(false)
       }
+    }).catch((error) => {
+      if (isRefreshTokenError(error)) {
+        void clearStaleSession()
+        return
+      }
+      clearAuthState()
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
       // Supabase emits TOKEN_REFRESHED with null session when the refresh token
       // is rejected — treat it the same as a sign-out so we clear state cleanly.
       if (event === 'TOKEN_REFRESHED' && !s) {
-        supabase.auth.signOut()
+        void clearStaleSession()
       }
       setSession(s)
       setUser(s?.user ?? null)
@@ -87,7 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    if (error && isRefreshTokenError(error)) {
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    }
   }
 
   async function signInWithGoogle(): Promise<string | null> {

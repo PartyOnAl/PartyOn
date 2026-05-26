@@ -16,6 +16,7 @@ export type Club = {
   subscription_price: number | null
   commission_ticket_rate: number | null
   commission_table_rate: number | null
+  reservation_hold_minutes: number | null
   created_at: string | null
   updated_at: string | null
 }

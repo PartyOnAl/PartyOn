@@ -89,11 +89,16 @@ function parseMoney(value: string): number | null {
 function calculateDiscountedPrice(original: number | null, discount: number | null): number | null {
   if (original == null || discount == null) return null
   const clampedDiscount = Math.min(100, Math.max(0, discount))
-  return Math.max(0, original * (1 - clampedDiscount / 100))
+  return roundMoney(Math.max(0, original * (1 - clampedDiscount / 100)))
+}
+
+function roundMoney(value: number | null): number | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return Math.round(value * 100) / 100
 }
 
 function formatMoneyInput(value: number): string {
-  return value.toFixed(2).replace(/\.?0+$/, '')
+  return value.toFixed(2)
 }
 
 // ── Mini inline calendar ───────────────────────────────────────────────────────
@@ -280,8 +285,8 @@ export default function ManagerPromotionsScreen() {
     setDescription(p.description ?? '')
     setCategory(p.category ?? 'General')
     setDiscountVal(p.discount_value != null ? String(p.discount_value) : '')
-    setOriginalPrice(p.original_price != null ? String(p.original_price) : '')
-    setDiscountedPrice(p.discounted_price != null ? String(p.discounted_price) : '')
+    setOriginalPrice(p.original_price != null ? formatMoneyInput(p.original_price) : '')
+    setDiscountedPrice(p.discounted_price != null ? formatMoneyInput(p.discounted_price) : '')
     setTermsConditions(p.terms_conditions ?? '')
     setIncludedItems(p.included_items ?? '')
     setWhyWorthIt(p.why_worth_it ?? '')
@@ -344,10 +349,10 @@ export default function ManagerPromotionsScreen() {
     if (!profile?.club_id) { Alert.alert('Error', 'No club associated with your account.'); return }
     setSaving(true)
 
-    const originalPriceValue = parseMoney(originalPrice)
+    const originalPriceValue = roundMoney(parseMoney(originalPrice))
     const discountValue = parseMoney(discountVal)
     const calculatedDiscountedPrice = calculateDiscountedPrice(originalPriceValue, discountValue)
-    const discountedPriceValue = parseMoney(discountedPrice) ?? calculatedDiscountedPrice
+    const discountedPriceValue = roundMoney(parseMoney(discountedPrice) ?? calculatedDiscountedPrice)
 
     const payload = {
       club_id:          profile.club_id,
@@ -424,8 +429,13 @@ export default function ManagerPromotionsScreen() {
   // ── Toggle active/pending ─────────────────────────────────────────────────
   async function toggleStatus(p: Promotion) {
     const next: PromoStatus = p.status === 'active' ? 'pending' : 'active'
+    const calculatedDiscountedPrice = calculateDiscountedPrice(p.original_price, p.discount_value)
+    const payload: Partial<Promotion> = { status: next }
+    if (next === 'active' && p.discounted_price == null && calculatedDiscountedPrice != null) {
+      payload.discounted_price = calculatedDiscountedPrice
+    }
     const { error } = await supabase
-      .from('promotions').update({ status: next }).eq('promotion_id', p.promotion_id)
+      .from('promotions').update(payload).eq('promotion_id', p.promotion_id)
     if (error) { Alert.alert('Error', error.message); return }
     await fetchPromotions(true)
   }
@@ -855,7 +865,7 @@ const s = StyleSheet.create({
 
   header:     { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg, gap: SPACING.sm },
   backBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
-  appName:    { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  appName:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:        { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
   addBtn:     { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 4 },
   addBtnText: { color: '#fff', fontSize: FONT.sm, fontWeight: '600' },

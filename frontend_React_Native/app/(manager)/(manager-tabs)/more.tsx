@@ -446,7 +446,7 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1, paddingHorizontal: SPACING.md },
   header: { marginTop: SPACING.md, marginBottom: SPACING.md },
-  appName: { color: COLORS.white, fontSize: FONT.md, fontWeight: '900', letterSpacing: -0.5 },
+  appName: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   managerLabel: { color: COLORS.mutedDark, fontSize: 11, fontWeight: '600', marginTop: 1 },
   pageTitle: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },
   pageSubtitle: { color: COLORS.mutedDark, fontSize: FONT.sm, marginBottom: SPACING.md },

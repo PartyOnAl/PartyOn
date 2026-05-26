@@ -596,7 +596,7 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg, gap: SPACING.sm },
   backBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
-  appName:    { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  appName:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:        { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
   addBtn:     { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, backgroundColor: COLORS.purpleDark, borderRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 4 },
   addBtnText: { color: '#fff', fontSize: FONT.sm, fontWeight: '600' },

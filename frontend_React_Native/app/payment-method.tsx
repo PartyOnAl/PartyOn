@@ -6,9 +6,12 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { apiPost } from '@/lib/api'
 
 type CardBrand = 'visa' | 'mastercard' | 'amex' | 'card'
 
@@ -196,85 +199,193 @@ export default function PaymentMethodScreen() {
   }
 
   async function handleCheckout() {
-    if (!isReservation && total > 0 && !selectedCardId && !validateCardFields()) return
-
     setCheckoutLoading(true)
     try {
       const nrPeople = Number(params.quantity ?? 1)
-      // Use the user-selected tableId if provided, otherwise fall back to auto-assignment
-      let assignedTableId: string | null = params.tableId || null
 
-      if (isReservation && params.eventId && !assignedTableId) {
-        // Auto-assign a table if none was selected
-        const { data: eventRow } = await supabase
-          .from('events').select('club_id').eq('event_id', params.eventId).single()
+      /* ─────────────────────────────────────────────────────────────
+         FREE TABLE RESERVATION  (no Stripe involved)
+      ───────────────────────────────────────────────────────────── */
+      if (isReservation) {
+        let assignedTableId: string | null = params.tableId || null
 
-        if (eventRow?.club_id) {
-          const { data: taken } = await supabase
-            .from('reservations')
-            .select('table_id')
-            .eq('event_id', params.eventId)
-            .neq('status', 'cancelled')
-            .not('table_id', 'is', null)
-          const takenIds = (taken ?? []).map((r: any) => r.table_id).filter(Boolean)
+        // Auto-assign a table when none was pre-selected
+        if (params.eventId && !assignedTableId) {
+          const { data: eventRow } = await supabase
+            .from('events').select('club_id').eq('event_id', params.eventId).single()
 
-          const { data: candidates } = await supabase
-            .from('tables')
-            .select('id, seating_capacity')
-            .eq('club_id', eventRow.club_id)
-            .gte('seating_capacity', nrPeople)
-            .order('seating_capacity', { ascending: true })
-            .limit(20)
+          if (eventRow?.club_id) {
+            const { data: taken } = await supabase
+              .from('reservations')
+              .select('table_id')
+              .eq('event_id', params.eventId)
+              .neq('status', 'cancelled')
+              .not('table_id', 'is', null)
+            const takenIds = (taken ?? []).map((r: any) => r.table_id).filter(Boolean)
 
-          const available = (candidates ?? []).filter((t: any) => !takenIds.includes(t.id))
-          if (available.length > 0) assignedTableId = available[0].id
+            const { data: candidates } = await supabase
+              .from('tables')
+              .select('id, seating_capacity')
+              .eq('club_id', eventRow.club_id)
+              .gte('seating_capacity', nrPeople)
+              .order('seating_capacity', { ascending: true })
+              .limit(20)
+
+            const available = (candidates ?? []).filter((t: any) => !takenIds.includes(t.id))
+            if (available.length > 0) assignedTableId = available[0].id
+          }
         }
+
+        const { data: res, error: resErr } = await supabase.from('reservations').insert({
+          user_id: user?.id,
+          event_id: params.eventId,
+          ticket_type_id: params.ticketTypeId || null,
+          table_id: assignedTableId,
+          type: 'table',
+          status: 'confirmed',
+          nr_of_people: nrPeople,
+        }).select().single()
+
+        if (resErr) throw resErr
+
+        router.replace({
+          pathname: '/purchased-ticket',
+          params: {
+            reservationId: res.reservation_id,
+            qrCode: res.qr_code ?? '',
+            eventName: params.eventName,
+            ticketTypeName: 'Table Reservation',
+            quantity: String(nrPeople),
+            total: '0',
+            isReservation: 'true',
+          },
+        })
+        return
       }
 
-      const { data: res, error: resErr } = await supabase.from('reservations').insert({
-        user_id: user?.id,
-        event_id: params.eventId,
-        ticket_type_id: params.ticketTypeId || null,
-        table_id: assignedTableId,
-        type: isReservation ? 'table' : 'ticket',
-        status: 'confirmed',
-        nr_of_people: nrPeople,
-      }).select().single()
+      /* ─────────────────────────────────────────────────────────────
+         PAID TICKET PURCHASE — Stripe checkout
+      ───────────────────────────────────────────────────────────── */
+
+      // Validate card fields if using a new card form (safety net — Stripe handles
+      // actual card validation, but we still want basic UI checks for the form).
+      if (total > 0 && !selectedCardId && !validateCardFields()) {
+        setCheckoutLoading(false)
+        return
+      }
+
+      // Amount per ticket in cents (grandTotal is in euros, covers all tickets)
+      const unitAmountCents = Math.round((total / nrPeople) * 100)
+
+      // Success deep-link template:
+      // {batch_id} and {event_id}/{quantity} are replaced by the backend.
+      // {CHECKOUT_SESSION_ID} is replaced by Stripe.
+      const successUrlTemplate =
+        `partyon://payment-return` +
+        `?batchId={batch_id}` +
+        `&csid={CHECKOUT_SESSION_ID}` +
+        `&eventId={event_id}` +
+        `&qty={quantity}` +
+        `&eventName=${encodeURIComponent(params.eventName ?? '')}`
+
+      const { data: stripeData, error: stripeError } = await apiPost<{
+        url: string
+        batch_id: string
+      }>('/event/pay', {
+        amount: unitAmountCents,
+        quantity: nrPeople,
+        events: { event_id: params.eventId },
+        successUrlTemplate,
+        cancelUrl: 'partyon://payment-return?status=cancelled',
+      })
+
+      if (stripeError || !stripeData?.url) {
+        Alert.alert('Payment error', stripeError ?? 'Could not start checkout. Please try again.')
+        setCheckoutLoading(false)
+        return
+      }
+
+      // Open Stripe in an in-app browser; watch for redirect back to partyon://
+      const browserResult = await WebBrowser.openAuthSessionAsync(
+        stripeData.url,
+        'partyon://',
+      )
+
+      if (browserResult.type !== 'success') {
+        // User dismissed or browser closed without completing payment
+        Alert.alert('Payment cancelled', 'Your payment was not completed.')
+        setCheckoutLoading(false)
+        return
+      }
+
+      // Parse the deep-link URL returned by Stripe
+      const parsed = Linking.parse(browserResult.url)
+      const status = parsed.queryParams?.status as string | undefined
+
+      if (status === 'cancelled') {
+        Alert.alert('Payment cancelled', 'Your payment was not completed.')
+        setCheckoutLoading(false)
+        return
+      }
+
+      // batch_id is embedded in the URL by the backend; fall back to the value
+      // returned directly from the /event/pay response.
+      const batchId =
+        (parsed.queryParams?.batchId as string | undefined) ?? stripeData.batch_id
+
+      // Now that Stripe confirms payment, create the reservation in Supabase
+      const { data: res, error: resErr } = await supabase
+        .from('reservations')
+        .insert({
+          user_id: user?.id,
+          event_id: params.eventId,
+          ticket_type_id: params.ticketTypeId || null,
+          table_id: null,
+          type: 'ticket',
+          status: 'confirmed',
+          nr_of_people: nrPeople,
+        })
+        .select()
+        .single()
 
       if (resErr) throw resErr
 
-      if (!isReservation && total > 0) {
-        await supabase.from('payments').insert({
-          reservation_id: res.reservation_id,
-          user_id: user?.id,
-          amount: total,
-          status: 'completed',
-        })
-      }
+      // Create attendee records (one per ticket, for the bookings screen)
+      let names: string[] = []
+      try { names = JSON.parse(params.attendees ?? '[]') } catch {}
+      if (names.length === 0) names = ['Me']
+      while (names.length < nrPeople) names.push(`Guest ${names.length + 1}`)
+      names = names.slice(0, nrPeople)
+      await supabase.from('attendees').insert(
+        names.map(n => ({ reservation_id: res.reservation_id, name: n || 'Guest' }))
+      )
 
-      if (!isReservation) {
-        let names: string[] = []
-        try { names = JSON.parse(params.attendees ?? '[]') } catch {}
-        if (names.length === 0) names = ['Me']
-        while (names.length < nrPeople) names.push(`Guest ${names.length + 1}`)
-        names = names.slice(0, nrPeople)
-        await supabase.from('attendees').insert(names.map(n => ({ reservation_id: res.reservation_id, name: n || 'Guest' })))
-      }
+      // Link the Stripe payment records to this reservation so the bookings
+      // history QRSheet can look up payment_id QR codes by reservation_id.
+      await supabase
+        .from('payments')
+        .update({ reservation_id: res.reservation_id })
+        .eq('batch_id', batchId)
 
+      // Navigate to the purchased-ticket screen.
+      // batchId drives the QR codes (one QR per Stripe payment record).
       router.replace({
         pathname: '/purchased-ticket',
         params: {
           reservationId: res.reservation_id,
-          qrCode: res.qr_code,
+          batchId,
           eventName: params.eventName,
-          ticketTypeName: params.ticketTypeName,
-          quantity: params.quantity,
+          ticketTypeName: params.ticketTypeName ?? 'General Admission',
+          quantity: String(nrPeople),
           total: params.total,
-          isReservation: params.isReservation,
+          isReservation: 'false',
         },
       })
     } catch (e: any) {
-      Alert.alert('Could not complete booking', e?.message ?? 'Something went wrong. Please try again.')
+      Alert.alert(
+        'Could not complete booking',
+        e?.message ?? 'Something went wrong. Please try again.',
+      )
     } finally {
       setCheckoutLoading(false)
     }
@@ -511,7 +622,7 @@ export default function PaymentMethodScreen() {
           {checkoutLoading
             ? <ActivityIndicator color="#fff" />
             : <>
-                <Text style={styles.primaryBtnText}>{isReservation ? 'Confirm reservation' : 'Confirm purchase'}</Text>
+                <Text style={styles.primaryBtnText}>{isReservation ? 'Confirm reservation' : 'Pay with Stripe'}</Text>
                 <Ionicons name="arrow-forward" size={18} color="#fff" />
               </>
           }

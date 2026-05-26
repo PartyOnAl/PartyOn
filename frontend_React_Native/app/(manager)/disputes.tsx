@@ -529,7 +529,7 @@ const s = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: SPACING.md },
   header: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg, gap: SPACING.sm },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
-  appName: { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  appName: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub: { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
   pageTitle: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },
   pageSubtitle: { color: COLORS.mutedDark, fontSize: FONT.sm, marginBottom: SPACING.lg },

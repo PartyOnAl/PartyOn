@@ -5,11 +5,12 @@ import {
   RefreshControl, KeyboardAvoidingView, Platform, Pressable, Dimensions,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { DEFAULT_RESERVATION_HOLD_MINUTES, normalizeReservationHoldMinutes } from '@/lib/reservationPolicy'
 
 const SCREEN_W = Dimensions.get('window').width
 
@@ -30,7 +31,7 @@ type ReservationRow = {
   event_id: string | null
   table_id: string | null
   profiles: { name: string | null; surname: string | null } | null
-  events: { event_name: string } | null
+  events: { event_name: string; event_starting_date?: string | null; event_ending_date?: string | null } | null
 }
 
 type VenueTable = {
@@ -75,8 +76,10 @@ const RESERV_COLOR: Record<string, string> = {
   pending:   '#f59e0b',
   confirmed: COLORS.green,
   cancelled: COLORS.red,
-  completed: COLORS.mutedDark,
+  completed: COLORS.green,
 }
+
+const DEFAULT_EVENT_WINDOW_MS = 12 * 60 * 60 * 1000
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function guestNameFromRow(r: { profiles: { name: string | null; surname: string | null } | null } | null): string {
@@ -100,22 +103,10 @@ function reservationMatchesEvent(
   return r.event_id === ev.event_id
 }
 
-/** Keep only bookings whose event night (or reservation_date fallback) has not ended vs now */
-function isReservationStillInQueue(
-  reservation_date: string | null,
-  event_starting_date: string | null | undefined,
-  event_ending_date?: string | null,
-): boolean {
-  const ref = (event_ending_date && String(event_ending_date).trim())
-    ? event_ending_date
-    : event_starting_date && String(event_starting_date).trim()
-      ? event_starting_date
-    : reservation_date && String(reservation_date).trim()
-      ? reservation_date
-      : null
-  if (!ref) return true
-  const d = new Date(ref)
-  if (Number.isNaN(d.getTime())) return true
+function parseMaybeDate(value: string | null | undefined) {
+  if (!value || !String(value).trim()) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
 
   const isMidnightOnly =
     d.getUTCHours() === 0 &&
@@ -127,7 +118,78 @@ function isReservationStillInQueue(
     d.setHours(23, 59, 59, 999)
   }
 
-  return d.getTime() >= Date.now()
+  return d
+}
+
+function reservationWindowEndMs(
+  reservation_date: string | null,
+  event_starting_date: string | null | undefined,
+  event_ending_date?: string | null,
+) {
+  const end = parseMaybeDate(event_ending_date)
+  if (end instanceof Date) return end.getTime()
+  const start = parseMaybeDate(event_starting_date)
+  if (start instanceof Date) return start.getTime() + DEFAULT_EVENT_WINDOW_MS
+  const reservationDate = parseMaybeDate(reservation_date)
+  if (reservationDate instanceof Date) return reservationDate.getTime()
+  return null
+}
+
+/** Keep only bookings whose event night (or reservation_date fallback) has not ended vs now */
+function isReservationStillInQueue(
+  reservation_date: string | null,
+  event_starting_date: string | null | undefined,
+  event_ending_date?: string | null,
+): boolean {
+  const endMs = reservationWindowEndMs(reservation_date, event_starting_date, event_ending_date)
+  return endMs == null || endMs >= Date.now()
+}
+
+function reservationStartMs(
+  reservation_date: string | null,
+  event_starting_date: string | null | undefined,
+) {
+  const start = parseMaybeDate(event_starting_date)
+  if (start instanceof Date) return start.getTime()
+  const reservationDate = parseMaybeDate(reservation_date)
+  if (reservationDate instanceof Date) return reservationDate.getTime()
+  return null
+}
+
+function reservationGraceExpired(r: {
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  reservation_date: string | null
+  event_starting_date?: string | null
+  event_ending_date?: string | null
+  events?: { event_starting_date?: string | null; event_ending_date?: string | null } | null
+}, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (r.status === 'completed' || r.status === 'cancelled') return false
+  const startMs = reservationStartMs(r.reservation_date, r.event_starting_date ?? r.events?.event_starting_date)
+  return startMs != null && startMs + normalizeReservationHoldMinutes(holdMinutes) * 60 * 1000 < Date.now()
+}
+
+function reservationBlocksTable(r: {
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  reservation_date: string | null
+  event_starting_date?: string | null
+  event_ending_date?: string | null
+  events?: { event_starting_date?: string | null; event_ending_date?: string | null } | null
+}, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (r.status === 'cancelled') return false
+  if (!isReservationStillInQueue(r.reservation_date, r.event_starting_date ?? r.events?.event_starting_date, r.event_ending_date ?? r.events?.event_ending_date)) return false
+  if (r.status === 'completed') return true
+  return !reservationGraceExpired(r, holdMinutes)
+}
+
+function reservationListColor(r: FlatReservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (reservationGraceExpired(r, holdMinutes)) return COLORS.red
+  return RESERV_COLOR[r.status] ?? COLORS.muted
+}
+
+function reservationListLabel(r: FlatReservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (reservationGraceExpired(r, holdMinutes)) return 'No-show'
+  if (r.status === 'completed') return 'Checked in'
+  return r.status.charAt(0).toUpperCase() + r.status.slice(1)
 }
 
 function isVIP(t: VenueTable) {
@@ -181,13 +243,18 @@ function TableGridCard({
   // DB table_status is ignored to avoid stale data from previous events.
   const sc = eventMode
     ? activeReserv
-      ? activeReserv.status === 'pending' ? '#f59e0b' : COLORS.red
+      ? activeReserv.status === 'completed' ? COLORS.red : '#f59e0b'
       : manualOccupied
         ? STATUS_COLOR.occupied
         : COLORS.green
     : null
 
   const gName = activeReserv ? guestNameFromRow(activeReserv) : null
+  const activeLabel = activeReserv?.status === 'completed'
+    ? 'Checked in'
+    : activeReserv
+      ? 'Reserved'
+      : ''
 
   return (
     <TouchableOpacity
@@ -245,9 +312,9 @@ function TableGridCard({
 
         {/* Reservation status pill — event mode only */}
         {eventMode && activeReserv && (
-          <View style={[g.reservPill, { backgroundColor: (activeReserv.status === 'pending' ? '#f59e0b' : COLORS.red) + '22' }]}>
-            <Text style={[g.reservPillText, { color: activeReserv.status === 'pending' ? '#f59e0b' : COLORS.red }]}>
-              {activeReserv.status === 'pending' ? 'Pending' : 'Reserved'}
+          <View style={[g.reservPill, { backgroundColor: (activeReserv.status === 'completed' ? COLORS.red : '#f59e0b') + '22' }]}>
+            <Text style={[g.reservPillText, { color: activeReserv.status === 'completed' ? COLORS.red : '#f59e0b' }]}>
+              {activeLabel}
             </Text>
           </View>
         )}
@@ -259,6 +326,7 @@ function TableGridCard({
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function TablesScreen() {
   const { profile } = useAuth()
+  const router = useRouter()
 
   // Core data
   const [events, setEvents]                   = useState<ClubEvent[]>([])
@@ -268,11 +336,12 @@ export default function TablesScreen() {
   const [flatReservs, setFlatReservs]         = useState<FlatReservation[]>([])
   const [loading, setLoading]         = useState(true)
   const [refreshing, setRefreshing]   = useState(false)
+  const [reservationHoldMinutes, setReservationHoldMinutes] = useState(DEFAULT_RESERVATION_HOLD_MINUTES)
 
   // Filters
   const [selectedEvent, setSelectedEvent] = useState<ClubEvent | null>(null)
   const [viewMode, setViewMode]           = useState<'tables' | 'list'>('tables')
-  const [statusFilter, setStatusFilter]   = useState<'all' | 'pending' | 'confirmed'>('all')
+  const [statusFilter, setStatusFilter]   = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'no_show'>('all')
   const [guestSearch, setGuestSearch]     = useState('')
 
   // Event picker
@@ -340,7 +409,7 @@ export default function TablesScreen() {
     today.setHours(0, 0, 0, 0)
     const todayIso = today.toISOString()
 
-    const [evUpcomingRes, evPastRes, tbRes] = await Promise.all([
+    const [evUpcomingRes, evPastRes, tbRes, clubRes] = await Promise.all([
       supabase
         .from('events')
         .select('event_id, event_name, event_starting_date, event_ending_date')
@@ -364,12 +433,18 @@ export default function TablesScreen() {
           reservations(
             reservation_id, status, nr_of_people, reservation_date, notes, event_id, table_id,
             profiles(name, surname),
-            events:event_id(event_name)
+            events:event_id(event_name, event_starting_date, event_ending_date)
           )
         `)
         .eq('club_id', clubId)
         .order('table_number', { ascending: true }),
+      supabase
+        .from('clubs')
+        .select('*')
+        .eq('club_id', clubId)
+        .single(),
     ])
+    setReservationHoldMinutes(normalizeReservationHoldMinutes((clubRes.data as any)?.reservation_hold_minutes))
 
     const upcomingEvs = (evUpcomingRes.data ?? []) as ClubEvent[]
     const pastEvs     = (evPastRes.data ?? []) as ClubEvent[]
@@ -381,9 +456,9 @@ export default function TablesScreen() {
     const normalized = ((tbRes.data ?? []) as any[]).map(t => ({
       ...t,
       reservations: ((t.reservations ?? []) as ReservationRow[])
-        .filter(r => r.status === 'pending' || r.status === 'confirmed')
+        .filter(r => r.status === 'pending' || r.status === 'confirmed' || r.status === 'completed')
         .sort((a, b) => {
-          const o: Record<string, number> = { confirmed: 0, pending: 1 }
+          const o: Record<string, number> = { completed: 0, confirmed: 1, pending: 2 }
           return (o[a.status] ?? 2) - (o[b.status] ?? 2)
         }),
     })) as VenueTable[]
@@ -430,7 +505,7 @@ export default function TablesScreen() {
         supabase
           .from('reservations')
           .select(selectClause)
-          .in('status', ['pending', 'confirmed'])
+          .in('status', ['pending', 'confirmed', 'completed'])
           .in('event_id', clubEventIds)
           .order('created_at', { ascending: false }),
       )
@@ -440,7 +515,7 @@ export default function TablesScreen() {
         supabase
           .from('reservations')
           .select(selectClause)
-          .in('status', ['pending', 'confirmed'])
+          .in('status', ['pending', 'confirmed', 'completed'])
           .in('table_id', tableIds)
           .order('created_at', { ascending: false }),
       )
@@ -519,13 +594,17 @@ export default function TablesScreen() {
 
   const filteredReservs = useMemo(() => {
     let list = scopedReservs
-    if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter)
+    if (statusFilter === 'no_show') {
+      list = list.filter(r => reservationGraceExpired(r, reservationHoldMinutes))
+    } else if (statusFilter !== 'all') {
+      list = list.filter(r => r.status === statusFilter && !reservationGraceExpired(r, reservationHoldMinutes))
+    }
     if (guestSearch.trim()) {
       const q = guestSearch.toLowerCase()
       list = list.filter(r => r.guest_name.toLowerCase().includes(q))
     }
     return list
-  }, [scopedReservs, statusFilter, guestSearch])
+  }, [scopedReservs, statusFilter, guestSearch, reservationHoldMinutes])
 
   const pickerEvents = useMemo(() => {
     const search = eventSearch.trim().toLowerCase()
@@ -539,7 +618,7 @@ export default function TablesScreen() {
   // Active reservation for a table — only shown when an event is selected
   function getActiveReserv(table: VenueTable): ReservationRow | null {
     if (!selectedEvent) return null
-    return table.reservations.find(r => reservationMatchesEvent(r, selectedEvent)) ?? null
+    return table.reservations.find(r => reservationMatchesEvent(r, selectedEvent) && reservationBlocksTable(r, reservationHoldMinutes)) ?? null
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -549,14 +628,17 @@ export default function TablesScreen() {
       return { total, available: 0, reserved: 0, occupied: 0, occupancy: 0 }
     }
     // Derive purely from reservations for that event + manual overrides (not stale table_status)
-    const reserved  = filteredTables.filter(t => t.reservations[0]?.status === 'pending').length
-    const occupied  = filteredTables.filter(t =>
-      t.reservations[0]?.status === 'confirmed' || eventOccupied[t.id] === true
+    const activeByTable = filteredTables.map(t => ({ table: t, reservation: getActiveReserv(t) }))
+    const reserved = activeByTable.filter(({ reservation }) =>
+      reservation?.status === 'pending' || reservation?.status === 'confirmed'
+    ).length
+    const occupied = activeByTable.filter(({ table, reservation }) =>
+      reservation?.status === 'completed' || eventOccupied[table.id] === true
     ).length
     const available = total - reserved - occupied
     const occupancy = total > 0 ? Math.round(((reserved + occupied) / total) * 100) : 0
     return { total, available: Math.max(available, 0), reserved, occupied, occupancy }
-  }, [filteredTables, selectedEvent, eventOccupied])
+  }, [filteredTables, selectedEvent, eventOccupied, reservationHoldMinutes])
 
   // Tonight = nearest future event
   function selectTonight() {
@@ -647,12 +729,33 @@ export default function TablesScreen() {
     }
   }
 
+  async function handleReservationCheckIn(table: VenueTable, reservation: ReservationRow) {
+    if (reservationGraceExpired(reservation, reservationHoldMinutes)) {
+      Alert.alert('Too late', 'This reservation is past the venue hold window, so the table is treated as free.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('reservations')
+      .update({ status: 'completed' })
+      .eq('reservation_id', reservation.reservation_id)
+    if (error) { Alert.alert('Error', error.message); return }
+
+    await supabase.from('tables').update({ table_status: 'occupied' }).eq('id', table.id)
+    setEventOccupied(prev => ({ ...prev, [table.id]: true }))
+    await fetchAll()
+  }
+
+  function openReservationsPage() {
+    setDetailTable(null)
+    setShowReservModal(false)
+    setEditingReserv(null)
+    router.push('/(manager)/(manager-tabs)/reservations' as any)
+  }
+
   // ── Edit reservation ───────────────────────────────────────────────────────
-  function openEditReserv(r: ReservationRow | FlatReservation) {
-    setEditingReserv(r); setReservStatus(r.status); setReservNotes(r.notes ?? '')
-    setReservGuestCount(r.nr_of_people ?? 1)
-    setReservTableId(r.table_id ?? null)
-    setShowReservModal(true)
+  function openEditReserv(_r: ReservationRow | FlatReservation) {
+    openReservationsPage()
   }
 
   async function handleSaveReserv() {
@@ -688,12 +791,24 @@ export default function TablesScreen() {
   }
 
   // ── Create reservation ─────────────────────────────────────────────────────
-  function autoAssignTable(guestCount: number, currentTableId?: string): string {
+  function tableTakenForEvent(table: VenueTable, eventId: string) {
+    return table.reservations.some(r =>
+      r.event_id === eventId &&
+      reservationBlocksTable(r, reservationHoldMinutes)
+    )
+  }
+
+  function autoAssignTable(guestCount: number, currentTableId?: string, eventId = createEventId): string {
     const count = guestCount || 1
     const available = tables
-      .filter(t => t.table_status === 'available' && t.seating_capacity >= count)
+      .filter(t => {
+        if (t.seating_capacity < count) return false
+        if (eventId) return !tableTakenForEvent(t, eventId)
+        return t.table_status === 'available'
+      })
       .sort((a, b) => a.seating_capacity - b.seating_capacity)
-    return available.length > 0 ? available[0].id : (currentTableId ?? '')
+    if (currentTableId && available.some(t => t.id === currentTableId)) return currentTableId
+    return available.length > 0 ? available[0].id : ''
   }
 
   function handleGuestsChange(val: string) {
@@ -708,7 +823,8 @@ export default function TablesScreen() {
     setCreateGuestName(''); setCreateNotes('')
     const defaultGuests = 2
     setCreateGuests(String(defaultGuests))
-    setCreateTableId(table?.id ?? autoAssignTable(defaultGuests))
+    const eventId = selectedEvent?.event_id ?? ''
+    setCreateTableId(table?.id ?? autoAssignTable(defaultGuests, undefined, eventId))
     setShowCreateModal(true)
   }
 
@@ -800,7 +916,7 @@ export default function TablesScreen() {
 
         <TouchableOpacity style={s.createBtn} onPress={() => openCreateReservForTable()}>
           <Ionicons name="person-add-outline" size={13} color={COLORS.purpleDark} />
-          <Text style={s.createBtnText}>Reserve</Text>
+          <Text style={s.createBtnText}>Walk-in</Text>
         </TouchableOpacity>
       </View>
 
@@ -821,7 +937,7 @@ export default function TablesScreen() {
         >
           <Ionicons name="list-outline" size={13} color={viewMode === 'list' ? COLORS.white : COLORS.mutedDark} />
           <Text style={[s.modeBtnText, viewMode === 'list' && s.modeBtnTextActive]}>
-            Reservations ({scopedReservs.length})
+            Guest List ({scopedReservs.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -958,14 +1074,14 @@ export default function TablesScreen() {
             style={s.chipScroll}
             contentContainerStyle={s.chipContent}
           >
-            {(['all', 'pending', 'confirmed'] as const).map(st => (
+            {(['all', 'pending', 'confirmed', 'completed', 'no_show'] as const).map(st => (
               <TouchableOpacity
                 key={st}
                 style={[s.chip, statusFilter === st && s.chipActive]}
                 onPress={() => setStatusFilter(st)}
               >
                 <Text style={[s.chipText, statusFilter === st && s.chipTextActive]}>
-                  {st === 'all' ? `All (${scopedReservs.length})` : st.charAt(0).toUpperCase() + st.slice(1)}
+                  {st === 'all' ? `All (${scopedReservs.length})` : st === 'no_show' ? 'No-show' : st === 'completed' ? 'Checked in' : st.charAt(0).toUpperCase() + st.slice(1)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -973,7 +1089,7 @@ export default function TablesScreen() {
 
           <Text style={s.queueHint}>
             {selectedEvent
-              ? 'Upcoming bookings only - past reservations are not shown here.'
+              ? 'Floor guest list for selected event.'
               : 'Select an event to view its table reservations.'}
           </Text>
 
@@ -993,7 +1109,8 @@ export default function TablesScreen() {
               </View>
             }
             renderItem={({ item: r }) => {
-              const sc = RESERV_COLOR[r.status]
+              const sc = reservationListColor(r, reservationHoldMinutes)
+              const displayDate = r.event_starting_date ?? r.reservation_date
               return (
                 <TouchableOpacity
                   style={s.reservCard}
@@ -1011,8 +1128,8 @@ export default function TablesScreen() {
                         <Text style={s.reservCardSub} numberOfLines={1}>
                           {[r.table_number ? `Table ${r.table_number}` : 'No table assigned', r.event_name].filter(Boolean).join(' · ')}
                         </Text>
-                        {r.reservation_date && (
-                          <Text style={s.reservCardDate}>{fmtShort(r.reservation_date)}</Text>
+                        {displayDate && (
+                          <Text style={s.reservCardDate}>{fmtShort(displayDate)}</Text>
                         )}
                       </View>
                       <View style={s.reservCardRight}>
@@ -1024,7 +1141,7 @@ export default function TablesScreen() {
                         )}
                         <View style={[s.reservStatusBadge, { backgroundColor: sc + '22' }]}>
                           <Text style={[s.reservStatusText, { color: sc }]}>
-                            {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+                            {reservationListLabel(r, reservationHoldMinutes)}
                           </Text>
                         </View>
                       </View>
@@ -1035,35 +1152,9 @@ export default function TablesScreen() {
                     )}
 
                     <View style={s.reservCardActions}>
-                      {r.status === 'pending' && (
-                        <>
-                          <TouchableOpacity
-                            style={s.confirmBtn}
-                            onPress={() => { openEditReserv(r as any) }}
-                          >
-                            <Ionicons name="checkmark-outline" size={12} color={COLORS.green} />
-                            <Text style={[s.actionBtnText, { color: COLORS.green }]}>Confirm</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={s.declineBtn}
-                            onPress={() => { openEditReserv(r as any) }}
-                          >
-                            <Text style={[s.actionBtnText, { color: COLORS.red }]}>Decline</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                      {r.status === 'confirmed' && (
-                        <TouchableOpacity
-                          style={s.completeBtn}
-                          onPress={() => { openEditReserv(r as any) }}
-                        >
-                          <Ionicons name="checkmark-done-outline" size={12} color={COLORS.purple} />
-                          <Text style={[s.actionBtnText, { color: COLORS.purple }]}>Complete</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity style={s.editBtn} onPress={() => openEditReserv(r as any)}>
+                      <TouchableOpacity style={s.editBtn} onPress={() => openReservationsPage()}>
                         <Ionicons name="create-outline" size={12} color={COLORS.muted} />
-                        <Text style={[s.actionBtnText, { color: COLORS.muted }]}>Edit</Text>
+                        <Text style={[s.actionBtnText, { color: COLORS.muted }]}>Manage in Reservations</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1088,11 +1179,14 @@ export default function TablesScreen() {
               const vip = isVIP(t)
               const activeReserv = getActiveReserv(t)
               const gName = activeReserv ? guestNameFromRow(activeReserv) : null
+              const activeReservDate = activeReserv
+                ? selectedEvent?.event_starting_date ?? activeReserv.events?.event_starting_date ?? activeReserv.reservation_date
+                : null
 
               // Derive effective status the same way cards do — never read stale table_status in event mode
               const effectiveStatus: VenueTable['table_status'] = selectedEvent
                 ? activeReserv
-                  ? (activeReserv.status === 'confirmed' ? 'occupied' : activeReserv.status === 'pending' ? 'reserved' : 'available')
+                  ? (activeReserv.status === 'completed' ? 'occupied' : 'reserved')
                   : eventOccupied[t.id] ? 'occupied' : 'available'
                 : t.table_status
 
@@ -1142,8 +1236,8 @@ export default function TablesScreen() {
                             {activeReserv.nr_of_people != null && (
                               <Text style={m.reservMeta}>👥 {activeReserv.nr_of_people} guests</Text>
                             )}
-                            {activeReserv.reservation_date && (
-                              <Text style={m.reservMeta}>📅 {fmt(activeReserv.reservation_date)}</Text>
+                            {activeReservDate && (
+                              <Text style={m.reservMeta}>📅 {fmt(activeReservDate)}</Text>
                             )}
                           </View>
                         </View>
@@ -1192,7 +1286,7 @@ export default function TablesScreen() {
                     {effectiveStatus === 'reserved' && (
                       <TouchableOpacity
                         style={[m.actionBtn, { backgroundColor: COLORS.green + '18', borderColor: COLORS.green + '40' }]}
-                        onPress={() => handleStatusChange(t, 'occupied')}
+                        onPress={() => activeReserv && handleReservationCheckIn(t, activeReserv)}
                       >
                         <Ionicons name="enter-outline" size={15} color={COLORS.green} />
                         <Text style={[m.actionBtnText, { color: COLORS.green }]}>Check In</Text>
@@ -1203,10 +1297,10 @@ export default function TablesScreen() {
                     {activeReserv && (
                       <TouchableOpacity
                         style={[m.actionBtn, { backgroundColor: COLORS.purple + '18', borderColor: COLORS.purple + '40' }]}
-                        onPress={() => { openEditReserv(activeReserv); setDetailTable(null) }}
+                        onPress={openReservationsPage}
                       >
                         <Ionicons name="create-outline" size={15} color={COLORS.purple} />
-                        <Text style={[m.actionBtnText, { color: COLORS.purple }]}>Edit Reservation</Text>
+                        <Text style={[m.actionBtnText, { color: COLORS.purple }]}>Open Reservation</Text>
                       </TouchableOpacity>
                     )}
 
@@ -1495,7 +1589,7 @@ export default function TablesScreen() {
                       ? scopedReservs.some(r =>
                         r.table_id === t.id &&
                         r.reservation_id !== editingReserv?.reservation_id &&
-                        (r.status === 'pending' || r.status === 'confirmed')
+                        reservationBlocksTable(r, reservationHoldMinutes)
                       )
                       : false
                     const isTaken = selectedEvent ? eventTaken && !isSel : t.table_status === 'reserved' && !isSel
@@ -1571,7 +1665,11 @@ export default function TablesScreen() {
                     <TouchableOpacity
                       key={ev.event_id}
                       style={[m.eventChip, createEventId === ev.event_id && m.eventChipActive]}
-                      onPress={() => { setCreateEventId(ev.event_id); setCreateDate(ev.event_starting_date.split('T')[0]) }}
+                      onPress={() => {
+                        setCreateEventId(ev.event_id)
+                        setCreateDate(ev.event_starting_date.split('T')[0])
+                        setCreateTableId(autoAssignTable(parseInt(createGuests) || 1, createTableId, ev.event_id))
+                      }}
                     >
                       <Text style={[m.eventChipText, createEventId === ev.event_id && m.eventChipTextActive]} numberOfLines={1}>
                         {ev.event_name}
@@ -1609,8 +1707,9 @@ export default function TablesScreen() {
                   const eventReserv = createEventId
                     ? t.reservations.find(r => r.event_id === createEventId)
                     : null
+                  const isTaken = !!eventReserv && reservationBlocksTable(eventReserv, reservationHoldMinutes)
                   const sc = createEventId
-                    ? eventReserv
+                    ? eventReserv && isTaken
                       ? RESERV_COLOR[eventReserv.status]   // amber=pending, green=confirmed, red=cancelled
                       : (isVIP(t) ? COLORS.purple : COLORS.green)  // no booking for this event = free
                     : (STATUS_COLOR[t.table_status] ?? COLORS.muted)
@@ -1628,9 +1727,13 @@ export default function TablesScreen() {
                           elevation: 4,
                         },
                         isSel && m.tableChipActive,
-                        !fits && { opacity: 0.35 },
+                        (!fits || isTaken) && !isSel && { opacity: 0.35 },
                       ]}
-                      onPress={() => setCreateTableId(t.id)}
+                      onPress={() => {
+                        if (!fits || isTaken) return
+                        setCreateTableId(t.id)
+                      }}
+                      disabled={!fits || isTaken}
                     >
                       <View style={[m.tableChipDot, { backgroundColor: sc }]} />
                       <Text style={[m.tableChipText, isSel && m.tableChipTextActive]} numberOfLines={1}>
@@ -1713,7 +1816,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: SPACING.md, paddingTop: SPACING.md, paddingBottom: SPACING.xs,
   },
-  appName: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  appName: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   appSub:  { color: COLORS.mutedDark, fontSize: 11, marginTop: 1 },
   addBtn:  {
     flexDirection: 'row', alignItems: 'center', gap: 4,

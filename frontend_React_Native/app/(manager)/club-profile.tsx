@@ -12,6 +12,7 @@ import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { MANAGER_MORE, replaceManagerRoute } from '@/lib/managerNavigation'
+import { normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 export default function ClubProfileScreen() {
   const router = useRouter()
@@ -28,6 +29,7 @@ export default function ClubProfileScreen() {
   const [description, setDescription] = useState('')
   const [musicType, setMusicType]     = useState('')
   const [openingHours, setOpeningHours] = useState('')
+  const [reservationHoldMinutes, setReservationHoldMinutes] = useState('30')
   const [coverImage, setCoverImage]   = useState<string | null>(null)
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function ClubProfileScreen() {
           setDescription(data.club_description ?? '')
           setMusicType((data as any).music_type ?? '')
           setOpeningHours((data as any).opening_hours ?? '')
+          setReservationHoldMinutes(String(normalizeReservationHoldMinutes((data as any).reservation_hold_minutes)))
           setCoverImage(data.club_image ?? null)
         }
         setLoading(false)
@@ -119,6 +122,7 @@ export default function ClubProfileScreen() {
         club_description: description.trim(),
         music_type:   musicType.trim(),
         opening_hours: openingHours.trim(),
+        reservation_hold_minutes: normalizeReservationHoldMinutes(reservationHoldMinutes),
         updated_at:   new Date().toISOString(),
       })
       .eq('club_id', profile.club_id)
@@ -252,6 +256,24 @@ export default function ClubProfileScreen() {
               placeholderTextColor={COLORS.mutedDark}
             />
           </Field>
+
+          <Field label="Reservation Hold Time">
+            <TextInput
+              style={s.input}
+              value={reservationHoldMinutes}
+              onChangeText={(value) => setReservationHoldMinutes(value.replace(/[^0-9]/g, ''))}
+              placeholder="30"
+              placeholderTextColor={COLORS.mutedDark}
+              keyboardType="number-pad"
+              maxLength={3}
+            />
+            <View style={s.policyPreview}>
+              <Ionicons name="time-outline" size={15} color={COLORS.pink} />
+              <Text style={s.policyPreviewText}>
+                {reservationHoldPolicyText(reservationHoldMinutes)}
+              </Text>
+            </View>
+          </Field>
         </View>
 
         {/* ── Actions ── */}
@@ -300,7 +322,7 @@ const s = StyleSheet.create({
 
   header:   { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg, gap: SPACING.sm },
   backBtn:  { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center' },
-  appName:  { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  appName:  { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:      { color: COLORS.mutedDark, fontSize: 11, marginTop: 2 },
 
   pageTitle:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },
@@ -352,6 +374,23 @@ const s = StyleSheet.create({
     fontSize: FONT.base,
   },
   textarea: { minHeight: 100, paddingTop: SPACING.sm + 4 },
+  policyPreview: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.xs,
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: 'rgba(244,114,182,0.10)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: 'rgba(244,114,182,0.25)',
+  },
+  policyPreviewText: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: FONT.sm,
+    lineHeight: FONT.sm * 1.45,
+  },
 
   actionRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
   cancelBtn: {

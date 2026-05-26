@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Share } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { CheckCircle, Calendar, MapPin, Eye, Download, X } from 'lucide-react-native'
+import { CheckCircle, Calendar, MapPin, Eye, Download, X, Clock } from 'lucide-react-native'
 import Svg, { Rect } from 'react-native-svg'
 import { COLORS } from '@/lib/theme'
+import { supabase } from '@/lib/supabase'
+import { DEFAULT_RESERVATION_HOLD_MINUTES, normalizeReservationHoldMinutes, reservationHoldPolicyText } from '@/lib/reservationPolicy'
 
 const ACCENT = COLORS.purple
 
@@ -53,6 +56,24 @@ export default function ConfirmationScreen() {
   }>()
 
   const isTable = params.type === 'table'
+  const [reservationHoldMinutes, setReservationHoldMinutes] = useState(DEFAULT_RESERVATION_HOLD_MINUTES)
+
+  useEffect(() => {
+    if (!isTable || !params.reservationId) return
+    let cancelled = false
+    supabase
+      .from('reservations')
+      .select('events(clubs(*))')
+      .eq('reservation_id', params.reservationId)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return
+        const ev = Array.isArray((data as any)?.events) ? (data as any).events[0] : (data as any)?.events
+        const club = Array.isArray(ev?.clubs) ? ev.clubs[0] : ev?.clubs
+        setReservationHoldMinutes(normalizeReservationHoldMinutes(club?.reservation_hold_minutes))
+      })
+    return () => { cancelled = true }
+  }, [isTable, params.reservationId])
 
   async function shareWithFriends() {
     await Share.share({
@@ -99,6 +120,13 @@ export default function ConfirmationScreen() {
       </View>
 
       {/* QR Code */}
+      {isTable && (
+        <View style={s.holdPolicyBox}>
+          <Clock size={16} color={COLORS.pink} />
+          <Text style={s.holdPolicyText}>{reservationHoldPolicyText(reservationHoldMinutes)}</Text>
+        </View>
+      )}
+
       <View style={s.qrWrap}>
         <QRCode size={170} />
         <Text style={s.qrHint}>Show this QR code at the entrance</Text>
@@ -146,6 +174,8 @@ const s = StyleSheet.create({
   detailsGrid: { flexDirection: 'row', gap: 40, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#1e1e1e' },
   detailLabel: { color: '#555', fontSize: 12, marginBottom: 3 },
   detailValue: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  holdPolicyBox: { width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: 'rgba(244,114,182,0.10)', borderWidth: 1, borderColor: 'rgba(244,114,182,0.25)', borderRadius: 16, padding: 14, marginBottom: 14 },
+  holdPolicyText: { flex: 1, color: '#aaa', fontSize: 12, lineHeight: 18 },
   qrWrap: { backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20, width: '100%' },
   qrHint: { color: '#888', fontSize: 12, marginTop: 12 },
   actions: { flexDirection: 'row', gap: 10, marginBottom: 16, width: '100%', justifyContent: 'center' },

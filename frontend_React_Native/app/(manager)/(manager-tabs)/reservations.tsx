@@ -9,9 +9,10 @@ import { Ionicons } from '@expo/vector-icons'
 import { COLORS, SPACING, RADIUS, FONT } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { DEFAULT_RESERVATION_HOLD_MINUTES, normalizeReservationHoldMinutes } from '@/lib/reservationPolicy'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type TypeFilter = 'Needs Action' | 'All' | 'Tickets' | 'Tables' | 'Completed'
+type TypeFilter = 'All' | 'Tickets' | 'Tables' | 'Completed'
 
 type TableOption = {
   id: string
@@ -79,6 +80,14 @@ function dayKey(value: string | null | undefined) {
   return (value ?? '').slice(0, 10)
 }
 
+function bookingDisplayDate(r: Reservation) {
+  return r.events?.event_starting_date ?? r.reservation_date ?? r.created_at
+}
+
+function bookingDayKey(r: Reservation) {
+  return dayKey(bookingDisplayDate(r))
+}
+
 function bookingEnded(r: Reservation) {
   const ref = r.events?.event_ending_date || r.events?.event_starting_date || r.reservation_date
   if (!ref) return false
@@ -89,8 +98,36 @@ function bookingEnded(r: Reservation) {
   return dt.getTime() < Date.now()
 }
 
-function reservationNeedsTable(r: Reservation) {
-  return r.type === 'table' && r.status !== 'cancelled' && r.status !== 'completed' && !r.table_id
+function bookingStartGracePassed(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  const ref = r.events?.event_starting_date || r.reservation_date
+  if (!ref) return false
+  const dt = new Date(ref)
+  if (Number.isNaN(dt.getTime())) return false
+  const midnightOnly = dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0 && dt.getUTCSeconds() === 0 && dt.getUTCMilliseconds() === 0
+  if (midnightOnly) dt.setHours(23, 59, 59, 999)
+  return dt.getTime() + normalizeReservationHoldMinutes(holdMinutes) * 60 * 1000 < Date.now()
+}
+
+function isPastUnresolved(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  return bookingStartGracePassed(r, holdMinutes) && r.status !== 'completed' && r.status !== 'cancelled'
+}
+
+function reservationNeedsTable(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  return r.type === 'table' && r.status !== 'cancelled' && r.status !== 'completed' && !isPastUnresolved(r, holdMinutes) && !r.table_id
+}
+
+function reservationLockedForEdits(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  return r.status === 'completed' || r.status === 'cancelled' || bookingEnded(r) || isPastUnresolved(r, holdMinutes)
+}
+
+function reservationStatusLabel(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (isPastUnresolved(r, holdMinutes)) return 'No-show'
+  return r.status.charAt(0).toUpperCase() + r.status.slice(1)
+}
+
+function reservationStatusColor(r: Reservation, holdMinutes = DEFAULT_RESERVATION_HOLD_MINUTES) {
+  if (isPastUnresolved(r, holdMinutes)) return COLORS.red
+  return STATUS_COLOR[r.status] ?? COLORS.muted
 }
 
 function sameWeek(a: WeekRange, b: WeekRange) {
@@ -139,7 +176,6 @@ const TYPE_COLOR: Record<string, string> = { table: COLORS.purple, ticket: COLOR
 const TX = {
   title: 'Reservations & Tickets',
   subtitle: 'Prepare upcoming bookings and review tickets',
-  needsAction: 'Needs Action',
   tableReservations: 'Table Reservations',
   assignTable: 'Assign table',
   changeTable: 'Change table',
@@ -155,6 +191,8 @@ const TX = {
     ticketType: 'Ticket type',
     ticketPrice: 'Ticket price',
   },
+  lockedPast: 'This reservation is locked because the event time has passed.',
+  noShow: 'No check-in was recorded inside the venue hold window. The table is treated as free.',
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -166,12 +204,15 @@ export default function ReservationsScreen() {
   const [clubTables, setClubTables]     = useState<TableOption[]>([])
   const [loading, setLoading]           = useState(true)
   const [refreshing, setRefreshing]     = useState(false)
-  const [typeFilter, setTypeFilter]     = useState<TypeFilter>('Needs Action')
+  const [typeFilter, setTypeFilter]     = useState<TypeFilter>('All')
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null)
   const [assigningTableId, setAssigningTableId] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState('all')
   const [selectedEventId, setSelectedEventId] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [editingGuestCount, setEditingGuestCount] = useState('1')
+  const [savingReservationEdit, setSavingReservationEdit] = useState(false)
+  const [reservationHoldMinutes, setReservationHoldMinutes] = useState(DEFAULT_RESERVATION_HOLD_MINUTES)
 
   // Selected week (default: This Week)
   const [selectedWeek, setSelectedWeek] = useState<WeekRange>(PRESETS[1])
@@ -189,9 +230,22 @@ export default function ReservationsScreen() {
 
     const rangeStart = toISODate(week.start)
     const rangeEnd   = toISODate(week.end)
+    const eventRangeStart = rangeStart
+    const eventRangeEnd = week.end.toISOString()
+
+    const { data: clubRow } = await supabase
+      .from('clubs')
+      .select('*')
+      .eq('club_id', profile.club_id)
+      .single()
+    setReservationHoldMinutes(normalizeReservationHoldMinutes((clubRow as any)?.reservation_hold_minutes))
 
     const { data: eventRows } = await supabase
-      .from('events').select('event_id').eq('club_id', profile.club_id)
+      .from('events')
+      .select('event_id')
+      .eq('club_id', profile.club_id)
+      .gte('event_starting_date', eventRangeStart)
+      .lte('event_starting_date', eventRangeEnd)
     const eventIds = (eventRows ?? []).map((e: { event_id: string }) => e.event_id)
 
     const { data: ticketRes } = eventIds.length > 0
@@ -200,9 +254,6 @@ export default function ReservationsScreen() {
           .select(`reservation_id,type,status,nr_of_people,reservation_date,created_at,event_id,table_id,
             events(event_id,event_name,final_ticket_price,event_starting_date,event_ending_date,event_hours),profiles(name,surname),tables(id,minimum_spend,table_number,seating_capacity,sector,type),ticket_types(name,price)`)
           .in('event_id', eventIds)
-          .gte('reservation_date', rangeStart)
-          .lte('reservation_date', rangeEnd)
-          .order('reservation_date', { ascending: true })
       : { data: [] }
 
     const { data: tableRows } = await supabase
@@ -228,25 +279,13 @@ export default function ReservationsScreen() {
 
     const all  = [...(ticketRes ?? []), ...(tableRes ?? [])]
     const seen = new Set<string>()
-    let deduped = all
+    const deduped = all
       .filter(r => { if (seen.has(r.reservation_id)) return false; seen.add(r.reservation_id); return true })
-      .sort((a, b) => ((a.reservation_date ?? '') > (b.reservation_date ?? '') ? 1 : -1))
-
-    const rows = deduped as unknown as Reservation[]
-    const idsToComplete = rows
-      .filter(r => r.status !== 'cancelled' && r.status !== 'completed' && bookingEnded(r))
-      .map(r => r.reservation_id)
-
-    if (idsToComplete.length > 0) {
-      const { error } = await supabase
-        .from('reservations')
-        .update({ status: 'completed' })
-        .in('reservation_id', idsToComplete)
-      if (!error) {
-        const done = new Set(idsToComplete)
-        deduped = deduped.map(r => done.has(r.reservation_id) ? { ...r, status: 'completed' } : r)
-      }
-    }
+      .sort((a, b) => {
+        const left = bookingDisplayDate(a as unknown as Reservation) ?? ''
+        const right = bookingDisplayDate(b as unknown as Reservation) ?? ''
+        return left.localeCompare(right)
+      })
 
     setReservations(deduped as unknown as Reservation[])
     setLoading(false)
@@ -261,21 +300,24 @@ export default function ReservationsScreen() {
     setSearchQuery('')
   }, [selectedWeek])
 
+  useEffect(() => {
+    if (!selectedReservation) return
+    setEditingGuestCount(String(Math.max(1, selectedReservation.nr_of_people ?? 1)))
+  }, [selectedReservation])
+
   const onRefresh = () => { setRefreshing(true); fetchReservations(selectedWeek) }
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     let rows = reservations
-    if (typeFilter === 'Needs Action') {
-      rows = rows.filter(r => r.status === 'pending' || reservationNeedsTable(r))
-    } else if (typeFilter === 'Tickets') {
+    if (typeFilter === 'Tickets') {
       rows = rows.filter(r => r.type === 'ticket')
     } else if (typeFilter === 'Tables') {
       rows = rows.filter(r => r.type === 'table')
     } else if (typeFilter === 'Completed') {
       rows = rows.filter(r => r.status === 'completed')
     }
-    if (selectedDay !== 'all') rows = rows.filter(r => dayKey(r.reservation_date ?? r.created_at) === selectedDay)
+    if (selectedDay !== 'all') rows = rows.filter(r => bookingDayKey(r) === selectedDay)
     if (selectedEventId !== 'all') rows = rows.filter(r => r.event_id === selectedEventId || r.events?.event_id === selectedEventId)
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase()
@@ -295,7 +337,7 @@ export default function ReservationsScreen() {
   const dayOptions = useMemo(() => {
     const counts = new Map<string, number>()
     for (const r of reservations) {
-      const key = dayKey(r.reservation_date ?? r.created_at)
+      const key = bookingDayKey(r)
       if (!key) continue
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
@@ -304,14 +346,17 @@ export default function ReservationsScreen() {
 
   const eventOptions = useMemo(() => {
     const counts = new Map<string, { name: string; count: number }>()
-    for (const r of reservations) {
+    const source = selectedDay === 'all'
+      ? reservations
+      : reservations.filter(r => bookingDayKey(r) === selectedDay)
+    for (const r of source) {
       const id = r.event_id ?? r.events?.event_id
       if (!id) continue
       const cur = counts.get(id)
       counts.set(id, { name: cur?.name ?? r.events?.event_name ?? 'Untitled event', count: (cur?.count ?? 0) + 1 })
     }
     return Array.from(counts.entries()).map(([id, value]) => ({ id, ...value })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [reservations])
+  }, [reservations, selectedDay])
 
   const weekDays = useMemo(() => {
     const today = toISODate(new Date())
@@ -320,31 +365,31 @@ export default function ReservationsScreen() {
       date.setDate(selectedWeek.start.getDate() + i)
       date.setHours(12, 0, 0, 0)
       const key = toISODate(date)
-      const dayRs = reservations.filter(r => dayKey(r.reservation_date ?? r.created_at) === key)
+      const dayRs = reservations.filter(r => bookingDayKey(r) === key)
       return {
         key,
         date,
         total: dayRs.length,
         ticketCount: dayRs.filter(r => r.type === 'ticket').length,
         tableCount: dayRs.filter(r => r.type === 'table').length,
-        pending: dayRs.filter(r => r.status === 'pending').length,
+        unassigned: dayRs.filter(r => reservationNeedsTable(r, reservationHoldMinutes)).length,
+        flagged: dayRs.filter(r => isPastUnresolved(r, reservationHoldMinutes)).length,
         confirmed: dayRs.filter(r => r.status === 'confirmed').length,
         completed: dayRs.filter(r => r.status === 'completed').length,
         cancelled: dayRs.filter(r => r.status === 'cancelled').length,
-        needsAction: dayRs.filter(r => r.status === 'pending' || reservationNeedsTable(r)).length,
         events: [...new Set(dayRs.map(r => r.events?.event_name).filter(Boolean))] as string[],
         isToday: key === today,
         isPast: key < today,
       }
     })
-  }, [selectedWeek, reservations])
+  }, [selectedWeek, reservations, reservationHoldMinutes])
 
   const isOverview = selectedDay === 'all' && !searchQuery.trim()
 
   const grouped = useMemo(() => {
     const map: Record<string, Reservation[]> = {}
     for (const r of filtered) {
-      const key = (r.reservation_date ?? r.created_at ?? '').slice(0, 10) || 'no-date'
+      const key = bookingDayKey(r) || 'no-date'
       if (!map[key]) map[key] = []
       map[key].push(r)
     }
@@ -353,16 +398,14 @@ export default function ReservationsScreen() {
 
   const total     = reservations.length
   const confirmed = reservations.filter(r => r.status === 'confirmed').length
-  const pending   = reservations.filter(r => r.status === 'pending').length
   const cancelled = reservations.filter(r => r.status === 'cancelled').length
   const completed = reservations.filter(r => r.status === 'completed').length
-  const needsAction = reservations.filter(r => r.status === 'pending' || reservationNeedsTable(r)).length
 
   // ── Status change ─────────────────────────────────────────────────────────
   async function handleStatusChange(id: string, status: Reservation['status']) {
     const reservation = reservations.find(r => r.reservation_id === id)
-    if (status === 'completed' && reservation && !bookingEnded(reservation)) {
-      Alert.alert('Not ready yet', 'This reservation can only be completed after its event or reservation date has passed.')
+    if (reservation && reservationLockedForEdits(reservation, reservationHoldMinutes)) {
+      Alert.alert('Locked', 'This reservation can no longer be changed because its event window has passed.')
       return
     }
 
@@ -375,13 +418,18 @@ export default function ReservationsScreen() {
     return reservations.some(r => {
       if (r.reservation_id === reservation.reservation_id) return false
       if (r.table_id !== tableId) return false
-      if (r.status === 'cancelled' || r.status === 'completed') return false
+      if (r.status === 'cancelled' || r.status === 'completed' || isPastUnresolved(r, reservationHoldMinutes)) return false
       if (reservation.event_id) return r.event_id === reservation.event_id
-      return dayKey(r.reservation_date) === dayKey(reservation.reservation_date)
+      return bookingDayKey(r) === bookingDayKey(reservation)
     })
   }
 
   async function handleAssignTable(reservation: Reservation, table: TableOption) {
+    if (reservationLockedForEdits(reservation, reservationHoldMinutes)) {
+      Alert.alert('Locked', 'This reservation can no longer be changed because its event window has passed.')
+      return
+    }
+
     if (tableConflict(table.id, reservation)) {
       Alert.alert('Table unavailable', 'This table is already assigned for this event or date.')
       return
@@ -401,13 +449,40 @@ export default function ReservationsScreen() {
     await fetchReservations(selectedWeek)
   }
 
+  async function handleSaveReservationDetails() {
+    if (!selectedReservation || selectedReservation.type !== 'table') return
+    if (reservationLockedForEdits(selectedReservation, reservationHoldMinutes)) {
+      Alert.alert('Locked', 'This reservation can no longer be changed because its event window has passed.')
+      return
+    }
+
+    const guests = Math.max(1, Number.parseInt(editingGuestCount, 10) || 1)
+    setSavingReservationEdit(true)
+    const { error } = await supabase
+      .from('reservations')
+      .update({ nr_of_people: guests })
+      .eq('reservation_id', selectedReservation.reservation_id)
+    setSavingReservationEdit(false)
+
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+
+    setEditingGuestCount(String(guests))
+    setSelectedReservation(prev => prev?.reservation_id === selectedReservation.reservation_id
+      ? { ...prev, nr_of_people: guests }
+      : prev)
+    await fetchReservations(selectedWeek)
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getDisplayName(r: Reservation) {
     if (!r.profiles) return 'Guest'
     return [r.profiles.name, r.profiles.surname].filter(Boolean).join(' ') || 'Guest'
   }
   function getAmount(r: Reservation) {
-    if (r.type === 'table' && r.tables?.minimum_spend) return `€${r.tables.minimum_spend}`
+    if (r.type === 'table') return ''
     if (r.type === 'ticket' && r.events?.final_ticket_price && r.nr_of_people)
       return `€${(r.events.final_ticket_price * r.nr_of_people).toFixed(2)}`
     if (r.type === 'ticket' && r.events?.final_ticket_price)
@@ -418,7 +493,7 @@ export default function ReservationsScreen() {
     if (key === 'no-date') return 'Date not set'
     return new Date(key + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long' })
   }
-  function formatDate(d: string | null) {
+  function formatDate(d: string | null | undefined) {
     if (!d) return ''
     return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   }
@@ -456,9 +531,7 @@ export default function ReservationsScreen() {
 
   // Is the selected week one of the 3 presets?
   const activePresetIndex = PRESETS.findIndex(p => sameWeek(p, selectedWeek))
-  const emptyTitle = typeFilter === 'Needs Action'
-    ? 'No items needing action'
-    : typeFilter === 'Tables'
+  const emptyTitle = typeFilter === 'Tables'
       ? 'No table reservations'
       : typeFilter === 'All'
         ? 'No reservations'
@@ -534,9 +607,7 @@ export default function ReservationsScreen() {
         <View style={s.statsRow}>
           {([
             [String(total),     COLORS.white, 'Total'],
-            [String(needsAction), COLORS.purple, TX.needsAction],
             [String(confirmed), COLORS.green, 'Confirmed'],
-            [String(pending),   COLORS.cta,   'Pending'],
             [String(completed), COLORS.muted, 'Completed'],
             [String(cancelled), COLORS.red,   'Cancelled'],
           ] as [string, string, string][]).map(([num, color, label]) => (
@@ -549,7 +620,7 @@ export default function ReservationsScreen() {
 
         {/* ── Type filter ── */}
         <View style={s.filterRow}>
-          {(['Needs Action', 'All', 'Tickets', 'Tables', 'Completed'] as TypeFilter[]).map(f => (
+          {(['All', 'Tickets', 'Tables', 'Completed'] as TypeFilter[]).map(f => (
             <TouchableOpacity
               key={f}
               style={[s.filterTab, typeFilter === f && s.filterTabActive]}
@@ -583,40 +654,22 @@ export default function ReservationsScreen() {
         {/* ── Day overview cards (default) or drill-down list ── */}
         {isOverview ? (
           <View style={{ gap: SPACING.sm, marginBottom: SPACING.xl }}>
-            {needsAction > 0 && (
-              <TouchableOpacity
-                style={s.needsActionBanner}
-                onPress={() => setTypeFilter('Needs Action')}
-                activeOpacity={0.82}
-              >
-                <View style={s.needsActionBannerLeft}>
-                  <Ionicons name="alert-circle" size={20} color={COLORS.cta} />
-                  <View>
-                    <Text style={s.needsActionBannerTitle}>
-                      {needsAction} item{needsAction !== 1 ? 's' : ''} need{needsAction === 1 ? 's' : ''} attention
-                    </Text>
-                    <Text style={s.needsActionBannerSub}>Pending confirmations or unassigned tables</Text>
-                  </View>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={COLORS.cta} />
-              </TouchableOpacity>
-            )}
-
             {weekDays.map(day => {
-              const filteredCnt = typeFilter === 'Needs Action' ? day.needsAction
-                : typeFilter === 'Tickets' ? day.ticketCount
+              const filteredCnt = typeFilter === 'Tickets' ? day.ticketCount
                 : typeFilter === 'Tables' ? day.tableCount
                 : typeFilter === 'Completed' ? day.completed
                 : day.total
               const hasRs = day.total > 0
               const dimmed = !hasRs || (typeFilter !== 'All' && filteredCnt === 0)
+              const displayCnt = typeFilter === 'All' ? day.total : filteredCnt
+              const canOpenDay = hasRs && displayCnt > 0
 
               return (
                 <TouchableOpacity
                   key={day.key}
                   style={[s.dayCard, day.isToday && s.dayCardToday, dimmed && s.dayCardMuted]}
-                  onPress={() => { if (hasRs) setSelectedDay(day.key) }}
-                  activeOpacity={hasRs ? 0.8 : 1}
+                  onPress={() => { if (canOpenDay) { setSelectedDay(day.key); setSelectedEventId('all') } }}
+                  activeOpacity={canOpenDay ? 0.8 : 1}
                 >
                   <View style={s.dayCardHeader}>
                     <View style={s.dayCardLeft}>
@@ -634,17 +687,11 @@ export default function ReservationsScreen() {
                     </View>
 
                     <View style={s.dayCardRight}>
-                      {day.needsAction > 0 && (
-                        <View style={s.alertBadge}>
-                          <Ionicons name="alert-circle" size={11} color={COLORS.cta} />
-                          <Text style={s.alertBadgeText}>{day.needsAction}</Text>
-                        </View>
-                      )}
                       {hasRs ? (
                         <>
                           <View style={[s.countCircle, day.isToday && s.countCircleToday]}>
                             <Text style={[s.countCircleText, day.isToday && s.countCircleTextToday]}>
-                              {filteredCnt || day.total}
+                              {displayCnt}
                             </Text>
                           </View>
                           <Ionicons name="chevron-forward" size={16} color={day.isToday ? COLORS.purple : COLORS.mutedDark} />
@@ -659,20 +706,34 @@ export default function ReservationsScreen() {
                     <>
                       <View style={s.statusBarTrack}>
                         {day.confirmed > 0 && <View style={[s.statusBarSeg, { flex: day.confirmed, backgroundColor: COLORS.green }]} />}
-                        {day.pending > 0 && <View style={[s.statusBarSeg, { flex: day.pending, backgroundColor: COLORS.cta }]} />}
                         {day.completed > 0 && <View style={[s.statusBarSeg, { flex: day.completed, backgroundColor: COLORS.muted }]} />}
                         {day.cancelled > 0 && <View style={[s.statusBarSeg, { flex: day.cancelled, backgroundColor: COLORS.border }]} />}
                       </View>
 
                       <View style={s.dayCardStats}>
+                        {day.ticketCount > 0 && (
+                          <View style={[s.statPill, { backgroundColor: COLORS.cta + '18' }]}>
+                            <Text style={[s.statPillText, { color: COLORS.cta }]}>{day.ticketCount} tickets</Text>
+                          </View>
+                        )}
+                        {day.tableCount > 0 && (
+                          <View style={[s.statPill, { backgroundColor: COLORS.purple + '18' }]}>
+                            <Text style={[s.statPillText, { color: COLORS.purple }]}>{day.tableCount} tables</Text>
+                          </View>
+                        )}
+                        {day.unassigned > 0 && (
+                          <View style={[s.statPill, { backgroundColor: COLORS.pink + '18' }]}>
+                            <Text style={[s.statPillText, { color: COLORS.pink }]}>{day.unassigned} unassigned</Text>
+                          </View>
+                        )}
+                        {day.flagged > 0 && (
+                          <View style={[s.statPill, { backgroundColor: COLORS.red + '18' }]}>
+                            <Text style={[s.statPillText, { color: COLORS.red }]}>{day.flagged} no-show</Text>
+                          </View>
+                        )}
                         {day.confirmed > 0 && (
                           <View style={[s.statPill, { backgroundColor: COLORS.green + '18' }]}>
                             <Text style={[s.statPillText, { color: COLORS.green }]}>{day.confirmed} confirmed</Text>
-                          </View>
-                        )}
-                        {day.pending > 0 && (
-                          <View style={[s.statPill, { backgroundColor: COLORS.cta + '18' }]}>
-                            <Text style={[s.statPillText, { color: COLORS.cta }]}>{day.pending} pending</Text>
                           </View>
                         )}
                         {day.completed > 0 && (
@@ -765,11 +826,12 @@ export default function ReservationsScreen() {
                   )}
 
                   {rows.map(r => {
-                    const sc = STATUS_COLOR[r.status] ?? COLORS.muted
+                    const sc = reservationStatusColor(r, reservationHoldMinutes)
                     const tc = TYPE_COLOR[r.type]    ?? COLORS.muted
                     const name      = getDisplayName(r)
                     const amount    = getAmount(r)
-                    const canComplete = bookingEnded(r)
+                    const pastUnresolved = isPastUnresolved(r, reservationHoldMinutes)
+                    const locked = reservationLockedForEdits(r, reservationHoldMinutes)
                     const eventName = r.events?.event_name ?? (r.tables ? `Table ${r.tables.table_number}` : '–')
 
                     return (
@@ -787,10 +849,10 @@ export default function ReservationsScreen() {
                             <View style={{ flex: 1 }}>
                               <Text style={s.reservName}>{name}</Text>
                               <Text style={s.reservEvent} numberOfLines={1}>{eventName}</Text>
-                              {r.reservation_date && <Text style={s.reservDate}>{formatDate(r.reservation_date)}</Text>}
+                              {bookingDisplayDate(r) && <Text style={s.reservDate}>{formatDate(bookingDisplayDate(r))}</Text>}
                             </View>
                           </View>
-                          <Text style={s.reservAmount}>{amount}</Text>
+                          {amount ? <Text style={s.reservAmount}>{amount}</Text> : null}
                         </View>
 
                         <View style={s.reservTags}>
@@ -798,12 +860,18 @@ export default function ReservationsScreen() {
                             <Text style={[s.typeText, { color: tc }]}>{r.type.charAt(0).toUpperCase() + r.type.slice(1)}</Text>
                           </View>
                           <View style={[s.typeBadge, { backgroundColor: sc + '22' }]}>
-                            <Text style={[s.typeText, { color: sc }]}>{r.status.charAt(0).toUpperCase() + r.status.slice(1)}</Text>
+                            <Text style={[s.typeText, { color: sc }]}>{reservationStatusLabel(r, reservationHoldMinutes)}</Text>
                           </View>
-                          {reservationNeedsTable(r) && (
+                          {reservationNeedsTable(r, reservationHoldMinutes) && (
                             <View style={[s.typeBadge, s.needsTableBadge]}>
                               <Ionicons name="restaurant-outline" size={11} color={COLORS.pink} />
                               <Text style={[s.typeText, { color: COLORS.pink }]}>{TX.tableNeeded}</Text>
+                            </View>
+                          )}
+                          {pastUnresolved && (
+                            <View style={[s.typeBadge, s.noShowBadge]}>
+                              <Ionicons name="alert-circle-outline" size={11} color={COLORS.red} />
+                              <Text style={[s.typeText, { color: COLORS.red }]}>No-show</Text>
                             </View>
                           )}
                           {r.type === 'table' && r.tables?.table_number && (
@@ -814,7 +882,7 @@ export default function ReservationsScreen() {
                           )}
                         </View>
 
-                        {r.status === 'pending' && (
+                        {r.status === 'pending' && !locked && (
                           <View style={s.actionRow}>
                             <TouchableOpacity style={s.confirmBtn} onPress={(e) => { e.stopPropagation(); handleStatusChange(r.reservation_id, 'confirmed') }}>
                               <Ionicons name="checkmark-outline" size={14} color="#fff" />
@@ -825,18 +893,6 @@ export default function ReservationsScreen() {
                               <Text style={s.rejectBtnText}>Decline</Text>
                             </TouchableOpacity>
                           </View>
-                        )}
-                        {r.status === 'confirmed' && (
-                          <TouchableOpacity
-                            style={[s.completeBtn, !canComplete && s.completeBtnDisabled]}
-                            onPress={(e) => { e.stopPropagation(); handleStatusChange(r.reservation_id, 'completed') }}
-                            disabled={!canComplete}
-                          >
-                            <Ionicons name="checkmark-done-outline" size={14} color={canComplete ? COLORS.green : COLORS.mutedDark} />
-                            <Text style={[s.completeBtnText, !canComplete && s.completeBtnTextDisabled]}>
-                              {canComplete ? 'Mark Completed' : 'Complete after event'}
-                            </Text>
-                          </TouchableOpacity>
                         )}
                       </TouchableOpacity>
                     )
@@ -982,15 +1038,13 @@ export default function ReservationsScreen() {
               <View style={d.infoCard}>
                 <DetailRow icon="calendar-outline" label={TX.details.event} value={selectedReservation.events?.event_name ?? 'No event linked'} />
                 <View style={d.divider} />
-                <DetailRow icon="time-outline" label={TX.details.date} value={formatDate(selectedReservation.reservation_date) || 'Date not set'} />
+                <DetailRow icon="time-outline" label={TX.details.date} value={formatDate(bookingDisplayDate(selectedReservation)) || 'Date not set'} />
                 <View style={d.divider} />
-                <DetailRow icon="checkmark-circle-outline" label={TX.details.status} value={selectedReservation.status.charAt(0).toUpperCase() + selectedReservation.status.slice(1)} />
+                <DetailRow icon="checkmark-circle-outline" label={TX.details.status} value={reservationStatusLabel(selectedReservation, reservationHoldMinutes)} />
                 <View style={d.divider} />
                 {selectedReservation.type === 'table' ? (
                   <>
                     <DetailRow icon="restaurant-outline" label={TX.details.table} value={selectedReservation.tables?.table_number ? `Table ${selectedReservation.tables.table_number}` : TX.noTable} />
-                    <View style={d.divider} />
-                    <DetailRow icon="cash-outline" label={TX.details.minimumSpend} value={selectedReservation.tables?.minimum_spend ? `€${selectedReservation.tables.minimum_spend.toFixed(2)}` : 'Not set'} />
                   </>
                 ) : (
                   <>
@@ -1007,40 +1061,92 @@ export default function ReservationsScreen() {
                 )}
               </View>
 
-              {selectedReservation.type === 'table' && selectedReservation.status !== 'completed' && selectedReservation.status !== 'cancelled' && (
-                <View style={d.assignBlock}>
-                  <Text style={d.assignTitle}>
-                    {selectedReservation.table_id ? TX.changeTable : TX.assignTable}
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={d.tableOptions}>
-                    {clubTables.map(table => {
-                      const selected = selectedReservation.table_id === table.id
-                      const taken = tableConflict(table.id, selectedReservation) && !selected
-                      const assigning = assigningTableId === table.id
-                      return (
-                        <TouchableOpacity
-                          key={table.id}
-                          style={[d.tableOption, selected && d.tableOptionActive, taken && d.tableOptionDisabled]}
-                          onPress={() => handleAssignTable(selectedReservation, table)}
-                          disabled={taken || assigningTableId !== null}
-                        >
-                          <Text style={[d.tableOptionNum, selected && d.tableOptionTextActive]}>
-                            Table {table.table_number}
-                          </Text>
-                          <Text style={d.tableOptionMeta}>
-                            {[table.seating_capacity ? `${table.seating_capacity} guests` : null, table.type].filter(Boolean).join(' - ')}
-                          </Text>
-                          {assigning ? (
-                            <ActivityIndicator size="small" color={COLORS.purple} />
-                          ) : taken ? (
-                            <Text style={d.tableTakenText}>{TX.tableTaken}</Text>
-                          ) : selected ? (
-                            <Ionicons name="checkmark-circle" size={16} color={COLORS.purple} />
-                          ) : null}
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
+              {isPastUnresolved(selectedReservation, reservationHoldMinutes) && (
+                <View style={d.warningBox}>
+                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.red} />
+                  <Text style={[d.warningText, { color: COLORS.red }]}>{TX.noShow}</Text>
+                </View>
+              )}
+
+              {!isPastUnresolved(selectedReservation, reservationHoldMinutes) && bookingEnded(selectedReservation) && selectedReservation.status !== 'completed' && selectedReservation.status !== 'cancelled' && (
+                <View style={d.warningBox}>
+                  <Ionicons name="lock-closed-outline" size={18} color={COLORS.mutedDark} />
+                  <Text style={d.warningText}>{TX.lockedPast}</Text>
+                </View>
+              )}
+
+              {selectedReservation.type === 'table' && (selectedReservation.status === 'pending' || selectedReservation.status === 'confirmed') && !reservationLockedForEdits(selectedReservation, reservationHoldMinutes) && (
+                <TouchableOpacity
+                  style={d.checkInBtn}
+                  onPress={() => handleStatusChange(selectedReservation.reservation_id, 'completed')}
+                >
+                  <Ionicons name="checkmark-done-outline" size={16} color="#fff" />
+                  <Text style={d.checkInBtnText}>Mark checked in</Text>
+                </TouchableOpacity>
+              )}
+
+              {selectedReservation.type === 'table' && !reservationLockedForEdits(selectedReservation, reservationHoldMinutes) && (
+                <View style={d.editBlock}>
+                  <View style={d.editRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={d.assignTitle}>Guests</Text>
+                      <Text style={d.editHint}>Update the reservation size for the host list.</Text>
+                    </View>
+                    <TextInput
+                      style={d.guestInput}
+                      value={editingGuestCount}
+                      onChangeText={(value) => setEditingGuestCount(value.replace(/[^0-9]/g, ''))}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      selectTextOnFocus
+                    />
+                    <TouchableOpacity
+                      style={[d.saveMiniBtn, savingReservationEdit && d.saveMiniBtnDisabled]}
+                      onPress={handleSaveReservationDetails}
+                      disabled={savingReservationEdit}
+                    >
+                      {savingReservationEdit ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={d.saveMiniBtnText}>Save</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={d.assignBlock}>
+                    <Text style={d.assignTitle}>
+                      {selectedReservation.table_id ? TX.changeTable : TX.assignTable}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={d.tableOptions}>
+                      {clubTables.map(table => {
+                        const selected = selectedReservation.table_id === table.id
+                        const taken = tableConflict(table.id, selectedReservation) && !selected
+                        const assigning = assigningTableId === table.id
+                        return (
+                          <TouchableOpacity
+                            key={table.id}
+                            style={[d.tableOption, selected && d.tableOptionActive, taken && d.tableOptionDisabled]}
+                            onPress={() => handleAssignTable(selectedReservation, table)}
+                            disabled={taken || assigningTableId !== null}
+                          >
+                            <Text style={[d.tableOptionNum, selected && d.tableOptionTextActive]}>
+                              Table {table.table_number}
+                            </Text>
+                            <Text style={d.tableOptionMeta}>
+                              {[table.seating_capacity ? `${table.seating_capacity} guests` : null, table.type].filter(Boolean).join(' - ')}
+                            </Text>
+                            {assigning ? (
+                              <ActivityIndicator size="small" color={COLORS.purple} />
+                            ) : taken ? (
+                              <Text style={d.tableTakenText}>{TX.tableTaken}</Text>
+                            ) : selected ? (
+                              <Ionicons name="checkmark-circle" size={16} color={COLORS.purple} />
+                            ) : null}
+                          </TouchableOpacity>
+                        )
+                      })}
+                    </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -1076,7 +1182,7 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.md, marginBottom: SPACING.lg },
-  appName: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
+  appName: { color: COLORS.white, fontSize: FONT.xl, fontWeight: '900' },
   sub:     { color: COLORS.mutedDark, fontSize: 12, marginTop: 2 },
 
   pageTitle:    { color: COLORS.white, fontSize: FONT.xl, fontWeight: '700', marginBottom: 4 },
@@ -1171,6 +1277,7 @@ const s = StyleSheet.create({
   typeBadge:    { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: COLORS.bgCard2, borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
   typeText:     { color: COLORS.muted, fontSize: 11, fontWeight: '600' },
   needsTableBadge: { backgroundColor: COLORS.pink + '18', borderWidth: 1, borderColor: COLORS.pink + '44' },
+  noShowBadge: { backgroundColor: COLORS.red + '18', borderWidth: 1, borderColor: COLORS.red + '44' },
 
   actionRow:      { flexDirection: 'row', gap: SPACING.sm },
   confirmBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, backgroundColor: COLORS.green, borderRadius: RADIUS.sm, paddingVertical: 10 },
@@ -1183,16 +1290,6 @@ const s = StyleSheet.create({
   completeBtnTextDisabled: { color: COLORS.mutedDark },
 
   // ── Needs-action banner ────────────────────────────────────────────────────
-  needsActionBanner: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: COLORS.cta + '15', borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.cta + '40',
-    padding: SPACING.md, marginBottom: SPACING.xs,
-  },
-  needsActionBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1 },
-  needsActionBannerTitle: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
-  needsActionBannerSub: { color: COLORS.cta + 'bb', fontSize: 11, marginTop: 2 },
-
   // ── Day overview cards ─────────────────────────────────────────────────────
   dayCard: {
     backgroundColor: COLORS.bgCard, borderRadius: RADIUS.lg,
@@ -1292,6 +1389,62 @@ const d = StyleSheet.create({
   rowLabel: { color: COLORS.mutedDark, fontSize: 11, marginBottom: 3 },
   rowValue: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '700' },
   divider: { height: 1, backgroundColor: COLORS.border, marginLeft: SPACING.md + 34 + SPACING.sm },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.cta + '14',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.cta + '44',
+    padding: SPACING.md,
+  },
+  warningText: { flex: 1, color: COLORS.cta, fontSize: FONT.sm, fontWeight: '700', lineHeight: 19 },
+  checkInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.green,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.md,
+  },
+  checkInBtnText: { color: '#fff', fontSize: FONT.base, fontWeight: '800' },
+  editBlock: { gap: SPACING.md },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.bg,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+  },
+  editHint: { color: COLORS.mutedDark, fontSize: 11, marginTop: 3 },
+  guestInput: {
+    width: 58,
+    height: 42,
+    color: COLORS.white,
+    fontSize: FONT.base,
+    fontWeight: '800',
+    textAlign: 'center',
+    backgroundColor: COLORS.bgCard2,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  saveMiniBtn: {
+    minWidth: 58,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.purpleDark,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+  },
+  saveMiniBtnDisabled: { opacity: 0.6 },
+  saveMiniBtnText: { color: '#fff', fontSize: FONT.sm, fontWeight: '800' },
   assignBlock: { gap: SPACING.sm },
   assignTitle: { color: COLORS.white, fontSize: FONT.sm, fontWeight: '800' },
   tableOptions: { gap: SPACING.sm, paddingRight: SPACING.md },

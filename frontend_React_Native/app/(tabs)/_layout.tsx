@@ -1,6 +1,8 @@
 import { Tabs } from 'expo-router'
-import { Platform, View } from 'react-native'
+import { View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { getTabBarBottomPadding } from '@/lib/tabBarInsets'
 
 function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focused: boolean }) {
   return (
@@ -18,6 +20,9 @@ function TabIcon({ name, focused }: { name: keyof typeof Ionicons.glyphMap; focu
 }
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets()
+  const bottomPad = getTabBarBottomPadding(insets.bottom)
+
   return (
     <Tabs
       screenOptions={{
@@ -27,9 +32,8 @@ export default function TabLayout() {
           backgroundColor: '#0d0d0d',
           borderTopColor: '#2a2a2a',
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 6,
-          paddingTop: 6,
-          height: Platform.OS === 'ios' ? 84 : 58,
+          paddingBottom: bottomPad,
+          paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
