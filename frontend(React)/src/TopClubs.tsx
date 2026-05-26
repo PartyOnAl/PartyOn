@@ -305,9 +305,10 @@ export default function TopClubs() {
                     ref={(el) => {
                       cardRefs.current[club.id] = el
                     }}
-                    className={`clubs-nearby-card ${
+                    className={`clubs-nearby-card cursor-pointer ${
                       selectedClubId === club.id ? 'clubs-nearby-card--active' : ''
                     }`}
+                    onClick={() => navigate(`/clubs/${encodeURIComponent(club.id)}`)}
                   >
                     <ClubCoverImage
                       src={club.imageUrl}
@@ -338,7 +339,7 @@ export default function TopClubs() {
                           type="button"
                           className="clubs-nearby-card__show-btn"
                           disabled={club.coords === null}
-                          onClick={() => onShowOnMap(club)}
+                          onClick={(e) => { e.stopPropagation(); onShowOnMap(club) }}
                         >
                           Show on map
                         </button>
@@ -347,6 +348,7 @@ export default function TopClubs() {
                           target="_blank"
                           rel="noreferrer"
                           className="clubs-nearby-card__maps-link"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <ExternalLink
                             className="clubs-nearby-card__maps-icon"

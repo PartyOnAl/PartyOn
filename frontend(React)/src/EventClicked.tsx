@@ -206,7 +206,7 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      <main className="pb-16 pt-8 md:pt-12">
+      <main className="pb-16 pt-24 md:pt-28">
         <div className="po-container">
           <button
             type="button"

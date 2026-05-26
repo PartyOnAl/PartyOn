@@ -435,25 +435,11 @@ export function GetAppSection() {
             </div>
           </div>
 
-          {/* Mobile / tablet layout: phone + reviews */}
-          <div className="mt-8 lg:hidden">
-            {/* Phone + first two reviews side by side */}
-            <div className="flex items-start gap-4 sm:gap-6">
-              {/* Phone — capped small so reviews have room */}
-              <div className="shrink-0 w-[130px] sm:w-[160px]">
-                <PhoneMockup />
-              </div>
-              {/* First two reviews stacked beside the phone */}
-              <div className="flex flex-1 flex-col gap-3 pt-2">
-                {[REVIEWS[0], REVIEWS[1]].map((item, i) => (
-                  <MobileReviewCard key={item.id} item={item} motionIndex={i} />
-                ))}
-              </div>
-            </div>
-            {/* Last two reviews full-width below */}
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:gap-4">
-              {[REVIEWS[2], REVIEWS[3]].map((item, i) => (
-                <MobileReviewCard key={item.id} item={item} motionIndex={i + 2} />
+          {/* Mobile / tablet layout: 2×2 review grid, no phone */}
+          <div className="mt-6 lg:hidden">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              {REVIEWS.map((item, i) => (
+                <MobileReviewCard key={item.id} item={item} motionIndex={i} />
               ))}
             </div>
           </div>
