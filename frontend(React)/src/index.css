@@ -84,23 +84,32 @@
 
   .section-more-link {
     position: relative;
-    display: none;
-    height: 2.5rem;
+    display: inline-flex;
+    height: 2.25rem;
     align-items: center;
     justify-content: center;
     overflow: hidden;
     border: 1px solid hsl(var(--border) / 0.5);
     border-radius: 999px;
     color: hsl(var(--foreground));
-    padding: 0 1.5rem;
+    padding: 0 1rem;
     text-decoration: none;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
+    white-space: nowrap;
     transition:
       border-color 0.22s ease,
       background 0.22s ease,
       box-shadow 0.22s ease,
       color 0.22s ease;
+  }
+
+  @media (min-width: 640px) {
+    .section-more-link {
+      height: 2.5rem;
+      padding: 0 1.5rem;
+      font-size: 0.875rem;
+    }
   }
 
   .section-more-link::before,
@@ -150,11 +159,6 @@
     transform: translate(0, 0);
   }
 
-  @media (min-width: 768px) {
-    .section-more-link {
-      display: inline-flex;
-    }
-  }
 }
 
 @layer base {
