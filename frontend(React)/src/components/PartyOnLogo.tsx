@@ -30,7 +30,7 @@ export function PartyOnLogo({
         <span className="partyon-logo__ball-wrap" aria-hidden="true">
           <span className="partyon-logo__ball-glow" />
           <span className="partyon-logo__ball-shell">
-            <img className="partyon-logo__ball-image" src="/disco-ball.png" alt="" />
+            <img className="partyon-logo__ball-image" src="/discoball.gif" alt="" />
           </span>
         </span>
       ) : null}

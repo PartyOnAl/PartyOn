@@ -43,24 +43,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  perspective: 800px;
 }
 
 .partyon-logo__ball-glow {
-  display: block;
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 180deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.18) 20%,
-    rgba(255, 255, 255, 0.06) 40%,
-    transparent 60%
-  );
-  animation: partyon-glow-sweep 4s linear infinite;
-  pointer-events: none;
-  z-index: 1;
+  display: none;
 }
 
 .partyon-logo__ball-shell {
@@ -68,8 +54,6 @@
   height: 100%;
   display: grid;
   place-items: center;
-  transform-style: preserve-3d;
-  animation: partyon-disco-spin 4s linear infinite;
 }
 
 .partyon-logo__ball-image {
@@ -113,25 +97,4 @@
   color: transparent;
 }
 
-/* Continuous disco-ball spin — full 360° rotation around Y-axis with a slight X tilt */
-@keyframes partyon-disco-spin {
-  from {
-    transform: rotateX(14deg) rotateY(0deg);
-  }
-  to {
-    transform: rotateX(14deg) rotateY(360deg);
-  }
-}
-
-/* Light-sweep highlight that follows the spin */
-@keyframes partyon-glow-sweep {
-  from {
-    transform: rotate(0deg);
-    opacity: 0.9;
-  }
-  to {
-    transform: rotate(360deg);
-    opacity: 0.9;
-  }
-}
 

@@ -77,19 +77,28 @@ type WeeklyActivityBar = {
   freeReservations: number
 }
 
-type RecentReservation = {
-  reservation_id: string
-  type: string | null
+type ActivePromotion = {
+  promotion_id: string
+  title: string
+  category: string | null
+  discount_value: number | null
+  valid_until: string | null
   status: string | null
-  event_id: string | null
-  created_at: string | null
-  profiles: { name: string | null; surname: string | null } | null
+  image_url: string | null
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const THUMB_COLORS = ['violet', 'cyan', 'amber'] as const
 const TABLES_NAV_TARGET = MANAGER_NAV.find((item) => item.id === 'tables')?.to ?? '/manager/tables'
+
+// Per-metric accent colours (tickets, tables, revenue, events)
+const METRIC_COLORS = [
+  { accent: '#ec4899', dim: 'rgba(236,72,153,0.14)' },
+  { accent: '#a855f7', dim: 'rgba(168,85,247,0.14)' },
+  { accent: '#34d399', dim: 'rgba(52,211,153,0.14)' },
+  { accent: '#f59e0b', dim: 'rgba(245,158,11,0.14)' },
+] as const
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -185,13 +194,7 @@ function IconPlus() {
     </svg>
   )
 }
-function IconExternal() {
-  return (
-    <svg className="manager-dash__qa-chev" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M14 3h7v7M10 14 21 3M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
+
 function IconChevronRight() {
   return (
     <svg className="manager-dash__event-arrow" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -210,6 +213,15 @@ function IconSeats() {
   return (
     <svg className="manager-dash__qa-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M6 12h3v6H6v-6Zm9 0h3v6h-3v-6ZM4 10h5M15 10h5M9 6h6v4H9V6Z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconPromo() {
+  return (
+    <svg className="manager-dash__promo-tag-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="9" cy="9" r="2" stroke="currentColor" strokeWidth="1.75" />
+      <circle cx="15" cy="15" r="2" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M17 7L7 17" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   )
 }
@@ -267,9 +279,9 @@ export default function ManagerDashboard() {
 
   // ── Supplementary data still fetched from Supabase for the lists ──────────
   const [events,             setEvents]             = useState<EventRow[]>([])
-  const [reservations,       setReservations]       = useState<RawReservation[]>([])
+  const [_reservations,      setReservations]       = useState<RawReservation[]>([])
   const [_tickets,           setTickets]            = useState<TicketRow[]>([])
-  const [recentReservations, setRecentReservations] = useState<RecentReservation[]>([])
+  const [activePromotions,   setActivePromotions]   = useState<ActivePromotion[]>([])
   const [listLoading,        setListLoading]        = useState(true)
   const [clubEventPricing, setClubEventPricing] = useState<ClubEventPriceRow[]>([])
   const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityBar[]>([])
@@ -346,7 +358,7 @@ export default function ManagerDashboard() {
         setEvents([])
         setReservations([])
         setTickets([])
-        setRecentReservations([])
+        setActivePromotions([])
         setClubEventPricing([])
         setWeeklyActivity([])
         return
@@ -359,6 +371,16 @@ export default function ManagerDashboard() {
         .eq('club_id', clubId)
       const clubEvents = (priceRows ?? []) as ClubEventPriceRow[]
       setClubEventPricing(clubEvents)
+
+      // Active promotions — independent of events, fetch before any early-return
+      const { data: promoData } = await supabase!
+        .from('promotions')
+        .select('promotion_id, title, category, discount_value, valid_until, status, image_url')
+        .eq('club_id', clubId)
+        .eq('status', 'active')
+        .order('valid_until', { ascending: true })
+        .limit(5)
+      setActivePromotions((promoData ?? []) as ActivePromotion[])
 
       const { data: evData } = await supabase!
         .from('events')
@@ -378,7 +400,6 @@ export default function ManagerDashboard() {
       if (clubEventIds.length === 0) {
         setReservations([])
         setTickets([])
-        setRecentReservations([])
         setWeeklyActivity([])
         return
       }
@@ -469,20 +490,6 @@ export default function ManagerDashboard() {
       const resolvedTickets = [...ticketById.values()]
       setTickets(resolvedTickets)
 
-      if (ress.length === 0) {
-        setRecentReservations([])
-        return
-      }
-
-      const recentIds = ress.slice(0, 5).map((r) => r.reservation_id)
-      const { data: recentData } = await supabase!
-        .from('reservations')
-        .select('reservation_id, type, status, event_id, created_at, profiles(name, surname)')
-        .in('reservation_id', recentIds)
-        .order('created_at', { ascending: false })
-        .limit(5)
-
-      setRecentReservations((recentData ?? []) as unknown as RecentReservation[])
     } finally {
       hasLoadedListsRef.current = true
       setListLoading(false)
@@ -527,7 +534,8 @@ export default function ManagerDashboard() {
 
   // ── Derived data for the lists ────────────────────────────────────────────
 
-  const eventById = useMemo(
+  // reserved for future list features
+  void useMemo(
     () => Object.fromEntries(events.map((e) => [e.event_id, e])),
     [events],
   )
@@ -558,18 +566,6 @@ export default function ManagerDashboard() {
   const chartMax = chartScaleMax(Math.max(...weekBars.flatMap((b) => [b.tickets, b.freeReservations]), 0))
   const chartTicks = chartYTicks(chartMax)
   const chartGridBackgroundStyle = chartGridBackground(chartMax)
-
-  // Payments lookup for recent reservations amount display
-  const [payments, setPayments] = useState<{ payment_id: string; amount: string; status: string | null; reservation_id: string }[]>([])
-  useEffect(() => {
-    if (!supabase || !isSupabaseConfigured || reservations.length === 0) return
-    const ids = reservations.map((r) => r.reservation_id)
-    void supabase
-      .from('payments')
-      .select('payment_id, amount, status, reservation_id')
-      .in('reservation_id', ids)
-      .then(({ data }) => setPayments(data ?? []))
-  }, [reservations])
 
   // ── Render states ─────────────────────────────────────────────────────────
 
@@ -621,7 +617,14 @@ export default function ManagerDashboard() {
                 { label: 'Total Revenue',        value: formatCurrency(stats?.totalRevenue ?? 0),  idx: 2, trend: true },
                 { label: 'Upcoming Events',      value: stats?.upcomingEvents ?? 0,                idx: 3, trend: false },
               ].map(({ label, value, idx, trend }) => (
-                <article key={label} className="manager-dash__metric">
+                <article
+                  key={label}
+                  className="manager-dash__metric"
+                  style={{
+                    '--metric-accent': METRIC_COLORS[idx].accent,
+                    '--metric-dim': METRIC_COLORS[idx].dim,
+                  } as React.CSSProperties}
+                >
                   <div className={trend ? 'manager-dash__metric-head' : 'manager-dash__metric-head manager-dash__metric-head--solo'}>
                     <span className="manager-dash__metric-ic-wrap">{navIconForMetric(idx)}</span>
                     {trend && (
@@ -744,7 +747,7 @@ export default function ManagerDashboard() {
                 >
                   <span className="manager-dash__qa-icon-wrap"><IconSeats /></span>
                   <span className="manager-dash__qa-label">Manage Tables</span>
-                  <IconExternal />
+                  <IconPlus />
                 </button>
               </div>
             </div>
@@ -787,7 +790,12 @@ export default function ManagerDashboard() {
                           aria-label={`Open ${ev.event_name} event details`}
                         >
                           <div
-                            className={`manager-dash__event-thumb manager-dash__event-thumb--${THUMB_COLORS[i % 3]}`}
+                            className={`manager-dash__event-thumb${!ev.event_image ? ` manager-dash__event-thumb--${THUMB_COLORS[i % 3]}` : ''}`}
+                            style={ev.event_image ? {
+                              backgroundImage: `url(${ev.event_image})`,
+                              backgroundSize: 'cover',
+                              backgroundPosition: 'center',
+                            } : undefined}
                             aria-hidden
                           />
                           <div className="manager-dash__event-body">
@@ -820,10 +828,13 @@ export default function ManagerDashboard() {
               )}
             </div>
 
-            {/* Recent reservations */}
+            {/* Active Promotions */}
             <div className="manager-dash__card manager-dash__card--list">
               <div className="manager-dash__card-head">
-                <h2 className="manager-dash__card-title">Recent Reservations</h2>
+                <h2 className="manager-dash__card-title">Active Promotions</h2>
+                <Link to="/manager/promotions" className="manager-dash__link-all">
+                  View all →
+                </Link>
               </div>
               {listLoading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -831,7 +842,7 @@ export default function ManagerDashboard() {
                     <div
                       key={i}
                       style={{
-                        height: 48,
+                        height: 56,
                         borderRadius: 8,
                         background: 'rgba(255,255,255,0.06)',
                         animation: 'pulse 1.5s ease-in-out infinite',
@@ -839,45 +850,51 @@ export default function ManagerDashboard() {
                     />
                   ))}
                 </div>
-              ) : recentReservations.length === 0 ? (
-                <p style={{ color: '#8a8a8a', fontSize: '0.875rem' }}>No reservations yet.</p>
+              ) : activePromotions.length === 0 ? (
+                <div className="manager-dash__promo-empty">
+                  <p>No active promotions right now.</p>
+                  <button
+                    type="button"
+                    className="manager-dash__promo-create-btn"
+                    onClick={() => navigate('/manager/promotions')}
+                  >
+                    Create Promotion
+                  </button>
+                </div>
               ) : (
-                <ul className="manager-dash__res-list">
-                  {recentReservations.map((r) => {
-                    const profile  = r.profiles
-                    const guestName = profile
-                      ? `${profile.name ?? ''} ${profile.surname ?? ''}`.trim() || 'Guest'
-                      : 'Guest'
-                    const evRow = r.event_id ? eventById[r.event_id] : undefined
-                    const eventName = evRow?.event_name ?? '—'
-                    const amount = payments
-                      .filter((p) => p.reservation_id === r.reservation_id)
-                      .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
-                    return (
-                      <li key={r.reservation_id} className="manager-dash__res-row">
-                        <div>
-                          <p className="manager-dash__res-guest">{guestName}</p>
-                          <p className="manager-dash__res-detail">
-                            {evRow && isPaidTicketEvent(evRow) ? 'Ticket' : 'Reservation'} • {eventName}
+                <ul className="manager-dash__promo-list">
+                  {activePromotions.map((promo) => (
+                    <li key={promo.promotion_id}>
+                      <button
+                        type="button"
+                        className="manager-dash__promo-row"
+                        onClick={() => navigate('/manager/promotions')}
+                      >
+                        <div className="manager-dash__promo-icon" aria-hidden>
+                          {promo.image_url
+                            ? <img src={promo.image_url} alt="" className="manager-dash__promo-icon-img" />
+                            : <IconPromo />}
+                        </div>
+                        <div className="manager-dash__promo-body">
+                          <p className="manager-dash__promo-title">{promo.title}</p>
+                          <p className="manager-dash__promo-meta">
+                            {promo.category ?? 'Promotion'}
+                            {promo.valid_until
+                              ? ` · Expires ${new Date(promo.valid_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                              : ''}
                           </p>
                         </div>
-                        <div className="manager-dash__res-right">
-                          <p className="manager-dash__res-price">
-                            {amount > 0 ? formatCurrency(amount) : '—'}
-                          </p>
-                          <span
-                            className={
-                              r.status === 'confirmed'
-                                ? 'manager-dash__badge manager-dash__badge--ok'
-                                : 'manager-dash__badge manager-dash__badge--pending'
-                            }
-                          >
-                            {r.status ?? 'pending'}
-                          </span>
+                        <div className="manager-dash__promo-right">
+                          {promo.discount_value != null && (
+                            <span className="manager-dash__promo-discount">
+                              {promo.discount_value}% off
+                            </span>
+                          )}
+                          <IconChevronRight />
                         </div>
-                      </li>
-                    )
-                  })}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>

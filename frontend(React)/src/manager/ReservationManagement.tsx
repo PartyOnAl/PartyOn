@@ -11,7 +11,6 @@ import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supaba
 import { isPaidTicketEvent, reservationGuestCount, totalGuestCount } from './eventPaidEntry'
 import {
   NO_SHOW_STATUS,
-  formatCountdown,
   getNoShowState,
   incrementNoShowBadgeCount,
   loadNoShowGraceMinutes,
@@ -483,13 +482,6 @@ function reservationEventIsFree(row: ReservationRow): boolean {
   const ev = row.events
   if (!ev) return false
   return !isPaidTicketEvent(ev)
-}
-
-function reservationTicketPrice(row: ReservationRow): number {
-  const raw = row.events?.final_ticket_price ?? row.events?.ticket_price
-  if (raw === null || raw === undefined) return 0
-  const n = parseFloat(String(raw).trim().replace(',', '.'))
-  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 function IconUser() {

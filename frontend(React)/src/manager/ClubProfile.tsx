@@ -198,11 +198,11 @@ export default function ClubProfile() {
         if (!photo.file) return photo
         const ext = photo.file.name.split('.').pop()?.toLowerCase() || 'jpg'
         const path = `${clubId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-        const { data: uploadData, error: uploadErr } = await supabase.storage
+        const { data: uploadData, error: uploadErr } = await supabase!.storage
           .from('club-photos')
           .upload(path, photo.file, { upsert: false })
         if (uploadErr || !uploadData) return null
-        const { data: publicData } = supabase.storage
+        const { data: publicData } = supabase!.storage
           .from('club-photos')
           .getPublicUrl(uploadData.path)
         return { id: photo.id, url: publicData.publicUrl }

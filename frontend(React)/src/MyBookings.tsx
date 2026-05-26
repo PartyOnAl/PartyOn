@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, ChevronRight, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ChevronRight, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -17,6 +17,8 @@ type BookingItem = {
   status: string | null
   kind: 'ticket' | 'reservation'
   createdAt: string | null
+  reservationKey: string | null
+  clubId: string | null
 }
 
 type FilterKind = 'upcoming' | 'past'
@@ -33,6 +35,7 @@ type ReservationRowLegacy = {
     event_name: string
     event_starting_date: string | null
     event_image: string | null
+    club_id?: string | null
     club: {
       club_name: string | null
     } | null
@@ -52,6 +55,7 @@ type ReservationRowModern = {
     event_name: string
     event_starting_date: string | null
     event_image: string | null
+    club_id?: string | null
     club: { club_name: string | null } | null
   } | null
 }
@@ -66,6 +70,7 @@ type TicketRow = {
     event_name: string
     event_starting_date: string | null
     event_image: string | null
+    club_id?: string | null
     club: { club_name: string | null } | null
   } | null
   ticket_type: { name: string | null } | null
@@ -100,6 +105,11 @@ function normalizeStatus(status: string | null): 'confirmed' | 'pending' | 'canc
 function normalizeKind(type: string | null | undefined): 'ticket' | 'reservation' {
   const t = String(type ?? '').toLowerCase()
   return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
+}
+
+function isPastBooking(booking: Pick<BookingItem, 'eventDate'>): boolean {
+  const bookingDate = booking.eventDate ? new Date(booking.eventDate) : null
+  return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < new Date()
 }
 
 type ExistingRating = { id: string; rating: number; comment: string | null }
@@ -141,6 +151,12 @@ export default function MyBookings() {
   const [existingRatings, setExistingRatings] = useState<Record<string, ExistingRating>>({})
   const [reviewDraft, setReviewDraft] = useState<{ rating: number; comment: string }>({ rating: 0, comment: '' })
   const [reviewBusy, setReviewBusy] = useState(false)
+  const [disputeTarget, setDisputeTarget] = useState<BookingItem | null>(null)
+  const [disputeSubject, setDisputeSubject] = useState('')
+  const [disputeDescription, setDisputeDescription] = useState('')
+  const [disputePriority, setDisputePriority] = useState<'low' | 'medium' | 'high'>('medium')
+  const [disputeBusy, setDisputeBusy] = useState(false)
+  const [actionMsg, setActionMsg] = useState<string | null>(null)
 
   async function deleteBookingFromDb(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured) return
@@ -229,7 +245,7 @@ export default function MyBookings() {
         .from('reservations')
         .select(
           `reservation_id,reservation_date,nr_of_people,type,status,created_at,
-           event:events(event_id,event_name,event_starting_date,event_image,club:clubs(club_name)),
+           event:events(event_id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name),
            payments(status)`,
         )
@@ -254,6 +270,8 @@ export default function MyBookings() {
             status: firstPayment?.status || row.status || 'pending',
             kind: normalizeKind(row.type),
             createdAt: row.created_at,
+            reservationKey: row.reservation_id,
+            clubId: event?.club_id ?? null,
           })
         }
       }
@@ -263,7 +281,7 @@ export default function MyBookings() {
         .from('reservations')
         .select(
           `id,number_of_people,time_slot,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club:clubs(club_name))`,
+           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name))`,
         )
         .eq('user_id', user.id)
 
@@ -286,6 +304,8 @@ export default function MyBookings() {
             status: row.status || 'confirmed',
             kind: 'reservation',
             createdAt: row.created_at,
+            reservationKey: row.id,
+            clubId: event?.club_id ?? null,
           })
         }
       }
@@ -295,7 +315,7 @@ export default function MyBookings() {
         .from('tickets')
         .select(
           `id,quantity,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club:clubs(club_name)),
+           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name)`,
         )
         .eq('user_id', user.id)
@@ -318,6 +338,8 @@ export default function MyBookings() {
             status: row.status || 'confirmed',
             kind: 'ticket',
             createdAt: row.created_at,
+            reservationKey: null,
+            clubId: event?.club_id ?? null,
           })
         }
       }
@@ -344,11 +366,10 @@ export default function MyBookings() {
   }, [navigate])
 
   const filteredBookings = useMemo(() => {
-    const now = new Date()
     return bookings.filter((booking) => {
       const bookingDate = booking.eventDate ? new Date(booking.eventDate) : null
       if (!bookingDate || Number.isNaN(bookingDate.getTime())) return filter === 'upcoming'
-      return filter === 'upcoming' ? bookingDate >= now : bookingDate < now
+      return filter === 'upcoming' ? !isPastBooking(booking) : isPastBooking(booking)
     })
   }, [bookings, filter])
 
@@ -407,6 +428,44 @@ export default function MyBookings() {
     setReviewModal(null)
   }
 
+  async function submitDispute() {
+    if (!supabase || !isSupabaseConfigured || !disputeTarget?.clubId) return
+    if (!isPastBooking(disputeTarget)) {
+      setActionMsg('Disputes can only be filed after the event has happened.')
+      setDisputeTarget(null)
+      return
+    }
+    if (!disputeSubject.trim() || !disputeDescription.trim()) {
+      setActionMsg('Please add subject and description.')
+      return
+    }
+    setDisputeBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setDisputeBusy(false)
+      return
+    }
+    const { error } = await supabase.from('disputes').insert({
+      user_id: user.id,
+      reservation_id: disputeTarget.reservationKey,
+      event_id: disputeTarget.eventId || null,
+      club_id: disputeTarget.clubId,
+      subject: disputeSubject.trim(),
+      description: disputeDescription.trim(),
+      priority: disputePriority,
+    })
+    setDisputeBusy(false)
+    if (error) {
+      setActionMsg(error.message)
+      return
+    }
+    setDisputeTarget(null)
+    setDisputeSubject('')
+    setDisputeDescription('')
+    setDisputePriority('medium')
+    setActionMsg('Dispute submitted — the venue manager will review it.')
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
@@ -417,6 +476,9 @@ export default function MyBookings() {
             <p className="mt-2 text-sm text-muted-foreground md:text-base">
               Your tickets and reservations in one place
             </p>
+            {actionMsg ? (
+              <p className="mt-2 text-sm font-semibold text-emerald-300">{actionMsg}</p>
+            ) : null}
 
             <div className="mt-5 flex items-end justify-between border-b border-white/10">
               <div className="flex gap-6">
@@ -503,6 +565,7 @@ export default function MyBookings() {
                   booking.kind === 'reservation'
                     ? 'border-blue-400/30 bg-blue-400/10 text-blue-300'
                     : 'border-primary/30 bg-primary/10 text-primary'
+                const canFileDispute = isPastBooking(booking) && !!booking.clubId
 
                 return (
                   <article
@@ -536,7 +599,7 @@ export default function MyBookings() {
                         <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
                         {booking.venue || 'Venue not set'}
                       </p>
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${typeClass}`}>
                           {booking.kind === 'reservation' ? 'TABLE' : 'TICKET'}
                         </span>
@@ -548,12 +611,22 @@ export default function MyBookings() {
                     </div>
 
                     {/* Right: status + action */}
-                    <div className="flex flex-col items-end justify-between gap-3 self-stretch py-0.5">
+                    <div className="flex flex-col items-end gap-3 self-stretch py-0.5">
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}>
                         {status[0].toUpperCase() + status.slice(1)}
                       </span>
+                      {canFileDispute ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setActionMsg(null); setDisputeTarget(booking) }}
+                          className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/8 px-2.5 py-1 text-[11px] font-semibold text-red-400 transition hover:border-red-500/50 hover:bg-red-500/18"
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          File dispute
+                        </button>
+                      ) : null}
                       {filter === 'past' ? (
-                        <div className="flex items-center gap-2">
+                        <div className="mt-auto flex items-center gap-2">
                           {(() => {
                             const existing = existingRatings[booking.eventId]
                             return (
@@ -665,6 +738,72 @@ export default function MyBookings() {
                 className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
               >
                 {reviewBusy ? 'Saving…' : existingRatings[reviewModal.eventId] ? 'Update review' : 'Submit review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {disputeTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center"
+          role="presentation"
+          onClick={() => setDisputeTarget(null)}
+        >
+          <div
+            role="dialog"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c] p-5 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-white">File a dispute</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{disputeTarget.eventName}</p>
+            <p className="mt-3 text-xs font-semibold text-muted-foreground">Priority</p>
+            <div className="mt-1 flex gap-2">
+              {(['low', 'medium', 'high'] as const).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setDisputePriority(p)}
+                  className={`flex-1 rounded-lg border py-2 text-xs font-bold capitalize ${
+                    disputePriority === p ? 'border-primary/50 bg-primary/20 text-white' : 'border-white/10 text-muted-foreground'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <label className="mt-3 block text-xs font-semibold text-muted-foreground">Subject</label>
+            <input
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              value={disputeSubject}
+              onChange={e => setDisputeSubject(e.target.value)}
+              placeholder="e.g. Wrong table assigned"
+            />
+            <label className="mt-3 block text-xs font-semibold text-muted-foreground">Description</label>
+            <textarea
+              className="mt-1 min-h-[100px] w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              value={disputeDescription}
+              onChange={e => setDisputeDescription(e.target.value)}
+              placeholder="Describe the issue in detail…"
+            />
+            {actionMsg ? (
+              <p className="mt-2 text-xs text-red-300">{actionMsg}</p>
+            ) : null}
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={disputeBusy}
+                onClick={() => void submitDispute()}
+                className="flex-1 rounded-lg bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+              >
+                {disputeBusy ? 'Submitting…' : 'Submit dispute'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisputeTarget(null)}
+                className="rounded-lg border border-white/15 px-4 py-2.5 text-sm text-muted-foreground"
+              >
+                Cancel
               </button>
             </div>
           </div>

@@ -419,7 +419,7 @@ export default function ReservationFlow() {
         expected_arrival_time: arrivalTime,
         notes: mergedNotes || null,
         status: 'confirmed',
-        type: tableType,
+        type: 'table',
         qr_code: reference,
         reservation_date: `${selectedDate}T00:00:00.000Z`,
         created_at: nowIso,
