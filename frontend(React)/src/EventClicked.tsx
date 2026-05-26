@@ -176,13 +176,10 @@ export default function EventClicked() {
 
   const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
   const ticketTypes = detail?.ticketTypes ?? []
-  const lowestPrice = ticketTypes.length > 0
-    ? Math.min(...ticketTypes.map((t) => t.price))
-    : ev.price
   const priceLabel = isReservation
     ? 'Free reservation'
-    : lowestPrice > 0
-      ? `From ${ev.currency ?? '€'}${lowestPrice.toFixed(2)}`
+    : ev.price > 0
+      ? `${ev.currency ?? '€'}${ev.price.toFixed(2)}`
       : 'Free entry'
   const ctaLabel = isReservation ? 'Reserve a table' : 'Buy ticket'
 

@@ -63,9 +63,7 @@ export default function Payment() {
   }, [id, stateEvent])
 
   const currency = stateEvent?.currency ?? legacyEvent?.currency ?? '€'
-  const unitPrice = stateTicketTypes.length > 0
-    ? Math.min(...stateTicketTypes.map((t) => t.price))
-    : (stateEvent?.price ?? legacyEvent?.final_ticket_price ?? 0)
+  const unitPrice = stateEvent?.price ?? legacyEvent?.final_ticket_price ?? 0
   const total = (unitPrice * quantity).toFixed(2)
 
   const eventName = stateEvent?.title ?? legacyEvent?.event_name ?? ''
