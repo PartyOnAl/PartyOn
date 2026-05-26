@@ -766,9 +766,8 @@ export function Navbar() {
                 </>
               ) : (
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="border-primary/30 w-full mt-2"
+                  className="gradient-primary text-primary-foreground w-full mt-2 shadow-lg shadow-primary/25"
                   onClick={() => {
                     navigate('/login')
                     setMobileOpen(false)
