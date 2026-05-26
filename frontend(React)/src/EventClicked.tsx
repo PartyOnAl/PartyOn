@@ -206,6 +206,17 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
+      {/* Back button — fixed below navbar, takes no layout space */}
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        aria-label="Go back"
+        className="fixed left-5 top-[72px] z-40 flex items-center gap-1.5 rounded-full border-0 bg-black/60 px-3 py-2 text-sm font-medium text-white backdrop-blur-md transition hover:bg-primary/80"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+
       <main className="pb-16 pt-20">
         <div className="po-container">
           <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
@@ -220,16 +231,6 @@ export default function EventClicked() {
                 />
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" aria-hidden />
-              {/* Back button — top-left overlay */}
-              <button
-                type="button"
-                onClick={() => navigate(-1)}
-                aria-label="Go back"
-                className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border-0 bg-black/50 px-3 py-2 text-sm font-medium text-white backdrop-blur-md transition hover:bg-black/70"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </button>
               {ev.isFeatured ? (
                 <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
                   <Star className="h-3 w-3 fill-current" />
