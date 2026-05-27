@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import type { Reservation } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isTableReservationType, reservationRowGatePayloads, canonicalReservationRowId, looksLikeReservationUuid } from '@/lib/gateQrPayload'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateLong(iso: string) {
@@ -38,18 +39,23 @@ function statusColor(s: string) {
 // ── QR Detail Bottom Sheet ────────────────────────────────────────────────────
 function QRSheet({ reservation, onClose }: { reservation: Reservation | null; onClose: () => void }) {
   if (!reservation) return null
-  const ev = reservation.events as any
-  const isTable = reservation.type === 'table'
+  const res = reservation
+  const ev = res.events as any
+  const isTable = isTableReservationType(res.type)
   const past = ev?.event_starting_date ? isPast(ev.event_starting_date) : false
-  const effectiveStatus = past && reservation.status === 'confirmed' ? 'completed' : reservation.status
+  const effectiveStatus = past && res.status === 'confirmed' ? 'completed' : res.status
 
-  const qrUrl = reservation.qr_code && !past
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(reservation.qr_code)}&bgcolor=ffffff&color=000000&margin=16`
-    : null
+  const gatePayloads = reservationRowGatePayloads(res)
+  const qrUrls = !past && gatePayloads.length
+    ? gatePayloads.map(
+        (data) =>
+          `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(data)}&bgcolor=ffffff&color=000000&margin=16`,
+      )
+    : []
 
   async function handleShare() {
     try {
-      await Share.share({ message: `My ticket to ${ev?.event_name ?? 'the event'} — Booking ID: ${reservation.reservation_id}` })
+      await Share.share({ message: `My ticket to ${ev?.event_name ?? 'the event'} — Booking ID: ${res.reservation_id}` })
     } catch {}
   }
 
@@ -110,17 +116,26 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
             </View>
 
             {/* QR or past notice */}
-            {qrUrl ? (
+            {qrUrls.length > 0 ? (
               <View style={styles.qrWrap}>
-                <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
-                <Text style={styles.qrCaption}>Show this QR code at the entrance</Text>
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+                  {qrUrls.map((uri) => (
+                    <View key={uri} style={{ width: 280, alignItems: 'center' }}>
+                      <Image source={{ uri }} style={styles.qrImage} resizeMode="contain" />
+                    </View>
+                  ))}
+                </ScrollView>
+                <Text style={styles.qrCaption}>
+                  {qrUrls.length > 1 ? 'Swipe for each ticket · ' : ''}
+                  Show this QR code at the entrance
+                </Text>
               </View>
             ) : (
               <View style={styles.qrPast}>
                 <Ionicons name={past ? 'checkmark-done-circle-outline' : 'qr-code-outline'} size={52} color={COLORS.mutedDark} />
                 <Text style={styles.qrPastTitle}>{past ? 'Event has ended' : 'QR unavailable'}</Text>
                 <Text style={styles.qrPastSub}>
-                  {past ? 'This event has already taken place.' : 'Booking ID: ' + reservation.reservation_id}
+                  {past ? 'This event has already taken place.' : 'Booking ID: ' + res.reservation_id}
                 </Text>
               </View>
             )}
@@ -245,7 +260,7 @@ export default function BookingsScreen() {
       setLoading(true)
       supabase
         .from('reservations')
-        .select('*, events(event_name, event_starting_date, event_image, clubs(club_address))')
+        .select('*, events(event_name, event_starting_date, event_image, clubs(club_address)), payments(payment_id)')
         .eq('user_id', user.id)
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false })
@@ -257,12 +272,18 @@ export default function BookingsScreen() {
   )
 
   async function handleDelete(reservationId: string) {
-    // Soft-delete: mark as cancelled so it hides from the list
-    await supabase
-      .from('reservations')
-      .update({ status: 'cancelled' })
-      .eq('reservation_id', reservationId)
-    setReservations((prev) => prev.filter((r) => r.reservation_id !== reservationId))
+    if (looksLikeReservationUuid(reservationId)) {
+      await supabase
+        .from('reservations')
+        .update({ status: 'cancelled' })
+        .or(`reservation_id.eq.${reservationId},id.eq.${reservationId}`)
+    } else {
+      await supabase
+        .from('reservations')
+        .update({ status: 'cancelled' })
+        .eq('reservation_id', reservationId)
+    }
+    setReservations((prev) => prev.filter((r) => canonicalReservationRowId(r) !== reservationId))
   }
 
   if (!user) {
@@ -330,7 +351,7 @@ export default function BookingsScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item, i) =>
-            typeof item === 'string' ? item : (item as Reservation).reservation_id
+            typeof item === 'string' ? item : canonicalReservationRowId(item as Reservation)
           }
           contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingBottom: SPACING.xxl }}
           showsVerticalScrollIndicator={false}
@@ -364,7 +385,7 @@ export default function BookingsScreen() {
               <TicketCard
                 reservation={r}
                 onPress={() => setSelected(r)}
-                onDelete={() => handleDelete(r.reservation_id)}
+                onDelete={() => handleDelete(canonicalReservationRowId(r))}
               />
             )
           }}

@@ -379,7 +379,41 @@ export default function GuardScreen() {
 
   function toMinutes(time: string) {
     const [h, m] = time.split(':').map(Number)
-    return h * 60 + m
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+  }
+
+  function parseGateQr(qrText: string): { source: string | null; id: string } {
+    const t = qrText.trim()
+    const idx = t.indexOf(':')
+    if (idx === -1) return { source: null, id: t }
+    const rawSource = t.slice(0, idx).trim().toLowerCase()
+    const id = t.slice(idx + 1).trim()
+    return { source: rawSource.length ? rawSource : null, id }
+  }
+
+  function isReservationSource(source: string | null): boolean {
+    if (!source) return false
+    return (
+      source === 'reservation' ||
+      source === 'reseravtion' ||
+      source === 'rservation'
+    )
+  }
+
+  function resolveEventEndDate(startingIso: string, endingIso: string | null | undefined): Date {
+    const start = new Date(startingIso)
+    if (endingIso) {
+      const e = new Date(endingIso)
+      if (!Number.isNaN(e.getTime())) return e
+    }
+    return new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  }
+
+  function parseHoursRange(raw: string | null | undefined): { startStr: string; endStr: string } {
+    const h = (raw ?? '00:00-23:59').trim()
+    const idx = h.indexOf('-')
+    if (idx === -1) return { startStr: '00:00', endStr: '23:59' }
+    return { startStr: h.slice(0, idx).trim(), endStr: h.slice(idx + 1).trim() }
   }
 
   function isWithinEventHours(now: number, start: number, end: number) {
@@ -398,97 +432,247 @@ export default function GuardScreen() {
   }
 
   async function validateTicketQr(data: string) {
-    const ticket_id = data
+    const trimmed = data.trim()
+    const { source, id } = parseGateQr(trimmed)
+    const displayCode = trimmed
+
     setScanFeedback({
       title: 'Checking QR',
-      detail: 'Validating ticket against the event gate rules.',
-      code: ticket_id,
+      detail: 'Validating against the event gate rules.',
+      code: displayCode,
     })
 
+    if (!id) {
+      showValidationResult('warning', {
+        title: 'Invalid QR',
+        detail: 'This QR code does not contain a valid entry id.',
+        code: displayCode,
+      })
+      return
+    }
+
+    if (isReservationSource(source)) {
+      await validateReservationGate(id, displayCode)
+      return
+    }
+
+    // Paid tickets: legacy bare payment id (no ":" → source null), or e.g. `tickets:<payment_id>`.
+    await validatePaymentTicket(id, displayCode)
+  }
+
+  async function validatePaymentTicket(ticketId: string, displayCode: string) {
     try {
-      const res = await fetch(`${API_BASE}/payment/${ticket_id}`)
-      const result = await res.json()
+      const res = await fetch(`${API_BASE}/payment/${ticketId}`)
+      let result: Record<string, unknown> | null = null
+      try {
+        result = (await res.json()) as Record<string, unknown>
+      } catch {
+        result = null
+      }
 
-      if (result) {
-        if (result.status === 'completed') {
-          if (Number(result.times_used) === 0) {
-            const startDate = new Date(result.event_starting_date)
-            const endDate = new Date(result.event_ending_date)
-            const nowDate = new Date()
-                console.log(startDate, endDate, nowDate)
-            if (startDate < nowDate && endDate > nowDate) {
-              const [startStr, endStr] = result.event_hours.split('-')
-              const nows = new Date()
-
-              const currentTime = `${String(nows.getHours()).padStart(2, '0')}:${String(
-                nows.getMinutes()
-              ).padStart(2, '0')}`
-
-              const start = toMinutes(startStr)
-              const end = toMinutes(endStr)
-              const now = toMinutes(currentTime)
-
-              if (!isWithinEventHours(now, start, end)) {
-                showValidationResult('warning', {
-                  title: 'Outside event hours',
-                  detail: `Entry is only active during ${result.event_hours}.`,
-                  code: ticket_id,
-                })
-              } else {
-                showValidationResult('valid', {
-                  title: 'Ticket verified',
-                  detail: 'Payment complete, unused ticket, and event time is active.',
-                  code: ticket_id,
-                })
-                const res = await fetch(`${API_BASE}/payment/ticket-uses/${ticket_id}`,
-                  {
-                    method: 'PATCH',
-                  }
-                )
-                const result = await res.json()
-                console.log("the result is", result)
-                console.log("the times used is", result.timesUsed)
-                if(!result){
-                  showValidationResult('warning', {
-                    title: 'Ticket couldnt be updated',
-                    detail: 'The scanned QR did wasn\'t marked as checked in.',
-                    code: ticket_id,
-                  })
-                }
-              }
-            } else {
-              showValidationResult('warning', {
-                title: 'Event not active',
-                detail: 'This ticket is not valid for entry at the current date.',
-                code: ticket_id,
-              })
-            }
-          } else {
-            showValidationResult('warning', {
-              title: 'Already used',
-              detail: 'This QR code has already been checked in.',
-              code: ticket_id,
-            })
-          }
-        } else {
-          showValidationResult('warning', {
-            title: 'Payment incomplete',
-            detail: 'This ticket has not been paid or confirmed.',
-            code: ticket_id,
-          })
-        }
-      } else {
+      if (!res.ok || !result) {
         showValidationResult('warning', {
           title: 'Ticket not found',
           detail: 'The scanned QR did not match a known ticket.',
-          code: ticket_id,
+          code: displayCode,
+        })
+        return
+      }
+
+      if (String(result.status) !== 'completed') {
+        showValidationResult('warning', {
+          title: 'Payment incomplete',
+          detail: 'This ticket has not been paid or confirmed.',
+          code: displayCode,
+        })
+        return
+      }
+
+      if (Number(result.times_used) !== 0) {
+        showValidationResult('warning', {
+          title: 'Already used',
+          detail: 'This QR code has already been checked in.',
+          code: displayCode,
+        })
+        return
+      }
+
+      const startDate = new Date(String(result.event_starting_date))
+      const endDate = resolveEventEndDate(
+        String(result.event_starting_date),
+        result.event_ending_date != null ? String(result.event_ending_date) : null,
+      )
+      const nowDate = new Date()
+      if (!(startDate < nowDate && endDate > nowDate)) {
+        showValidationResult('warning', {
+          title: 'Event not active',
+          detail: 'This ticket is not valid for entry at the current date.',
+          code: displayCode,
+        })
+        return
+      }
+
+      const { startStr, endStr } = parseHoursRange(
+        result.event_hours != null ? String(result.event_hours) : null,
+      )
+      const nows = new Date()
+      const currentTime = `${String(nows.getHours()).padStart(2, '0')}:${String(
+        nows.getMinutes(),
+      ).padStart(2, '0')}`
+      const start = toMinutes(startStr)
+      const end = toMinutes(endStr)
+      const now = toMinutes(currentTime)
+
+      if (!isWithinEventHours(now, start, end)) {
+        showValidationResult('warning', {
+          title: 'Outside event hours',
+          detail: `Entry is only active during ${result.event_hours ?? 'event hours'}.`,
+          code: displayCode,
+        })
+        return
+      }
+
+      showValidationResult('valid', {
+        title: 'Ticket verified',
+        detail: 'Payment complete, unused ticket, and event time is active.',
+        code: displayCode,
+      })
+
+      const patchRes = await fetch(`${API_BASE}/payment/ticket-uses/${ticketId}`, {
+        method: 'PATCH',
+      })
+      let patchBody: Record<string, unknown> | null = null
+      try {
+        patchBody = (await patchRes.json()) as Record<string, unknown>
+      } catch {
+        patchBody = null
+      }
+      if (!patchRes.ok || !patchBody) {
+        showValidationResult('warning', {
+          title: 'Ticket could not be updated',
+          detail: 'The ticket was not marked as checked in on the server.',
+          code: displayCode,
         })
       }
     } catch {
       showValidationResult('warning', {
         title: 'Verification failed',
         detail: 'Could not validate this QR. Check network/backend and scan again.',
-        code: data,
+        code: displayCode,
+      })
+    }
+  }
+
+  async function validateReservationGate(reservationId: string, displayCode: string) {
+    try {
+      const res = await fetch(`${API_BASE}/payment/reservation/${reservationId}`)
+      let result: Record<string, unknown> | null = null
+      try {
+        result = (await res.json()) as Record<string, unknown>
+      } catch {
+        result = null
+      }
+
+      if (!res.ok || !result) {
+        showValidationResult('warning', {
+          title: 'Reservation not found',
+          detail: 'The scanned QR did not match a known reservation.',
+          code: displayCode,
+        })
+        return
+      }
+
+      const st = String(result.status ?? '')
+        .toLowerCase()
+        .trim()
+
+      const alreadyDone = ['completed', 'arrived', 'checked_in', 'checked-in', 'used', 'seated'].includes(
+        st,
+      )
+      if (alreadyDone) {
+        showValidationResult('warning', {
+          title: 'Already checked in',
+          detail:
+            st === 'completed'
+              ? 'This reservation has already been completed at the door.'
+              : 'This reservation QR has already been used at the door.',
+          code: displayCode,
+        })
+        return
+      }
+
+      if (!['confirmed', 'pending'].includes(st)) {
+        showValidationResult('warning', {
+          title: 'Reservation not valid',
+          detail: 'This reservation is not active for entry.',
+          code: displayCode,
+        })
+        return
+      }
+
+      const startDate = new Date(String(result.event_starting_date))
+      const endDate = resolveEventEndDate(
+        String(result.event_starting_date),
+        result.event_ending_date != null ? String(result.event_ending_date) : null,
+      )
+      const nowDate = new Date()
+      if (!(startDate < nowDate && endDate > nowDate)) {
+        showValidationResult('warning', {
+          title: 'Event not active',
+          detail: 'This reservation is not valid for entry at the current date.',
+          code: displayCode,
+        })
+        return
+      }
+
+      const { startStr, endStr } = parseHoursRange(
+        result.event_hours != null ? String(result.event_hours) : null,
+      )
+      const nows = new Date()
+      const currentTime = `${String(nows.getHours()).padStart(2, '0')}:${String(
+        nows.getMinutes(),
+      ).padStart(2, '0')}`
+      const start = toMinutes(startStr)
+      const end = toMinutes(endStr)
+      const now = toMinutes(currentTime)
+
+      if (!isWithinEventHours(now, start, end)) {
+        showValidationResult('warning', {
+          title: 'Outside event hours',
+          detail: `Entry is only active during ${result.event_hours ?? 'event hours'}.`,
+          code: displayCode,
+        })
+        return
+      }
+
+      showValidationResult('valid', {
+        title: 'Reservation verified',
+        detail: 'Reservation is active, and event time allows entry.',
+        code: displayCode,
+      })
+
+      const patchRes = await fetch(
+        `${API_BASE}/payment/reservation/${reservationId}/check-in`,
+        { method: 'PATCH' },
+      )
+      let patchBody: Record<string, unknown> | null = null
+      try {
+        patchBody = (await patchRes.json()) as Record<string, unknown>
+      } catch {
+        patchBody = null
+      }
+      if (!patchRes.ok || !patchBody) {
+        showValidationResult('warning', {
+          title: 'Check-in failed',
+          detail: 'The reservation was not marked as completed on the server.',
+          code: displayCode,
+        })
+      }
+    } catch {
+      showValidationResult('warning', {
+        title: 'Verification failed',
+        detail: 'Could not validate this QR. Check network/backend and scan again.',
+        code: displayCode,
       })
     }
   }
@@ -498,7 +682,11 @@ export default function GuardScreen() {
     scanLock.current = true
     setScannerActive(false)
     setScanState('checking')
-    await validateTicketQr(data)
+    try {
+      await validateTicketQr(data)
+    } finally {
+      scanLock.current = false
+    }
   }
 
   return (

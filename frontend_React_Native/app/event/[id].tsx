@@ -20,6 +20,12 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
+function eventNeedsTicket(ev: Event, club: { reservation_only?: boolean } | null | undefined): boolean {
+  if (club?.reservation_only) return false
+  const price = Number(ev.final_ticket_price ?? ev.ticket_price ?? 0)
+  return price > 0
+}
+
 export default function EventDetailScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -63,13 +69,22 @@ export default function EventDetailScreen() {
   function handleBuy() {
     if (!user) { Alert.alert('Login required', 'Please log in to buy tickets.', [{ text: 'Log in', onPress: () => router.push('/(auth)/login') }, { text: 'Cancel', style: 'cancel' }]); return }
     if (!event) return
-    router.push({ pathname: '/payment', params: { eventId: event.event_id, ticketTypeId: selectedTicket?.id ?? '', ticketTypeName: selectedTicket?.name ?? 'General Admission', price: String(selectedTicket?.price ?? event.final_ticket_price ?? 0), eventName: event.event_name, isReservation: 'false' } })
+    router.push({
+      pathname: '/payment',
+      params: {
+        eventId: event.event_id,
+        ticketTypeId: selectedTicket?.id ?? '',
+        ticketTypeName: selectedTicket?.name ?? 'General Admission',
+        price: String(selectedTicket?.price ?? event.final_ticket_price ?? 0),
+        eventName: event.event_name,
+      },
+    })
   }
 
   function handleReserve() {
     if (!user) { Alert.alert('Login required', 'Please log in to reserve a table.', [{ text: 'Log in', onPress: () => router.push('/(auth)/login') }, { text: 'Cancel', style: 'cancel' }]); return }
     if (!event) return
-    router.push({ pathname: '/payment', params: { eventId: event.event_id, eventName: event.event_name, price: '0', isReservation: 'true' } })
+    router.push({ pathname: '/reserve/[id]', params: { id: event.event_id } })
   }
 
   if (loading) {
@@ -94,6 +109,7 @@ export default function EventDetailScreen() {
   const club = event.clubs
   const isReservationOnly = club?.reservation_only ?? false
   const lowestPrice = selectedTicket ? Number(selectedTicket.price) : Number(event.final_ticket_price ?? event.ticket_price ?? 0)
+  const needsTicket = eventNeedsTicket(event, club)
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -243,14 +259,18 @@ export default function EventDetailScreen() {
 
       {/* Sticky bottom CTA */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
-        {isReservationOnly ? (
+        {isReservationOnly || !needsTicket ? (
           <>
             <View style={styles.bottomPrice}>
-              <Text style={styles.bottomPriceLabel}>Free Reservation</Text>
-              <Text style={styles.bottomPriceNote}>No payment required</Text>
+              <Text style={styles.bottomPriceLabel}>
+                {needsTicket ? `From €${lowestPrice.toFixed(2)}` : 'Free reservation'}
+              </Text>
+              <Text style={styles.bottomPriceNote}>
+                {needsTicket ? 'No hidden fees' : 'No payment required'}
+              </Text>
             </View>
             <TouchableOpacity style={styles.buyBtn} onPress={handleReserve} activeOpacity={0.85}>
-              <Text style={styles.buyBtnText}>Reserve Table</Text>
+              <Text style={styles.buyBtnText}>Reserve a table</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -260,7 +280,7 @@ export default function EventDetailScreen() {
               <Text style={styles.bottomPriceNote}>No hidden fees</Text>
             </View>
             <TouchableOpacity style={styles.buyBtn} onPress={handleBuy} activeOpacity={0.85}>
-              <Text style={styles.buyBtnText}>Buy Ticket</Text>
+              <Text style={styles.buyBtnText}>Buy ticket</Text>
             </TouchableOpacity>
           </>
         )}

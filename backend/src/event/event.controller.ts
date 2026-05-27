@@ -34,14 +34,26 @@ getById(@Param('id') id: string): Promise<EventListItem> {
 }
 
 @Post('pay')
-async createPayment(@Body() body: {amount : number , quantity : number ,events : any}){
-  const result= await this.eventService.createPayment(
-  body.amount , 
-  body.quantity,
-  body.events,
-
-  );
-  return { url: result.url };
+async createPayment(
+  @Body()
+  body: {
+    amount: number
+    quantity: number
+    events: any
+    stripe_success_url?: string
+    stripe_cancel_url?: string
+  },
+) {
+  const result = await this.eventService.createPayment(
+    body.amount,
+    body.quantity,
+    body.events,
+    {
+      stripeSuccessUrl: body.stripe_success_url,
+      stripeCancelUrl: body.stripe_cancel_url,
+    },
+  )
+  return { url: result.url }
 }
 
 @Post('webhook')

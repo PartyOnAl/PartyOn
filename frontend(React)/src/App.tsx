@@ -105,7 +105,8 @@ function WebStaffAccessGuard() {
       path === '/login' ||
       path === '/signup' ||
       path === '/reset-password' ||
-      path === '/staff/change-password'
+      path === '/staff/change-password' ||
+      path.startsWith('/reserve')
     ) {
       return
     }

@@ -141,20 +141,30 @@ export default function PurchasedTicket() {
         .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
         .map(
           (id) =>
-            `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(id)}`
+            `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
+              `tickets:${id}`,
+            )}`,
         )
     }
-  
+
     if (booking) {
-      const raw = booking.qrValue || booking.reservationId
+      if (booking.bookingType === 'ticket' && !booking.qrValue?.startsWith('tickets:')) {
+        return [
+          `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent('PartyOn')}`,
+        ]
+      }
+      const raw =
+        booking.bookingType === 'reservation'
+          ? `reservation:${booking.reservationId}`
+          : booking.qrValue?.startsWith('tickets:') || booking.qrValue?.startsWith('reservation:')
+            ? booking.qrValue
+            : `tickets:${booking.qrValue || booking.reservationId}`
       return [
         `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(raw)}`,
       ]
     }
-  
-    return [
-      `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=PartyOn`,
-    ]
+
+    return [`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=PartyOn`]
   }, [paymentIds, booking])
 
   const orderId = booking
@@ -269,7 +279,7 @@ export default function PurchasedTicket() {
           quantity: Math.max(1, Number(row.nr_of_people || 1)),
           bookingType: normalizeType(row.type),
           status: String(row.status ?? 'pending'),
-          qrValue: row.qr_code || row.reservation_reference || row.reservation_id,
+          qrValue: `reservation:${row.reservation_id}`,
         })
 
         setLoading(false)
@@ -307,7 +317,7 @@ export default function PurchasedTicket() {
           quantity: Math.max(1, Number(row.number_of_people || 1)),
           bookingType: 'reservation',
           status: String(row.status ?? 'pending'),
-          qrValue: row.reservation_reference || row.id,
+          qrValue: `reservation:${row.id}`,
         })
 
         setLoading(false)
@@ -345,7 +355,7 @@ export default function PurchasedTicket() {
       quantity: qty,
       bookingType: 'ticket',
       status: 'confirmed',
-      qrValue: `${id}-${qty}`,
+      qrValue: '',
     })
     setLoading(false)
     setError(null)

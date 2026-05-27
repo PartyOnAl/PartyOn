@@ -70,6 +70,8 @@ export interface Table {
 }
 
 export interface Reservation {
+  /** Present on some Supabase schemas (PK); use with `reservation_id` for gate + UI. */
+  id?: string
   reservation_id: string
   user_id: string
   event_id: string

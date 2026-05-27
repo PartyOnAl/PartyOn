@@ -242,21 +242,27 @@ export default function EventClicked() {
   function primaryAction() {
     if (!events) return
 
-    if (eventNeedsTicket(events)) {
-      const eventIdValue = String(events.id ?? resolvedId).trim()
-      if (!eventIdValue || eventIdValue === 'undefined') return
+    const eventKey = String(events.id ?? events.event_id ?? resolvedId).trim()
 
-      navigate(`/payment/${encodeURIComponent(eventIdValue)}`, {
+    if (eventNeedsTicket(events)) {
+      if (!eventKey || eventKey === 'undefined') return
+
+      navigate(`/payment/${encodeURIComponent(eventKey)}`, {
         state: { event: events },
       })
       return
     }
 
-    if (events.clubId) {
-      navigate(`/clubs/${encodeURIComponent(events.clubId)}`)
-    } else {
-      navigate({ pathname: '/', hash: 'events' })
+    if (!eventKey || eventKey === 'undefined') {
+      if (events.clubId) {
+        navigate(`/clubs/${encodeURIComponent(events.clubId)}`)
+      } else {
+        navigate({ pathname: '/', hash: 'events' })
+      }
+      return
     }
+
+    navigate(`/reserve/${encodeURIComponent(eventKey)}`)
   }
 
   function openMaps(address: string) {

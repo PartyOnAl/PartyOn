@@ -61,7 +61,13 @@ export type VenueTable = {
   created_at: string | null
 }
 
+export type ReservationPayment = {
+  payment_id: string
+}
+
 export type Reservation = {
+  /** Row PK — same as `reservation_id` on legacy schema; use with `reservation_id` for Supabase `id`. */
+  id?: string | null
   reservation_id: string
   user_id: string | null
   event_id: string | null
@@ -76,6 +82,8 @@ export type Reservation = {
   qr_code: string | null
   created_at: string | null
   events?: Event
+  /** Present when selected with `payments(...)` from Supabase */
+  payments?: ReservationPayment | ReservationPayment[] | null
 }
 
 export type Promotion = {

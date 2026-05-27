@@ -1,9 +1,16 @@
-import { Body, Controller, Get, Post , Query , Param , Req, Res, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Param,
+  Req,
+  Patch,
+} from '@nestjs/common';
 import { Payments } from 'generated-entities/entities/Payments';
 import { PaymentListItem, PaymentService } from './payment.service';
-import Stripe from 'stripe';
-
-
+import type { Request } from 'express';
 
 @Controller('payment')
 export class PaymentController {
@@ -11,15 +18,15 @@ export class PaymentController {
 
   @Get()
   getAll(
-    @Query('query') query?:string,
-    @Query('city') city?:string,
-    @Query('musicType') musicType?:string,
-    @Query('time') time?:string,
+    @Query('query') query?: string,
+    @Query('city') city?: string,
+    @Query('musicType') musicType?: string,
+    @Query('time') time?: string,
   ): Promise<PaymentListItem[]> {
-    if (query || city || musicType || time){
-      return this.paymentService.findFiltered(query,city,musicType,time)
+    if (query || city || musicType || time) {
+      return this.paymentService.findFiltered(query, city, musicType, time);
     }
-    
+
     return this.paymentService.findAll();
   }
 
@@ -29,55 +36,61 @@ export class PaymentController {
   }
 
   @Get('ids')
-async findPaymentIds(
-  @Query('batch_id') batch_id: string,
-) {
-  return this.paymentService.findPaymentIds(batch_id);
-}
+  async findPaymentIds(@Query('batch_id') batch_id: string) {
+    return this.paymentService.findPaymentIds(batch_id);
+  }
+
+  @Get('reservation/:id')
+  getReservationGate(@Param('id') id: string) {
+    return this.paymentService.findReservationForGate(id);
+  }
+
+  @Patch('reservation/:id/check-in')
+  checkInReservationGate(@Param('id') id: string) {
+    return this.paymentService.markReservationGateCheckIn(id);
+  }
 
   @Get(':id')
-getById(@Param('id') id: string): Promise<PaymentListItem> {
-  return this.paymentService.findById(id);
-}
-
-@Post('pay')
-async createPayment(@Body() body: {amount : number , quantity : number ,events : any}){
-  const result= await this.paymentService.createPayment(
-  body.amount , 
-  body.quantity,
-  body.events,
-
-  );
-  console.log('BODY:', body);
-  return { url: result.url };
-}
-
-@Post('webhook')
-async handleWebhook(@Req() req: Request) {
-  const sig = req.headers['stripe-signature'];
-  let event;
-  try {
-    event = this.paymentService.constructEvent(req as any, sig);
-  }catch (err) {
-    throw new Error(`Webhook Error: ${err.message}`);
+  getById(@Param('id') id: string): Promise<PaymentListItem> {
+    return this.paymentService.findById(id);
   }
-  await this.paymentService.handleEvent(event);
-  return { received: true };
-}
 
-@Patch(':id')
-async updatePayment(
-  @Param('id') id: string,
-  @Body() dto: Partial<Payments>,
-) {
-  return this.paymentService.updatePayment(id, dto);
-}
+  @Post('pay')
+  async createPayment(
+    @Body() body: { amount: number; quantity: number; events: any },
+  ) {
+    const result = await this.paymentService.createPayment(
+      body.amount,
+      body.quantity,
+      body.events,
+    );
+    console.log('BODY:', body);
+    return { url: result.url };
+  }
 
-@Patch('ticket-uses/:id')
-async updateTicketUses(
-  @Param('id') id: string,
-) {
-  return this.paymentService.updateTicketUses(id);
-}
+  @Post('webhook')
+  async handleWebhook(@Req() req: Request) {
+    const sig = req.headers['stripe-signature'];
+    let event;
+    try {
+      event = this.paymentService.constructEvent(req as any, sig);
+    } catch (err) {
+      throw new Error(`Webhook Error: ${err.message}`);
+    }
+    await this.paymentService.handleEvent(event);
+    return { received: true };
+  }
 
+  @Patch('ticket-uses/:id')
+  async updateTicketUses(@Param('id') id: string) {
+    return this.paymentService.updateTicketUses(id);
+  }
+
+  @Patch(':id')
+  async updatePayment(
+    @Param('id') id: string,
+    @Body() dto: Partial<Payments>,
+  ) {
+    return this.paymentService.updatePayment(id, dto);
+  }
 }

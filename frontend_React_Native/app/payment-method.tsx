@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { reservationGatePayload } from '@/lib/gateQrPayload'
 
 function formatCardNumber(v: string) {
   return v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()
@@ -58,21 +59,31 @@ export default function PaymentMethodScreen() {
 
       if (resErr) throw resErr
 
+      const resRow = res as {
+        reservation_id?: string
+        id?: string
+        qr_code?: string | null
+      }
+      const resId = String(resRow.reservation_id ?? resRow.id ?? '').trim()
+
       // Create payment record (unless free reservation)
       if (!isReservation && total > 0) {
         await supabase.from('payments').insert({
-          reservation_id: res.reservation_id,
+          reservation_id: resId,
           user_id: user?.id,
           amount: total,
           status: 'completed',
         })
       }
 
+      const gate = reservationGatePayload(resId, resRow.qr_code ?? null)
+
       router.replace({
         pathname: '/purchased-ticket',
         params: {
-          reservationId: res.reservation_id,
-          qrCode: res.qr_code,
+          reservationId: resId,
+          gatePayload: gate ?? undefined,
+          qrCode: resRow.qr_code ?? '',
           eventName: params.eventName,
           ticketTypeName: params.ticketTypeName,
           quantity: params.quantity,

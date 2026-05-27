@@ -108,24 +108,37 @@ export class EventService {
     return this.toListItem(events);
   }
 
-async createPayment(amount:number , quantity:number , events:any){
+async createPayment(
+  amount: number,
+  quantity: number,
+  events: any,
+  opts?: { stripeSuccessUrl?: string; stripeCancelUrl?: string },
+) {
   console.log('amount:', amount);
   console.log('quantity:', quantity);
-  const batch_id=uuidv4();
-  const payment = Array.from({length: quantity}, () =>({
-    amount:  (amount*0.01).toString(),
+  const batch_id = uuidv4();
+  const payment = Array.from({ length: quantity }, () => ({
+    amount: (amount * 0.01).toString(),
     status: 'pending',
     paymentDate: new Date(),
-    event: {eventId: events.event_id},
+    event: { eventId: events.event_id },
     batch_id: batch_id,
-  }) );
+  }));
 
-  const saved=await this.paymentRepository.save(payment);
+  await this.paymentRepository.save(payment);
 
-  const session=await this.getStripe().checkout.sessions.create({
+  const defaultSuccess = `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`;
+  const rawSuccess = opts?.stripeSuccessUrl?.trim();
+  const success_url = rawSuccess
+    ? rawSuccess.split('__BATCH_ID__').join(batch_id)
+    : defaultSuccess;
+  const cancel_url =
+    opts?.stripeCancelUrl?.trim() || 'http://localhost:5173/cancel';
+
+  const session = await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
-    line_items:[
+    line_items: [
       {
         price_data: {
           currency: 'eur',
@@ -137,8 +150,8 @@ async createPayment(amount:number , quantity:number , events:any){
         quantity: quantity,
       },
     ],
-    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: 'http://localhost:5173/cancel',
+    success_url,
+    cancel_url,
     metadata: {
       amount: String(amount * 0.01 * quantity),
       event_id: String(events.event_id),
@@ -146,8 +159,8 @@ async createPayment(amount:number , quantity:number , events:any){
     },
   });
   console.log('PRICE:', amount);
-console.log('QUANTITY:', quantity);
-   return { url: session.url };
+  console.log('QUANTITY:', quantity);
+  return { url: session.url };
 }
 
 private getStripe(): InstanceType<typeof Stripe> {

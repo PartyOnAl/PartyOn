@@ -53,6 +53,8 @@ type ReservationSaved = {
   id: string
   reference: string
   createdAt: string
+  /** Value encoded in the QR (e.g. `reservation:<uuid>`). */
+  gatePayload: string
 }
 
 function eventNeedsTicket(ev: Event): boolean {
@@ -291,7 +293,7 @@ export default function ReservationFlow() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { events } = useCatalog()
-  const { user, profile } = useAuth()
+  const { user, profile, isLoading: authLoading } = useAuth()
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [people, setPeople] = useState(2)
@@ -415,6 +417,7 @@ export default function ReservationFlow() {
 
   useEffect(() => {
     let active = true
+    if (authLoading) return
     if (!user) {
       navigate(`/login?from=${encodeURIComponent(`/reserve/${id ?? ''}`)}`, { replace: true })
       return
@@ -449,7 +452,16 @@ export default function ReservationFlow() {
     return () => {
       active = false
     }
-  }, [id, navigate, profile?.email, profile?.name, profile?.phone_number, profile?.surname, user])
+  }, [
+    id,
+    navigate,
+    profile?.email,
+    profile?.name,
+    profile?.phone_number,
+    profile?.surname,
+    user,
+    authLoading,
+  ])
 
   function validateStep1(): string | null {
     if (people < 1 || people > 20) return 'Number of people must be between 1 and 20.'
@@ -499,7 +511,7 @@ export default function ReservationFlow() {
       number_of_people: people,
       time_slot: selectedSlot,
       special_requests: mergedNotes || null,
-      status: 'confirmed',
+      status: 'pending',
       reservation_reference: reference,
       created_at: nowIso,
       updated_at: nowIso,
@@ -515,12 +527,22 @@ export default function ReservationFlow() {
         }
       | null = null
     {
-      const { error: modernError } = await supabase
+      const { data: modernRow, error: modernError } = await supabase
         .from('reservations')
         .insert(modernPayload)
+        .select('reservation_id,id,created_at')
+        .maybeSingle()
 
-      if (!modernError) {
-        inserted = { id: reference, created_at: nowIso }
+      if (!modernError && modernRow) {
+        const rid =
+          (modernRow as { reservation_id?: string; id?: string }).reservation_id ??
+          (modernRow as { reservation_id?: string; id?: string }).id
+        inserted = {
+          reservation_id: rid,
+          id: rid,
+          created_at:
+            (modernRow as { created_at?: string | null }).created_at ?? nowIso,
+        }
       } else {
         const legacyPayload: Record<string, unknown> = {
           user_id: user.id,
@@ -528,7 +550,7 @@ export default function ReservationFlow() {
           nr_of_people: people,
           expected_arrival_time: selectedSlot,
           notes: mergedNotes || null,
-          status: 'confirmed',
+          status: 'pending',
           type: reservationRowType,
           qr_code: reference,
           reservation_date: `${selectedDate}T00:00:00.000Z`,
@@ -574,11 +596,25 @@ export default function ReservationFlow() {
       }
     }
 
+    const reservationUuid = (inserted?.reservation_id || inserted?.id || '').trim()
+    const gatePayload = reservationUuid ? `reservation:${reservationUuid}` : reference
+    if (reservationUuid) {
+      const gateQr = `reservation:${reservationUuid}`
+      const { error: qrErr } = await supabase
+        .from('reservations')
+        .update({ qr_code: gateQr })
+        .eq('reservation_id', reservationUuid)
+      if (qrErr) {
+        await supabase.from('reservations').update({ qr_code: gateQr }).eq('id', reservationUuid)
+      }
+    }
+
     setSubmitting(false)
     setSaved({
-      id: inserted?.reservation_id || inserted?.id || reference,
+      id: reservationUuid || reference,
       reference,
       createdAt: inserted?.created_at || nowIso,
+      gatePayload,
     })
     setStep(3)
   }
@@ -588,7 +624,7 @@ export default function ReservationFlow() {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF()
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(
-      saved.reference,
+      saved.gatePayload,
     )}`
 
     doc.setFontSize(18)
@@ -1249,7 +1285,7 @@ export default function ReservationFlow() {
                 <div className="mx-auto w-full max-w-[220px] rounded-2xl border border-white/10 bg-white p-3">
                   <img
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(
-                      saved.reference,
+                      saved.gatePayload,
                     )}`}
                     alt="Reservation QR code"
                     className="h-full w-full rounded-md"
