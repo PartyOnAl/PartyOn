@@ -435,16 +435,6 @@ body {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.um__tab:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.um__tab--active {
-  background: #ffffff;
-  color: #0a0a0a;
-  border-color: #ffffff;
-}
-
 .um__table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;

@@ -14,6 +14,8 @@ const supabaseAnonKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 
+export type AuthLane = 'user' | 'manager' | 'admin'
+
 function createPartyOnClient(storageKey: string): SupabaseClient | null {
   if (!isSupabaseConfigured) return null
   return createClient(supabaseUrl, supabaseAnonKey, {
@@ -28,6 +30,7 @@ function createPartyOnClient(storageKey: string): SupabaseClient | null {
 
 export const userSupabase = createPartyOnClient('partyon-user-auth')
 export const managerSupabase = createPartyOnClient('partyon-manager-auth')
+export const adminSupabase = createPartyOnClient('partyon-admin-auth')
 
 export const supabase: SupabaseClient | null = userSupabase
 

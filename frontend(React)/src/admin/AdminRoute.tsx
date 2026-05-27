@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { isAdminRole, resolveAccountRole } from '../lib/accountRoles'
+import { ADMIN_ROLE_HINT_KEY } from '../lib/authSession'
 
 const Spinner = () => (
   <div
@@ -19,27 +21,37 @@ const Spinner = () => (
   </div>
 )
 
-function isAdminRole(role: unknown): boolean {
-  const normalized = String(role ?? '')
-    .toLowerCase()
-    .trim()
-  return normalized === 'admin' || normalized === 'superadmin' || normalized === 'super_admin'
-}
-
 export default function AdminRoute({ children }: { children: ReactNode }) {
-  const { user, profile, isLoading } = useAuth()
+  const { user, session, profile, isLoading } = useAuth()
   const location = useLocation()
+  const roleHint =
+    (location.state as { adminRole?: string } | null)?.adminRole ??
+    sessionStorage.getItem(ADMIN_ROLE_HINT_KEY)
+
+  const role = isAdminRole(roleHint)
+    ? roleHint
+    : resolveAccountRole(user, profile, roleHint)
+
+  useEffect(() => {
+    if (user && profile && isAdminRole(profile.role)) {
+      sessionStorage.removeItem(ADMIN_ROLE_HINT_KEY)
+    }
+  }, [user, profile])
 
   if (isLoading) return <Spinner />
 
-  if (!user) {
+  if (!user && !session) {
     return <Navigate to={`/login?from=${encodeURIComponent(location.pathname)}`} replace />
   }
 
-  if (profile === null) return <Spinner />
-
-  if (!isAdminRole(profile.role)) {
-    return <Navigate to="/home" replace />
+  if (!isAdminRole(role)) {
+    return (
+      <Navigate
+        to={`/login?from=${encodeURIComponent(location.pathname)}`}
+        replace
+        state={{ adminAccessDenied: true }}
+      />
+    )
   }
 
   return <>{children}</>

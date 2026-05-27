@@ -19,6 +19,8 @@ type ClaimedOffer = {
     image_url: string | null
     description: string | null
     valid_until: string | null
+    original_price: number | null
+    discount_value: number | null
     club_id: string | null
     clubs: { club_name: string | null; club_address: string | null } | null
   } | null
@@ -110,6 +112,19 @@ function nullableString(value: unknown): string | null {
   return String(value)
 }
 
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function claimedPromotionCheckoutPrice(promotion: ClaimedOffer['promotion']): number {
+  const originalPrice = promotion?.original_price
+  const discountValue = promotion?.discount_value
+  if (!originalPrice || originalPrice <= 0 || !discountValue || discountValue <= 0) return 0
+  return Math.max(0, originalPrice * (1 - discountValue / 100))
+}
+
 function normalizeClaimedOffer(row: unknown): ClaimedOffer | null {
   const source = asRecord(row)
   if (!source) return null
@@ -135,6 +150,8 @@ function normalizeClaimedOffer(row: unknown): ClaimedOffer | null {
           image_url: nullableString(promotionSource.image_url),
           description: nullableString(promotionSource.description),
           valid_until: nullableString(promotionSource.valid_until),
+          original_price: nullableNumber(promotionSource.original_price),
+          discount_value: nullableNumber(promotionSource.discount_value),
           club_id: nullableString(promotionSource.club_id),
           clubs: clubSource
             ? {
@@ -695,7 +712,7 @@ function MyBookingsPage() {
       }
       const claimedResult = await sb
         .from('claimed_promotions')
-        .select('id, redemption_code, status, claimed_at, rating, review_comment, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
+        .select('id, redemption_code, status, claimed_at, rating, review_comment, promotion:promotions(promotion_id, title, image_url, description, valid_until, original_price, discount_value, club_id, clubs(club_name, club_address))')
         .eq('user_id', user.id)
         .neq('status', 'cancelled')
         .order('claimed_at', { ascending: false })
@@ -704,7 +721,7 @@ function MyBookingsPage() {
       if (error && /rating|review_comment/i.test(error.message)) {
         const fallback = await sb
           .from('claimed_promotions')
-          .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
+          .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, original_price, discount_value, club_id, clubs(club_name, club_address))')
           .eq('user_id', user.id)
           .neq('status', 'cancelled')
           .order('claimed_at', { ascending: false })
@@ -987,7 +1004,7 @@ function MyBookingsPage() {
             offersLoading ? (
               <section className="space-y-3">
                 {Array.from({ length: 3 }).map((_, idx) => (
-                  <div key={idx} className="h-28 animate-pulse rounded-2xl border border-white/10 bg-[#111118]/80" />
+                  <div key={idx} className="h-36 animate-pulse rounded-2xl border border-white/10 bg-[#111118]/80" />
                 ))}
               </section>
             ) : filteredOffers.length === 0 ? (
@@ -1020,13 +1037,14 @@ function MyBookingsPage() {
                   const claimCode = getClaimCode(offer)
                   const offerStatus = String(offer.status ?? '').toLowerCase()
                   const isUsed = offerStatus === 'redeemed' || offerStatus === 'used'
+                  const canCancelClaim = !isUsed && claimedPromotionCheckoutPrice(promo) === 0
                   const statusColor = isUsed
                     ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300'
                     : 'border-primary/30 bg-primary/10 text-primary'
                   return (
                     <article
                       key={offer.id}
-                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center"
+                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:min-h-[168px] md:grid-cols-[96px_1fr_auto] md:items-center"
                       onClick={() => setQrModalOffer(offer)}
                       role="button"
                       tabIndex={0}
@@ -1038,7 +1056,7 @@ function MyBookingsPage() {
                       }}
                     >
                       {/* Thumbnail */}
-                      <div className="h-[88px] w-[88px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                      <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-black/30">
                         {promo?.image_url ? (
                           <img src={promo.image_url} alt="" className="h-full w-full object-cover" />
                         ) : (
@@ -1094,14 +1112,14 @@ function MyBookingsPage() {
                         </div>
                       ) : (
                         /* Active: QR preview + cancel */
-                        <div className="flex flex-col items-center gap-1.5">
+                        <div className="flex flex-col items-center gap-1">
                           <div
-                            className="rounded-xl border border-white/15 bg-white p-2 shadow-sm"
+                            className="rounded-lg border border-white/15 bg-white p-1.5 shadow-sm"
                             onClick={() => setQrModalOffer(offer)}
                           >
                             <QRCode
                               value={claimCode}
-                              size={72}
+                              size={56}
                               bgColor="#ffffff"
                               fgColor="#0a0a0f"
                               level="M"
@@ -1111,14 +1129,16 @@ function MyBookingsPage() {
                             <ScanLine className="h-2.5 w-2.5" />
                             Tap to scan
                           </span>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setCancelTarget({ type: 'promotion', id: offer.id }) }}
-                            className="mt-1 inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/35 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
-                          >
-                            <X className="h-2.5 w-2.5" />
-                            Cancel claim
-                          </button>
+                          {canCancelClaim && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setCancelTarget({ type: 'promotion', id: offer.id }) }}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/35 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                              Cancel claim
+                            </button>
+                          )}
                         </div>
                       )}
                     </article>
@@ -1177,7 +1197,7 @@ function MyBookingsPage() {
                 return (
                   <article
                     key={booking.bookingId}
-                    className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(236,72,153,0.22)] md:grid-cols-[96px_1fr_auto] md:items-center"
+                    className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(236,72,153,0.22)] md:min-h-[168px] md:grid-cols-[96px_1fr_auto] md:items-center"
                     onClick={() => navigate(`/my-bookings/${booking.bookingId}`)}
                   >
                     {/* Thumbnail */}

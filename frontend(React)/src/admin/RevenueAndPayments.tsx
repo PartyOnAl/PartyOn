@@ -7,6 +7,8 @@ import {
 } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchAdminRevenue, type AdminRevenueData } from './adminApi'
+import { useAdminData } from './useAdminData'
+import AdminNavLink from './AdminNavLink'
 import './RevenueAndPayments.css'
 
 type NavId =
@@ -30,9 +32,9 @@ const NAV: NavItem[] = [
   { id: 'clubs', label: 'Club Approvals', href: '/admin/club-approvals' },
   { id: 'users', label: 'User Management', href: '/admin/user-management' },
   { id: 'revenue', label: 'Revenue & Payments', href: '/admin/revenue-payments', active: true },
-  { id: 'featured', label: 'Featured Events', href: '#' },
-  { id: 'analysis', label: 'Platform Analytics', href: '#' },
-  { id: 'settings', label: 'Settings', href: '#' },
+  { id: 'featured', label: 'Featured Events', href: '/admin/featured-events' },
+  { id: 'analysis', label: 'Platform Analytics', href: '/admin/platform-analytics' },
+  { id: 'settings', label: 'Settings', href: '/admin/settings' },
 ]
 
 type RevenueIconId = 'ticket' | 'card' | 'tag'
@@ -228,11 +230,13 @@ function formatYAxisValue(value: number): string {
 
 export default function RevenueAndPayments() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [data, setData] = useState<AdminRevenueData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [showAllTransactions, setShowAllTransactions] = useState(false)
   const { session } = useAuth()
+  const { data, loading, error } = useAdminData<AdminRevenueData>(
+    'admin:revenue',
+    session?.access_token,
+    fetchAdminRevenue,
+  )
   const navId = useId()
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -245,29 +249,6 @@ export default function RevenueAndPayments() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
-
-  useEffect(() => {
-    const token = session?.access_token
-    if (!token) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    void fetchAdminRevenue(token).then((result) => {
-      if (cancelled) return
-      if (result.error) {
-        setError(result.error)
-        setData(null)
-      } else {
-        console.log('[RevenueAndPayments] /api/admin/revenue payload', result.data)
-        setData(result.data)
-      }
-      setLoading(false)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [session?.access_token])
 
   const categoryOrder: Array<AdminRevenueData['categories'][number]['key']> = [
     'ticket',
@@ -316,19 +297,29 @@ export default function RevenueAndPayments() {
           </div>
 
           <nav className="rp__nav">
-            {NAV.map((item) => (
-              <a
-                key={item.id}
-                className={`rp__nav-link${item.active ? ' rp__nav-link--active' : ''}`}
-                href={item.href}
-                onClick={closeSidebar}
-              >
-                <span className="rp__nav-icon" aria-hidden>
-                  {NAV_ICONS[item.id]}
+            {NAV.map((item) =>
+              item.href === '#' ? (
+                <span key={item.id} className="rp__nav-link rp__nav-link--muted">
+                  <span className="rp__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
                 </span>
-                {item.label}
-              </a>
-            ))}
+              ) : (
+                <AdminNavLink
+                  key={item.id}
+                  to={item.href}
+                  className="rp__nav-link"
+                  activeClassName=" rp__nav-link--active"
+                  onNavigate={closeSidebar}
+                >
+                  <span className="rp__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
+                </AdminNavLink>
+              ),
+            )}
           </nav>
         </div>
 

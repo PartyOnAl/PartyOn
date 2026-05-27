@@ -55,6 +55,9 @@ import AdminPlatformAnalysis from './admin/AdminPlatformAnalysis'
 import ClubApproving from './admin/ClubApproving'
 import UserManagement from './admin/UserManagement'
 import RevenueAndPayments from './admin/RevenueAndPayments'
+import FeaturedEvents from './admin/FeaturedEvents'
+import PlatformAnalytics from './admin/PlatformAnalytics'
+import AdminSettings from './admin/AdminSettings'
 import StaffMustChangePasswordPage from './StaffMustChangePasswordPage'
 import StaffMobileOnlyPage from './StaffMobileOnlyPage'
 import TermsOfService from './TermsOfService'
@@ -252,6 +255,10 @@ function App() {
                 element={<ManagerRoute><ManagerProfile /></ManagerRoute>}
               />
               <Route
+                path="/admin"
+                element={<Navigate to="/admin/platform-analysis" replace />}
+              />
+              <Route
                 path="/admin/platform-analysis"
                 element={<AdminRoute><AdminPlatformAnalysis /></AdminRoute>}
               />
@@ -266,6 +273,18 @@ function App() {
               <Route
                 path="/admin/revenue-payments"
                 element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
+              />
+              <Route
+                path="/admin/featured-events"
+                element={<AdminRoute><FeaturedEvents /></AdminRoute>}
+              />
+              <Route
+                path="/admin/platform-analytics"
+                element={<AdminRoute><PlatformAnalytics /></AdminRoute>}
+              />
+              <Route
+                path="/admin/settings"
+                element={<AdminRoute><AdminSettings /></AdminRoute>}
               />
 
               <Route path="/terms" element={<TermsOfService />} />

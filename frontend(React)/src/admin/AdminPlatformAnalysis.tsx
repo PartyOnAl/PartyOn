@@ -5,8 +5,11 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import AdminNavLink from './AdminNavLink'
 import { fetchAdminOverview, type AdminOverviewData } from './adminApi'
+import { useAdminData } from './useAdminData'
 import './AdminPlatformAnalysis.css'
 
 type NavId =
@@ -30,9 +33,9 @@ const NAV: NavItem[] = [
   { id: 'clubs', label: 'Club Approvals', href: '/admin/club-approvals' },
   { id: 'users', label: 'User Management', href: '/admin/user-management' },
   { id: 'revenue', label: 'Revenue & Payments', href: '/admin/revenue-payments' },
-  { id: 'featured', label: 'Featured Events', href: '#' },
-  { id: 'analysis', label: 'Platform Analytics', href: '#' },
-  { id: 'settings', label: 'Settings', href: '#' },
+  { id: 'featured', label: 'Featured Events', href: '/admin/featured-events' },
+  { id: 'analysis', label: 'Platform Analytics', href: '/admin/platform-analytics' },
+  { id: 'settings', label: 'Settings', href: '/admin/settings' },
 ]
 
 type KpiIconId = 'users' | 'building' | 'calendar' | 'euro'
@@ -297,10 +300,16 @@ function RevenueChart({ points, maxRevenue }: { points: { month: string; value: 
 
 export default function AdminPlatformAnalysis() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [overview, setOverview] = useState<AdminOverviewData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const { session } = useAuth()
+  const {
+    data: overview,
+    loading,
+    error,
+  } = useAdminData<AdminOverviewData>(
+    'admin:overview',
+    session?.access_token,
+    fetchAdminOverview,
+  )
   const navId = useId()
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -313,29 +322,6 @@ export default function AdminPlatformAnalysis() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
-
-  useEffect(() => {
-    const token = session?.access_token
-    if (!token) return
-
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    void fetchAdminOverview(token).then((result) => {
-      if (cancelled) return
-      if (result.error) {
-        setError(result.error)
-        setOverview(null)
-      } else {
-        setOverview(result.data)
-      }
-      setLoading(false)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [session?.access_token])
 
   const metricsRow1: MetricRow1[] = overview
     ? [
@@ -420,19 +406,29 @@ export default function AdminPlatformAnalysis() {
           </div>
 
           <nav className="apa__nav">
-            {NAV.map((item) => (
-              <a
-                key={item.id}
-                className={`apa__nav-link${item.active ? ' apa__nav-link--active' : ''}`}
-                href={item.href}
-                onClick={closeSidebar}
-              >
-                <span className="apa__nav-icon" aria-hidden>
-                  {NAV_ICONS[item.id]}
+            {NAV.map((item) =>
+              item.href === '#' ? (
+                <span key={item.id} className="apa__nav-link apa__nav-link--muted">
+                  <span className="apa__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
                 </span>
-                {item.label}
-              </a>
-            ))}
+              ) : (
+                <AdminNavLink
+                  key={item.id}
+                  to={item.href}
+                  className="apa__nav-link"
+                  activeClassName=" apa__nav-link--active"
+                  onNavigate={closeSidebar}
+                >
+                  <span className="apa__nav-icon" aria-hidden>
+                    {NAV_ICONS[item.id]}
+                  </span>
+                  {item.label}
+                </AdminNavLink>
+              ),
+            )}
           </nav>
         </div>
 
@@ -520,9 +516,9 @@ export default function AdminPlatformAnalysis() {
               <div className="apa__card-head">
                 <h2 className="apa__card-title">Platform Revenue</h2>
                 <span className="apa__card-meta">Last 6 months</span>
-                <a className="apa__link" href="/admin/revenue-payments">
+                <Link className="apa__link" to="/admin/revenue-payments">
                   View Report
-                </a>
+                </Link>
               </div>
               <div className="apa-chart">
                 <div className="apa-chart__y" aria-hidden>
@@ -545,22 +541,22 @@ export default function AdminPlatformAnalysis() {
               <h2 className="apa__card-title apa__card-title--solo">Quick Actions</h2>
               <ul className="apa__actions">
                 <li>
-                  <a className="apa__action" href="/admin/club-approvals">
+                  <Link className="apa__action" to="/admin/club-approvals">
                     <span>Club Approvals ({overview?.metrics.pendingApprovals ?? 0} pending)</span>
                     <IconArrowUpRight />
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a className="apa__action" href="/manager/disputes">
+                  <Link className="apa__action" to="/manager/disputes">
                     <span>Disputes ({overview?.metrics.openDisputes ?? 0} open)</span>
                     <IconArrowUpRight />
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a className="apa__action" href="/admin/revenue-payments">
+                  <Link className="apa__action" to="/admin/revenue-payments">
                     <span>Revenue Report (View details)</span>
                     <IconArrowUpRight />
-                  </a>
+                  </Link>
                 </li>
               </ul>
             </article>

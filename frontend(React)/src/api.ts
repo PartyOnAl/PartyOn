@@ -7,7 +7,7 @@ const trimmedApiUrl = import.meta.env.VITE_API_URL?.trim() ?? ''
  */
 export const API_BASE_URL = trimmedApiUrl
 
-type ApiResult<T> = {
+export type ApiResult<T> = {
   data: T | null;
   error: string | null;
 };

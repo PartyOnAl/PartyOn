@@ -339,12 +339,18 @@ export function Navbar() {
     [headerSearchQuery, catalogEvents, catalogClubs, catalogPromotions],
   )
   const savedPanelRef = useRef<HTMLDivElement>(null)
+  const mobileSavedPanelRef = useRef<HTMLDivElement>(null)
   const authPanelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       const target = event.target as Node
-      if (savedPanelRef.current && !savedPanelRef.current.contains(target)) {
+      if (
+        savedPanelRef.current &&
+        !savedPanelRef.current.contains(target) &&
+        mobileSavedPanelRef.current &&
+        !mobileSavedPanelRef.current.contains(target)
+      ) {
         setSavedOpen(false)
       }
       if (authPanelRef.current && !authPanelRef.current.contains(target)) {
@@ -665,6 +671,83 @@ export function Navbar() {
               <LayoutGrid className="h-5 w-5" />
             </Link>
           </Button>
+          <div ref={mobileSavedPanelRef}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={headerGhostIconClass}
+              onClick={() => setSavedOpen((open) => !open)}
+              title="Saved events"
+              aria-label="Saved events"
+            >
+              <Bookmark className="h-5 w-5" />
+            </Button>
+
+            <AnimatePresence>
+              {savedOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.18 }}
+                  className="fixed left-3 right-3 top-[4.5rem] z-50 rounded-xl border border-border/50 bg-background/95 p-3 shadow-2xl shadow-black/40 backdrop-blur-md md:hidden"
+                >
+                  <div className="mb-3 flex items-center justify-between px-1">
+                    <p className="text-sm font-semibold text-foreground">Saved Events</p>
+                    <span className="text-xs text-muted-foreground">{savedEvents.length}</span>
+                  </div>
+
+                  {!user ? (
+                    <div className="rounded-lg border border-border/40 bg-secondary/40 px-3 py-6 text-center text-sm text-muted-foreground">
+                      Sign in to save events and sync them from your account.
+                    </div>
+                  ) : savedLoading ? (
+                    <div className="rounded-lg border border-border/40 bg-secondary/40 px-3 py-6 text-center text-sm text-muted-foreground">
+                      Loading saved events…
+                    </div>
+                  ) : savedEvents.length === 0 ? (
+                    <div className="rounded-lg border border-border/40 bg-secondary/40 px-3 py-6 text-center text-sm text-muted-foreground">
+                      No saved events yet. Use the bookmark on an event card while signed in.
+                    </div>
+                  ) : (
+                    <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                      {savedEvents.map((savedEvent) => (
+                        <Link
+                          key={savedEvent.id}
+                          to={`/events/${savedEvent.id}`}
+                          className="block rounded-lg border border-border/40 bg-secondary/40 p-3 transition-[background,border-color] duration-200 ease-in-out hover:border-primary/30 hover:bg-[rgba(255,255,255,0.06)]"
+                          onClick={() => {
+                            setSavedOpen(false)
+                            setMobileOpen(false)
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-foreground">
+                                {savedEvent.title}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">{savedEvent.date}</p>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-xs text-primary transition-colors hover:text-primary/80"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                removeSavedEvent(savedEvent.id)
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <Button
             variant="ghost"
             size="icon"

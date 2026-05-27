@@ -1,10 +1,16 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payments } from 'generated-entities/entities/Payments';
 import { Request } from 'express';
 import Stripe from 'stripe';
 import { Events } from 'generated-entities/entities/Events';
+import { Reservations } from 'generated-entities/entities/Reservations';
 
 export type PaymentListItem = {
   payment_id: string | null;
@@ -13,6 +19,21 @@ export type PaymentListItem = {
   amount: number | null;
   payment_date: Date | null;
   status: string | null;
+  event_id: string | null;
+  times_used: number | null;
+  intent: string | null;
+  event_starting_date: Date | null;
+  event_ending_date: Date | null;
+  event_hours: string | null;
+  };
+
+/** Gate scanner payload for a table reservation (event window + raw status; entry rules use `status` on the client). */
+export type GateReservationGateDto = {
+  reservation_id: string
+  status: string | null
+  event_starting_date: string
+  event_ending_date: string | null
+  event_hours: string | null
 };
 
 @Injectable()
@@ -21,6 +42,8 @@ export class PaymentService {
   constructor(
     @InjectRepository(Payments)
     private readonly paymentRepository: Repository<Payments>,
+    @InjectRepository(Reservations)
+    private readonly reservationsRepository: Repository<Reservations>,
   ) {}
 
   constructEvent(req: Request, sig: string | string[] | undefined): any {
@@ -82,14 +105,79 @@ export class PaymentService {
   }
 
   async findById(id: string) {
+    console.log("HIT PAYMENT ROUTE");
     const payment=await this.paymentRepository.findOne({
       where: { paymentId: id },
-      relations: ['reservation', 'user'], // if needed
+      relations: ['reservation', 'user' , 'event'], // if needed
     });
+    console.log("PAYMENT:", payment);
     if (!payment) {
       throw new Error('Payment not found');
     }
+
     return this.toListItem(payment);
+  }
+
+  private reservationAlreadyCheckedIn(
+    status: string | null | undefined,
+  ): boolean {
+    const s = String(status ?? '')
+      .toLowerCase()
+      .trim();
+    // Primary: gate sets `completed`. Legacy rows may still use older labels.
+    return ['completed', 'arrived', 'checked_in', 'checked-in', 'used', 'seated'].includes(s);
+  }
+
+  private reservationEntryAllowed(status: string | null | undefined): boolean {
+    const s = String(status ?? '')
+      .toLowerCase()
+      .trim();
+    return s === 'confirmed' || s === 'pending';
+  }
+
+  private toIsoDate(d: Date | string | null | undefined): string {
+    if (d == null) return new Date(0).toISOString();
+    const x = d instanceof Date ? d : new Date(d);
+    return Number.isNaN(x.getTime()) ? new Date(0).toISOString() : x.toISOString();
+  }
+
+  async findReservationForGate(id: string): Promise<GateReservationGateDto> {
+    const r = await this.reservationsRepository.findOne({
+      where: [{ reservationId: id }, { qrCode: `reservation:${id}` }],
+      relations: ['event'],
+    });
+    if (!r?.event) {
+      throw new NotFoundException('Reservation not found');
+    }
+    return {
+      reservation_id: r.reservationId,
+      status: r.status,
+      event_starting_date: this.toIsoDate(r.event.eventStartingDate),
+      event_ending_date: r.event.eventEndingDate
+        ? this.toIsoDate(r.event.eventEndingDate)
+        : null,
+      event_hours: r.event.eventHours ?? '00:00-23:59',
+    };
+  }
+
+  async markReservationGateCheckIn(
+    id: string,
+  ): Promise<{ status: string | null }> {
+    const r = await this.reservationsRepository.findOne({
+      where: [{ reservationId: id }, { qrCode: `reservation:${id}` }],
+    });
+    if (!r) {
+      throw new NotFoundException('Reservation not found');
+    }
+    if (this.reservationAlreadyCheckedIn(r.status)) {
+      return { status: r.status };
+    }
+    if (!this.reservationEntryAllowed(r.status)) {
+      throw new BadRequestException('Reservation is not valid for entry');
+    }
+    r.status = 'completed';
+    await this.reservationsRepository.save(r);
+    return { status: r.status };
   }
 
 async createPayment(amount:number , quantity:number , events:any){
@@ -135,33 +223,85 @@ private getStripe(): InstanceType<typeof Stripe> {
   return this.stripe;
 }
 
+async updatePayment(id: string, dto: Partial<Payments>) {
+  // optional: check if exists
+  const payment = await this.paymentRepository.findOne({
+    where: { batch_id: id },
+  });
+
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  // update
+  await this.paymentRepository.update({batch_id: id}, dto);
+
+  // return updated record
+  return this.paymentRepository.findOne({
+    where: { batch_id: id },
+  });
+}
+
+async updateTicketUses(id: string) {
+  // optional: check if exists
+  const payment = await this.paymentRepository.findOne({
+    where: { paymentId: id },
+  });
+
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  // update
+  await this.paymentRepository.update({paymentId: id}, {timesUsed: 1});
+
+  // return updated record
+  return this.paymentRepository.findOne({
+    where: { paymentId: id },
+  });
+}
+
 async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
-      const amount=session.metadata.amount
-      console.log('Payment success:', session.id);
-      const payment = this.paymentRepository.create({
-        amount:  amount?amount:0,
-        status: 'completed',
-        paymentDate: new Date(),
-    });
-    await this.paymentRepository.save(payment);
-      break;
+      const paymentId = session.metadata?.payment_id;
+      if (!paymentId) {
+        console.warn(
+          'checkout.session.completed: missing metadata.payment_id (session %s)',
+          session.id,
+        );
+      }
+
+      await this.updatePayment(String(paymentId), { status: 'completed' });
     }
-    default:
-      break;
   }
 }
 
-  private toListItem(payment: Payments): PaymentListItem {
+async findPaymentIds(batch_id: string) {
+  console.log("HIT FIND PAYMENT IDS ROUTE");
+  const payments = await this.paymentRepository.find({
+    where: { batch_id: batch_id },
+    select: ['paymentId'], // 🔥 only fetch IDs
+  });
+
+  return payments.map(p => p.paymentId);
+}
+
+  private toListItem(payment: Payments): PaymentListItem { 
     return {
       payment_id: payment.paymentId,
-      reservation_id: payment.reservation.reservationId,
-      user_id: payment.user.id,
+      reservation_id: payment.reservation?.reservationId??null,
+      user_id: payment.user?.id??null,
       amount: Number(payment.amount),
       payment_date: payment.paymentDate,
       status: payment.status,
+      event_id: payment.event.eventId,
+      times_used: payment.timesUsed,
+      intent: payment.intent ?? null,
+      event_starting_date: payment.event.eventStartingDate,
+      event_ending_date: payment.event.eventEndingDate,
+      event_hours: payment.event.eventHours,
     };
   }
 }
