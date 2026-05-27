@@ -299,7 +299,7 @@ export default function PromotionsScreen() {
         .select('*, clubs(club_name, club_address, club_id, reservation_only)')
         .in('status', ['active', 'approved'])
         .or('valid_until.is.null,valid_until.gte.' + new Date().toISOString().split('T')[0])
-        .order('created_at', { ascending: false }),
+        .order('valid_from', { ascending: true, nullsFirst: false }),
       user
         ? supabase.from('saved_promotions').select('promotion_id').eq('user_id', user.id)
         : Promise.resolve({ data: [] }),
@@ -378,6 +378,15 @@ export default function PromotionsScreen() {
     }
   }, [promotions, filter, savedIds, pickedRange])
 
+  // Always sort the visible list by valid_from ascending (soonest first, nulls last)
+  const sorted = useMemo(() =>
+    [...filtered].sort((a, b) => {
+      const aT = a.valid_from ? new Date(a.valid_from).getTime() : Infinity
+      const bT = b.valid_from ? new Date(b.valid_from).getTime() : Infinity
+      return aT - bT
+    }),
+  [filtered])
+
   const pillLabel = filter === 'range' && pickedRange
     ? formatRangeLabel(pickedRange.from, pickedRange.to)
     : 'Pick dates'
@@ -397,7 +406,7 @@ export default function PromotionsScreen() {
           <Ionicons
             name={filter === 'saved' ? 'bookmark' : 'bookmark-outline'}
             size={18}
-            color={filter === 'saved' ? COLORS.cta : COLORS.muted}
+            color={filter === 'saved' ? COLORS.purple : COLORS.muted}
           />
         </TouchableOpacity>
       </View>
@@ -457,7 +466,7 @@ export default function PromotionsScreen() {
 
       {loading ? (
         <ActivityIndicator color={COLORS.purple} style={{ marginTop: SPACING.xl }} />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <View style={styles.center}>
           <Ionicons
             name={filter === 'saved' ? 'bookmark-outline' : 'pricetag-outline'}
@@ -472,7 +481,7 @@ export default function PromotionsScreen() {
         </View>
       ) : (
         <FlatList
-          data={filtered}
+          data={sorted}
           keyExtractor={(p) => p.promotion_id}
           contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingTop: SPACING.xs, paddingBottom: SPACING.xxl }}
           showsVerticalScrollIndicator={false}
@@ -653,7 +662,7 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
     backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border,
   },
-  savedHeaderBtnActive: { borderColor: COLORS.cta, backgroundColor: 'rgba(245,166,35,0.1)' },
+  savedHeaderBtnActive: { borderColor: COLORS.purple, backgroundColor: 'rgba(167,139,250,0.12)' },
   filterScroll: {
     height: 42,
     flexGrow: 0,

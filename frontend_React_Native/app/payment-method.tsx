@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
-import { reservationGatePayload } from '@/lib/gateQrPayload'
 
 function formatCardNumber(v: string) {
   return v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()
@@ -26,6 +25,7 @@ export default function PaymentMethodScreen() {
   const params = useLocalSearchParams<{
     eventId: string; eventName: string; ticketTypeId: string
     ticketTypeName: string; quantity: string; total: string; isReservation: string
+    attendees?: string
   }>()
 
   const isReservation = params.isReservation === 'true'
@@ -47,43 +47,79 @@ export default function PaymentMethodScreen() {
 
     setLoading(true)
     try {
+      const nrPeople = Number(params.quantity ?? 1)
+      let assignedTableId: string | null = null
+
+      // Auto-assign best-fit table for table reservations
+      if (isReservation && params.eventId) {
+        const { data: eventRow } = await supabase
+          .from('events').select('club_id').eq('event_id', params.eventId).single()
+
+        if (eventRow?.club_id) {
+          // Find table IDs already taken for this event (non-cancelled reservations)
+          const { data: taken } = await supabase
+            .from('reservations')
+            .select('table_id')
+            .eq('event_id', params.eventId)
+            .neq('status', 'cancelled')
+            .not('table_id', 'is', null)
+          const takenIds = (taken ?? []).map((r: any) => r.table_id).filter(Boolean)
+
+          // Pick smallest available table that fits the party
+          let q = supabase
+            .from('tables')
+            .select('id, seating_capacity')
+            .eq('club_id', eventRow.club_id)
+            .gte('seating_capacity', nrPeople)
+            .order('seating_capacity', { ascending: true })
+            .limit(20)
+
+          const { data: candidates } = await q
+          const available = (candidates ?? []).filter((t: any) => !takenIds.includes(t.id))
+          if (available.length > 0) assignedTableId = available[0].id
+        }
+      }
+
       // Create reservation in Supabase
       const { data: res, error: resErr } = await supabase.from('reservations').insert({
         user_id: user?.id,
         event_id: params.eventId,
         ticket_type_id: params.ticketTypeId || null,
+        table_id: assignedTableId,
         type: isReservation ? 'table' : 'ticket',
         status: 'confirmed',
-        nr_of_people: Number(params.quantity ?? 1),
+        nr_of_people: nrPeople,
       }).select().single()
 
       if (resErr) throw resErr
 
-      const resRow = res as {
-        reservation_id?: string
-        id?: string
-        qr_code?: string | null
-      }
-      const resId = String(resRow.reservation_id ?? resRow.id ?? '').trim()
-
       // Create payment record (unless free reservation)
       if (!isReservation && total > 0) {
         await supabase.from('payments').insert({
-          reservation_id: resId,
+          reservation_id: res.reservation_id,
           user_id: user?.id,
           amount: total,
           status: 'completed',
         })
       }
 
-      const gate = reservationGatePayload(resId, resRow.qr_code ?? null)
+      // Persist attendees (one row per ticket holder, each with own QR)
+      if (!isReservation) {
+        let names: string[] = []
+        try { names = JSON.parse(params.attendees ?? '[]') } catch {}
+        if (names.length === 0) names = ['Me']
+        // Pad / trim to match nrPeople
+        while (names.length < nrPeople) names.push(`Guest ${names.length + 1}`)
+        names = names.slice(0, nrPeople)
+        const rows = names.map(n => ({ reservation_id: res.reservation_id, name: n || 'Guest' }))
+        await supabase.from('attendees').insert(rows)
+      }
 
       router.replace({
         pathname: '/purchased-ticket',
         params: {
-          reservationId: resId,
-          gatePayload: gate ?? undefined,
-          qrCode: resRow.qr_code ?? '',
+          reservationId: res.reservation_id,
+          qrCode: res.qr_code,
           eventName: params.eventName,
           ticketTypeName: params.ticketTypeName,
           quantity: params.quantity,
@@ -245,6 +281,6 @@ const styles = StyleSheet.create({
   freeNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: RADIUS.md, padding: SPACING.md, borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)' },
   freeNoticeText: { color: COLORS.green, fontSize: FONT.base, flex: 1, lineHeight: FONT.base * 1.5 },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.bgCard, borderTopWidth: 1, borderTopColor: COLORS.border, padding: SPACING.md, paddingTop: SPACING.sm },
-  payBtn: { backgroundColor: COLORS.cta, borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
-  payBtnText: { color: COLORS.ctaText, fontWeight: '800', fontSize: FONT.base },
+  payBtn: { backgroundColor: COLORS.purple, borderRadius: RADIUS.md, padding: SPACING.md + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
+  payBtnText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
 })

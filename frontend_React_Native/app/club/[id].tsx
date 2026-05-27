@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Image, Share, Linking, Alert, Platform,
+  ActivityIndicator, Image, Share, Linking, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Club, Event } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
 function fallbackColor(id: string) {
@@ -28,22 +30,50 @@ export default function ClubDetailScreen() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [descExpanded, setDescExpanded] = useState(false)
+  const [heroIndex, setHeroIndex] = useState(0)
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) { setLoading(false); return }
+      setLoading(true)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      Promise.all([
+        supabase.from('clubs').select('*').eq('club_id', id).single(),
+        supabase.from('events').select('*')
+          .eq('club_id', id)
+          .eq('event_status', 'published')
+          .gte('event_starting_date', today.toISOString())
+          .order('event_starting_date', { ascending: true })
+          .limit(12),
+      ]).then(([clubRes, evRes]) => {
+        setClub(clubRes.data as Club)
+        setEvents(((evRes.data as Event[]) ?? []).filter(ev => isEventUpcomingOrLive(ev)).slice(0, 5))
+        setLoading(false)
+      })
+    }, [id]),
+  )
+
+  const heroPhotos = useMemo(() => {
+    const photos: string[] = []
+    if (club?.club_image) photos.push(club.club_image)
+    for (const ev of events) {
+      if (ev.event_image && !photos.includes(ev.event_image)) photos.push(ev.event_image)
+    }
+    return photos
+  }, [club?.club_image, events])
 
   useEffect(() => {
-    if (!id) { setLoading(false); return }
-    Promise.all([
-      supabase.from('clubs').select('*').eq('club_id', id).single(),
-      supabase.from('events').select('*')
-        .eq('club_id', id)
-        .eq('event_status', 'published')
-        .order('event_starting_date', { ascending: true })
-        .limit(5),
-    ]).then(([clubRes, evRes]) => {
-      setClub(clubRes.data as Club)
-      setEvents((evRes.data as Event[]) ?? [])
-      setLoading(false)
-    })
-  }, [id])
+    setHeroIndex(0)
+  }, [club?.club_id, heroPhotos.length])
+
+  useEffect(() => {
+    if (heroPhotos.length <= 1) return
+    const timer = setInterval(() => {
+      setHeroIndex((idx) => (idx + 1) % heroPhotos.length)
+    }, 3500)
+    return () => clearInterval(timer)
+  }, [heroPhotos.length])
 
   async function handleShare() {
     try {
@@ -117,8 +147,22 @@ export default function ClubDetailScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Hero image */}
-        {club.club_image ? (
-          <Image source={{ uri: club.club_image }} style={styles.hero} resizeMode="cover" />
+        {heroPhotos.length > 0 ? (
+          <View style={styles.heroWrap}>
+            <Image source={{ uri: heroPhotos[heroIndex % heroPhotos.length] }} style={styles.hero} resizeMode="cover" />
+            {heroPhotos.length > 1 && (
+              <>
+                <View style={styles.heroCounter}>
+                  <Text style={styles.heroCounterText}>{heroIndex + 1}/{heroPhotos.length}</Text>
+                </View>
+                <View style={styles.heroDots}>
+                  {heroPhotos.map((_, i) => (
+                    <View key={i} style={[styles.heroDot, i === heroIndex && styles.heroDotActive]} />
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
         ) : (
           <View style={[styles.hero, { backgroundColor: accent }]}>
             <Ionicons name="musical-notes" size={56} color="rgba(255,255,255,0.3)" />
@@ -137,7 +181,7 @@ export default function ClubDetailScreen() {
           <Text style={styles.clubName}>{club.club_name}</Text>
           {club.club_address && (
             <TouchableOpacity style={styles.addressRow} onPress={handleMaps} activeOpacity={0.75}>
-              <Ionicons name="location" size={14} color={COLORS.cta} />
+              <Ionicons name="location" size={14} color={COLORS.purple} />
               <Text style={styles.addressText}>{club.club_address}</Text>
             </TouchableOpacity>
           )}
@@ -254,10 +298,10 @@ export default function ClubDetailScreen() {
                       <View style={styles.eventRowMeta}>
                         <Ionicons name="calendar-outline" size={11} color={COLORS.muted} />
                         <Text style={styles.eventRowDate}>{formatDate(ev.event_starting_date)}</Text>
-                        {ev.final_ticket_price != null && !club.reservation_only && (
+                        {ev.final_ticket_price != null && (
                           <>
                             <View style={styles.dot} />
-                            <Text style={styles.eventRowPrice}>€{Number(ev.final_ticket_price).toFixed(0)}</Text>
+                            <Text style={styles.eventRowPrice}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
                           </>
                         )}
                       </View>
@@ -272,31 +316,15 @@ export default function ClubDetailScreen() {
       </ScrollView>
 
       {/* Sticky bottom CTA */}
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
-        {club.reservation_only ? (
-          <View style={styles.bottomInner}>
-            <View>
-              <Text style={styles.bottomLabel}>Free Reservation</Text>
-              <Text style={styles.bottomSub}>No payment required</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.ctaBtn}
-              activeOpacity={0.85}
-              onPress={() => router.push('/(tabs)/search' as any)}
-            >
-              <Text style={styles.ctaBtnText}>Browse Events</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.ctaBtn, styles.ctaBtnFull]}
-            activeOpacity={0.85}
-            onPress={() => router.push({ pathname: '/(tabs)/search', params: { q: club.club_name } })}
-          >
-            <Ionicons name="search" size={17} color={COLORS.ctaText} />
-            <Text style={styles.ctaBtnText}>View Events</Text>
-          </TouchableOpacity>
-        )}
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom || SPACING.sm }]}>
+        <TouchableOpacity
+          style={[styles.ctaBtn, styles.ctaBtnFull]}
+          activeOpacity={0.85}
+          onPress={() => router.push(`/club-events/${id}`)}
+        >
+          <Ionicons name="calendar-outline" size={17} color={COLORS.white} />
+          <Text style={styles.ctaBtnText}>View All Events</Text>
+        </TouchableOpacity>
       </View>
     </View>
   )
@@ -330,6 +358,12 @@ const styles = StyleSheet.create({
   },
 
   // Hero
+  heroWrap: {
+    width: '100%',
+    height: 280,
+    position: 'relative',
+    backgroundColor: COLORS.bgCard,
+  },
   hero: {
     width: '100%',
     height: 280,
@@ -337,6 +371,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  heroDots: {
+    position: 'absolute',
+    bottom: SPACING.sm,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+  },
+  heroDotActive: {
+    width: 16,
+    backgroundColor: COLORS.white,
+  },
+  heroCounter: {
+    position: 'absolute',
+    top: SPACING.sm,
+    right: SPACING.md,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  heroCounterText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   heroScrim: {
     position: 'absolute',
     top: 160, left: 0, right: 0, height: 120,
@@ -353,16 +416,16 @@ const styles = StyleSheet.create({
   },
   typeBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(245,166,35,0.2)',
+    backgroundColor: 'rgba(167,139,250,0.18)',
     borderWidth: 1,
-    borderColor: COLORS.cta,
+    borderColor: COLORS.purple,
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
     marginBottom: SPACING.xs,
   },
   typeBadgeText: {
-    color: COLORS.cta,
+    color: COLORS.purple,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
@@ -521,7 +584,7 @@ const styles = StyleSheet.create({
   eventRowMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
   eventRowDate: { color: COLORS.muted, fontSize: 12 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: COLORS.mutedDark },
-  eventRowPrice: { color: COLORS.cta, fontSize: 12, fontWeight: '700' },
+  eventRowPrice: { color: COLORS.purple, fontSize: 12, fontWeight: '700' },
 
   // Bottom bar
   bottomBar: {
@@ -541,7 +604,7 @@ const styles = StyleSheet.create({
   bottomLabel: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
   bottomSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   ctaBtn: {
-    backgroundColor: COLORS.cta,
+    backgroundColor: COLORS.purple,
     borderRadius: RADIUS.md,
     paddingVertical: SPACING.sm + 4,
     paddingHorizontal: SPACING.lg,
@@ -551,7 +614,7 @@ const styles = StyleSheet.create({
   },
   ctaBtnFull: { width: '100%', justifyContent: 'center' },
   ctaBtnText: {
-    color: COLORS.ctaText,
+    color: COLORS.white,
     fontWeight: '800',
     fontSize: FONT.base,
   },

@@ -10,15 +10,15 @@
  */
 import { useEffect } from 'react'
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native'
-import { useRouter, useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT } from '@/lib/theme'
+import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
 
 WebBrowser.maybeCompleteAuthSession()
 
 export default function AuthCallbackScreen() {
-  const router = useRouter()
   const params = useLocalSearchParams()
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function AuthCallbackScreen() {
         await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
       }
 
-      router.replace('/(tabs)')
+      navigateAfterAuth('/(tabs)')
     }
     handle()
   }, [])

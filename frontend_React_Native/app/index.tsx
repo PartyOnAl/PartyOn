@@ -4,7 +4,7 @@ import { View, ActivityIndicator } from 'react-native'
 import { COLORS } from '@/lib/theme'
 
 export default function Index() {
-  const { user, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
 
   if (loading) {
     return (
@@ -14,5 +14,13 @@ export default function Index() {
     )
   }
 
-  return user ? <Redirect href="/(tabs)" /> : <Redirect href="/(auth)/welcome" />
+  if (!user) return <Redirect href="/(auth)/welcome" />
+
+  if (profile?.role === 'admin') return <Redirect href="/(admin)/(admin-tabs)/dashboard" />
+
+  if (profile?.role === 'manager') return <Redirect href="/(manager)/(manager-tabs)/dashboard" />
+
+  if (profile?.role === 'host' || profile?.role === 'staff') return <Redirect href="/(staff)" />
+
+  return <Redirect href="/(tabs)" />
 }

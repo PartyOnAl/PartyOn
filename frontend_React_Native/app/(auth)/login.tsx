@@ -8,7 +8,9 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/lib/AuthContext'
+import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
 
 // ── Shared input component ────────────────────────────────────────────────────
 function InputField({
@@ -86,14 +88,34 @@ export default function LoginScreen() {
       return
     }
     setLoading(true)
-    const { error, role, id } = await signIn(email.trim(), password)
-    console.log('id at login.tsx is: ', id);
+    const err = await signIn(email.trim(), password)
+    if (err) {
+      setError(err)
+      setLoading(false)
+      return
+    }
+    // Fetch role and route accordingly
+    const { data: authData } = await supabase.auth.getUser()
+    if (authData.user) {
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
+      if (prof?.role === 'admin') {
+        navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
+        setLoading(false)
+        return
+      }
+      if (prof?.role === 'manager') {
+        navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
+        setLoading(false)
+        return
+      }
+      if (prof?.role === 'host' || prof?.role === 'staff') {
+        navigateAfterAuth('/(staff)')
+        setLoading(false)
+        return
+      }
+    }
     setLoading(false)
-    console.log(role)
-    if (error) setError(error)
-    else if (role === 'user') router.replace('/(tabs)')
-    else if (role === 'staff') router.replace('/guard/guard')
-    else if (role === 'host') router.replace({pathname: '/hostess', params: {id: id}})
+    navigateAfterAuth('/(tabs)')
   }
 
   async function handleGoogle() {
@@ -101,8 +123,24 @@ export default function LoginScreen() {
     setGoogleLoading(true)
     const err = await signInWithGoogle()
     setGoogleLoading(false)
-    if (err) setError(err)
-    else router.replace('/guard/guard')
+    if (err) { setError(err); return }
+    const { data: authData } = await supabase.auth.getUser()
+    if (authData.user) {
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', authData.user.id).single()
+      if (prof?.role === 'admin') {
+        navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
+        return
+      }
+      if (prof?.role === 'manager') {
+        navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
+        return
+      }
+      if (prof?.role === 'host' || prof?.role === 'staff') {
+        navigateAfterAuth('/(staff)')
+        return
+      }
+    }
+    navigateAfterAuth('/(tabs)')
   }
 
   return (
@@ -184,7 +222,7 @@ export default function LoginScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Don't have an account? </Text>
+          <Text style={styles.footerText}>{`Don't have an account? `}</Text>
           <TouchableOpacity onPress={() => router.replace('/(auth)/signup')}>
             <Text style={styles.footerLink}>Create one</Text>
           </TouchableOpacity>

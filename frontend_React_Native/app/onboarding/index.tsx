@@ -8,7 +8,7 @@ import { MapPin, Search, ChevronRight, Navigation } from 'lucide-react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const { width, height } = Dimensions.get('window')
-const YELLOW = '#f5c518'
+const YELLOW = '#a78bfa'
 
 const POPULAR_CITIES = ['Tirana', 'Durrës', 'Vlorë']
 const ALL_CITIES = ['Tirana', 'Durrës', 'Vlorë', 'Shkodër', 'Elbasan', 'Sarandë', 'Korçë', 'Berat', 'Lushnjë', 'Kavajë']
@@ -61,9 +61,9 @@ export default function OnboardingScreen() {
         {/* Content */}
         <View style={s.content}>
           <Text style={s.headline}>
-            See what's <Text style={{ color: YELLOW }}>on</Text> near you
+            {`See what's `}<Text style={{ color: YELLOW }}>on</Text>{` near you`}
           </Text>
-          <Text style={s.sub}>Find out what's happening in your area</Text>
+          <Text style={s.sub}>{`Find out what's happening in your area`}</Text>
 
           <TouchableOpacity style={s.btnCity} onPress={() => setStep('city')} activeOpacity={0.85}>
             <Search size={16} color="#aaa" />

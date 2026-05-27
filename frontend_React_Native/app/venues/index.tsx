@@ -5,7 +5,7 @@ import { ChevronLeft, Search } from 'lucide-react-native'
 import { supabase } from '@/lib/supabase'
 import type { Club } from '@/types'
 
-const YELLOW = '#f5c518'
+const YELLOW = '#a78bfa'
 
 export default function VenuesScreen() {
   const router = useRouter()
@@ -134,7 +134,7 @@ const s = StyleSheet.create({
   followBtn: { paddingHorizontal: 18, height: 34, borderRadius: 17, borderWidth: 1.5, borderColor: '#333', alignItems: 'center', justifyContent: 'center' },
   followBtnActive: { backgroundColor: YELLOW, borderColor: YELLOW },
   followBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  followBtnTextActive: { color: '#000' },
+  followBtnTextActive: { color: '#fff' },
   // Empty
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyTitle: { color: '#fff', fontSize: 17, fontWeight: '700', marginBottom: 6 },

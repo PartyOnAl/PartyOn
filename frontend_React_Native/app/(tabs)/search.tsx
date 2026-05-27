@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import type { Event, Club } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { isEventUpcomingOrLive } from '@/lib/eventDates'
 
 const FALLBACK = ['#6366f1', '#7c3aed', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981']
 function fallbackColor(id: string) {
@@ -226,7 +227,9 @@ export default function SearchScreen() {
 
   const runSearch = useCallback(async () => {
     setLoading(true)
-    let evQ = supabase.from('events').select('*, clubs(*)').eq('event_status', 'published').order('event_starting_date', { ascending: true })
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    let evQ = supabase.from('events').select('*, clubs(*)').eq('event_status', 'published').gte('event_starting_date', today.toISOString()).order('event_starting_date', { ascending: true })
     if (query.trim()) evQ = evQ.ilike('event_name', `%${query.trim()}%`)
     if (dateFrom) evQ = evQ.gte('event_starting_date', isoDate(dateFrom))
     if (dateTo) evQ = evQ.lte('event_starting_date', isoDate(dateTo) + 'T23:59:59')
@@ -235,7 +238,8 @@ export default function SearchScreen() {
     if (query.trim()) clQ = clQ.ilike('club_name', `%${query.trim()}%`)
 
     const [evRes, clRes] = await Promise.all([evQ, clQ])
-    setEvents((evRes.data as Event[]) ?? [])
+    const rows = (evRes.data as Event[]) ?? []
+    setEvents(dateFrom ? rows : rows.filter(ev => isEventUpcomingOrLive(ev)))
     setClubs((clRes.data as Club[]) ?? [])
     setLoading(false)
   }, [query, dateFrom, dateTo])
@@ -277,6 +281,8 @@ export default function SearchScreen() {
     }
     if (item.kind === 'event') {
       const ev = item.data
+      const hasTicketOffer = ev.final_ticket_price != null || ev.ticket_price != null
+      const isReservationOnly = !hasTicketOffer && ((ev.reservation_only ?? ev.clubs?.reservation_only) ?? false)
       return (
         <TouchableOpacity style={styles.row} onPress={() => router.push(`/event/${ev.event_id}`)} activeOpacity={0.7}>
           {ev.event_image ? (
@@ -296,10 +302,10 @@ export default function SearchScreen() {
                 </>
               )}
             </View>
-            {ev.clubs?.reservation_only ? (
+            {ev.final_ticket_price != null ? (
+              <Text style={styles.price}>€{Number(ev.final_ticket_price).toFixed(2)}</Text>
+            ) : isReservationOnly ? (
               <Text style={styles.reservationTag}>Reservation Only</Text>
-            ) : ev.final_ticket_price != null ? (
-              <Text style={styles.price}>€{Number(ev.final_ticket_price).toFixed(0)}</Text>
             ) : null}
           </View>
           <Ionicons name="chevron-forward" size={16} color={COLORS.mutedDark} />
@@ -361,14 +367,14 @@ export default function SearchScreen() {
           onPress={() => setShowCalendar(true)}
           activeOpacity={0.8}
         >
-          <Ionicons name="calendar-outline" size={18} color={hasFilter ? COLORS.cta : COLORS.muted} />
+          <Ionicons name="calendar-outline" size={18} color={hasFilter ? COLORS.purple : COLORS.muted} />
         </TouchableOpacity>
       </View>
 
       {/* Active date filter pill */}
       {hasFilter && (
         <View style={styles.filterPill}>
-          <Ionicons name="calendar" size={13} color={COLORS.cta} />
+          <Ionicons name="calendar" size={13} color={COLORS.purple} />
           <Text style={styles.filterPillText}>{filterLabel}</Text>
           <TouchableOpacity onPress={() => { setDateFrom(null); setDateTo(null) }} hitSlop={8}>
             <Ionicons name="close-circle" size={15} color={COLORS.mutedDark} />
@@ -436,8 +442,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
   filterBtnActive: {
-    borderColor: COLORS.cta,
-    backgroundColor: 'rgba(245,166,35,0.1)',
+    borderColor: COLORS.purple,
+    backgroundColor: 'rgba(167,139,250,0.12)',
   },
   filterPill: {
     flexDirection: 'row',
@@ -445,15 +451,15 @@ const styles = StyleSheet.create({
     gap: SPACING.xs,
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.xs,
-    backgroundColor: 'rgba(245,166,35,0.08)',
+    backgroundColor: 'rgba(167,139,250,0.10)',
     borderRadius: RADIUS.pill,
     borderWidth: 1,
-    borderColor: 'rgba(245,166,35,0.25)',
+    borderColor: 'rgba(167,139,250,0.28)',
     paddingHorizontal: SPACING.sm + 2,
     paddingVertical: SPACING.xs + 2,
     alignSelf: 'flex-start',
   },
-  filterPillText: { color: COLORS.cta, fontSize: FONT.sm, fontWeight: '600', flex: 1 },
+  filterPillText: { color: COLORS.purple, fontSize: FONT.sm, fontWeight: '600', flex: 1 },
   catHeader: {
     color: COLORS.mutedDark,
     fontSize: 11,
@@ -489,7 +495,7 @@ const styles = StyleSheet.create({
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3, flexWrap: 'wrap' },
   rowMetaText: { color: COLORS.muted, fontSize: 12 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: COLORS.mutedDark },
-  price: { color: COLORS.cta, fontSize: 12, fontWeight: '700', marginTop: 3 },
+  price: { color: COLORS.purple, fontSize: 12, fontWeight: '700', marginTop: 3 },
   reservationTag: { color: COLORS.purple, fontSize: 11, fontWeight: '600', marginTop: 3 },
 
   // Calendar
@@ -577,7 +583,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 4,
     width: 4, height: 4, borderRadius: 2,
-    backgroundColor: COLORS.cta,
+    backgroundColor: COLORS.purple,
   },
   calSummary: {
     flexDirection: 'row',
@@ -612,7 +618,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     paddingVertical: SPACING.md,
     alignItems: 'center',
-    backgroundColor: COLORS.cta,
+    backgroundColor: COLORS.purple,
   },
-  calApplyBtnText: { color: COLORS.ctaText, fontWeight: '800', fontSize: FONT.base },
+  calApplyBtnText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
 })

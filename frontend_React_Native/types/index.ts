@@ -38,9 +38,17 @@ export interface Event {
   event_image?: string
   event_status: 'draft' | 'published' | 'cancelled' | 'completed'
   is_featured: boolean
+  featured_request_status?: 'none' | 'pending_review' | 'approved' | 'rejected' | 'cancelled'
+  featured_requested_at?: string
+  featured_paid_at?: string
+  featured_reviewed_at?: string
+  featured_rejection_reason?: string
+  featured_fee_amount?: number
+  featured_fee_paid?: boolean
   final_ticket_price?: number
   ticket_price?: number
   ticket_discount?: number
+  reservation_only?: boolean
   special_guests?: string
   clubs?: Club
   ticket_types?: TicketType[]
@@ -70,8 +78,6 @@ export interface Table {
 }
 
 export interface Reservation {
-  /** Present on some Supabase schemas (PK); use with `reservation_id` for gate + UI. */
-  id?: string
   reservation_id: string
   user_id: string
   event_id: string
