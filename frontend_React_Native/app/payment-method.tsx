@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   ScrollView, ActivityIndicator, Alert,
@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/AuthContext'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { reservationGatePayload } from '@/lib/gateQrPayload'
 
 function formatCardNumber(v: string) {
   return v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()
@@ -30,6 +31,23 @@ export default function PaymentMethodScreen() {
 
   const isReservation = params.isReservation === 'true'
   const total = Number(params.total ?? 0)
+
+  // Paid tickets use Stripe in `payment.tsx` (in-app browser), not this screen.
+  useEffect(() => {
+    if (!isReservation && params.eventId) {
+      router.replace({
+        pathname: '/payment',
+        params: {
+          eventId: params.eventId,
+          eventName: params.eventName ?? '',
+          ticketTypeId: params.ticketTypeId ?? '',
+          ticketTypeName: params.ticketTypeName ?? 'General Admission',
+          price: params.total ?? '0',
+          isReservation: 'false',
+        },
+      })
+    }
+  }, [isReservation, params.eventId, params.eventName, params.ticketTypeId, params.ticketTypeName, params.total, router])
 
   const [cardNumber, setCardNumber] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -93,10 +111,23 @@ export default function PaymentMethodScreen() {
 
       if (resErr) throw resErr
 
+      const resRow = res as { reservation_id?: string; id?: string; qr_code?: string | null }
+      const resId = String(resRow.reservation_id ?? resRow.id ?? '').trim()
+      if (isReservation && resId) {
+        const gateQr = `reservation:${resId}`
+        const { error: qrErr } = await supabase
+          .from('reservations')
+          .update({ qr_code: gateQr })
+          .eq('reservation_id', resId)
+        if (qrErr) {
+          await supabase.from('reservations').update({ qr_code: gateQr }).eq('id', resId)
+        }
+      }
+
       // Create payment record (unless free reservation)
       if (!isReservation && total > 0) {
         await supabase.from('payments').insert({
-          reservation_id: res.reservation_id,
+          reservation_id: resId,
           user_id: user?.id,
           amount: total,
           status: 'completed',
@@ -115,11 +146,14 @@ export default function PaymentMethodScreen() {
         await supabase.from('attendees').insert(rows)
       }
 
+      const gate = reservationGatePayload(resId, resRow.qr_code ?? null)
+
       router.replace({
         pathname: '/purchased-ticket',
         params: {
-          reservationId: res.reservation_id,
-          qrCode: res.qr_code,
+          reservationId: resId,
+          gatePayload: gate ?? undefined,
+          ...(isReservation ? {} : { qrCode: resRow.qr_code ?? '' }),
           eventName: params.eventName,
           ticketTypeName: params.ticketTypeName,
           quantity: params.quantity,

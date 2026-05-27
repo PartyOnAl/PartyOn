@@ -47,6 +47,20 @@ export function ticketGatePayload(paymentId: string | null | undefined): string 
   return `tickets:${id}`
 }
 
+/** Scan string for QR image + human-readable reservation UUID for labels. */
+export function reservationGateScanAndDisplay(row: {
+  reservation_id?: string | null
+  id?: string | null
+  qr_code?: string | null
+}): { scanPayload: string | null; displayId: string | null } {
+  const rowId = canonicalReservationRowId(row)
+  const scanPayload = reservationGatePayload(rowId || undefined, row.qr_code)
+  const displayId = looksLikeReservationUuid(rowId)
+    ? rowId
+    : uuidFromReservationQrPayload(scanPayload) ?? (rowId || null)
+  return { scanPayload, displayId }
+}
+
 export function reservationGatePayload(
   reservationId: string | null | undefined,
   qrCodeFromDb: string | null | undefined,

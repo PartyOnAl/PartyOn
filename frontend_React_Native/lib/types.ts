@@ -105,6 +105,8 @@ export type VenueTable = {
 export type ClubTable = VenueTable
 
 export type Reservation = {
+  /** Supabase modern PK; same logical row as `reservation_id` on legacy schema. */
+  id?: string | null
   reservation_id: string
   user_id: string | null
   event_id: string | null

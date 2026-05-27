@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router'
 import { useAuth } from '@/lib/AuthContext'
 import { View, ActivityIndicator } from 'react-native'
 import { COLORS } from '@/lib/theme'
+import { getStaffHomeHref, isVenueStaffRole } from '@/lib/staffRoutes'
 
 export default function Index() {
   const { user, profile, loading } = useAuth()
@@ -20,7 +21,7 @@ export default function Index() {
 
   if (profile?.role === 'manager') return <Redirect href="/(manager)/(manager-tabs)/dashboard" />
 
-  if (profile?.role === 'host' || profile?.role === 'staff') return <Redirect href="/(staff)" />
+  if (isVenueStaffRole(profile?.role)) return <Redirect href={getStaffHomeHref(profile?.role)} />
 
   return <Redirect href="/(tabs)" />
 }

@@ -22,6 +22,7 @@ import {
   Clock3,
   ImageUp,
   ListChecks,
+  LogOut,
   QrCode,
   Search,
   ShieldCheck,
@@ -79,7 +80,7 @@ const FEEDBACK_TONE = {
 
 export default function GuardScreen() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const insets = useSafeAreaInsets()
   const [permission, requestPermission] = useCameraPermissions()
   const [mode, setMode] = useState<ScanMode>('camera')
@@ -689,6 +690,20 @@ export default function GuardScreen() {
     }
   }
 
+  function handleSignOut() {
+    Alert.alert('Sign out', 'Sign out of the guard console?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut()
+          router.replace('/(auth)/welcome')
+        },
+      },
+    ])
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
@@ -696,13 +711,24 @@ export default function GuardScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>Guard Console</Text>
             <Text style={styles.title}>Entry Scanner</Text>
           </View>
-          <View style={styles.headerBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.headerBadgeText}>Live</Text>
+          <View style={styles.headerActions}>
+            <View style={styles.headerBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.headerBadgeText}>Live</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.logoutBtn}
+              onPress={handleSignOut}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+            >
+              <LogOut size={18} color={COLORS.red} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1043,6 +1069,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  headerCopy: { flex: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  logoutBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.red + '15',
+    borderWidth: 1,
+    borderColor: COLORS.red + '40',
   },
   eyebrow: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600' },
   title: { color: COLORS.white, fontSize: FONT.xxl, fontWeight: '900', marginTop: 2 },

@@ -1,5 +1,11 @@
 import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
+import {
+  looksLikeReservationUuid,
+  reservationGatePayload,
+  ticketGatePayload,
+  uuidFromReservationQrPayload,
+} from '@/lib/gateQrPayload'
 
 export type TicketPdfAttendee = {
   name: string
@@ -40,7 +46,9 @@ function money(value: string | number | null | undefined) {
 
 function attendeeBlocks(input: TicketPdfInput) {
   if (input.attendees && input.attendees.length > 0) {
-    return input.attendees.map((attendee, index) => `
+    return input.attendees.map((attendee, index) => {
+      const scan = ticketGatePayload(attendee.qr_code) ?? attendee.qr_code
+      return `
       <section class="qrBlock">
         <div class="guestRow">
           <div class="guestIndex">${index + 1}</div>
@@ -49,17 +57,37 @@ function attendeeBlocks(input: TicketPdfInput) {
             <div class="guestRole">${index === 0 ? 'Buyer' : 'Guest'}</div>
           </div>
         </div>
-        <img class="qr" src="${qrFor(attendee.qr_code)}" />
-        <div class="code">${esc(attendee.qr_code)}</div>
+        <img class="qr" src="${qrFor(scan)}" />
+        <div class="code">${esc(scan)}</div>
       </section>
-    `).join('')
+    `
+    }).join('')
   }
 
-  if (input.qrCode) {
+  if (input.isReservation) {
+    const rid = String(input.reservationId ?? '').trim()
+    const scan =
+      (looksLikeReservationUuid(rid) ? `reservation:${rid}` : null) ??
+      reservationGatePayload(rid, input.qrCode) ??
+      input.qrCode
+    const displayId =
+      (looksLikeReservationUuid(rid) ? rid : null) ??
+      uuidFromReservationQrPayload(scan) ??
+      rid
+    if (scan) {
+      return `
+      <section class="qrBlock">
+        <img class="qr" src="${qrFor(scan)}" />
+        <div class="code">Reservation ID: ${esc(displayId)}</div>
+      </section>
+    `
+    }
+  } else if (input.qrCode) {
+    const scan = ticketGatePayload(input.qrCode) ?? input.qrCode
     return `
       <section class="qrBlock">
-        <img class="qr" src="${qrFor(input.qrCode)}" />
-        <div class="code">${esc(input.qrCode)}</div>
+        <img class="qr" src="${qrFor(scan)}" />
+        <div class="code">${esc(scan)}</div>
       </section>
     `
   }

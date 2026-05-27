@@ -15,6 +15,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT } from '@/lib/theme'
 import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
+import { getStaffHomeHref, isVenueStaffRole } from '@/lib/staffRoutes'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -29,6 +30,27 @@ export default function AuthCallbackScreen() {
 
       if (accessToken && refreshToken) {
         await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+      }
+
+      const { data: authData } = await supabase.auth.getUser()
+      if (authData.user) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authData.user.id)
+          .single()
+        if (prof?.role === 'admin') {
+          navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
+          return
+        }
+        if (prof?.role === 'manager') {
+          navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
+          return
+        }
+        if (prof && isVenueStaffRole(prof.role)) {
+          navigateAfterAuth(getStaffHomeHref(prof.role))
+          return
+        }
       }
 
       navigateAfterAuth('/(tabs)')

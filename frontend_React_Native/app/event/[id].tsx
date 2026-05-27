@@ -69,7 +69,7 @@ export default function EventDetailScreen() {
   function handleReserve() {
     if (!user) { Alert.alert('Login required', 'Please log in to reserve a table.', [{ text: 'Log in', onPress: () => router.push('/(auth)/login') }, { text: 'Cancel', style: 'cancel' }]); return }
     if (!event) return
-    router.push({ pathname: '/payment', params: { eventId: event.event_id, eventName: event.event_name, price: '0', isReservation: 'true' } })
+    router.push({ pathname: '/reserve/[id]', params: { id: event.event_id } })
   }
 
   if (loading) {

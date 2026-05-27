@@ -1,13 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity, Image,
-  StyleSheet, Modal, RefreshControl, ActivityIndicator, Share,
+  StyleSheet, Modal, RefreshControl, ActivityIndicator, Share, ScrollView,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { CalendarDays, MapPin, QrCode, X, Ticket, Clock, Eye, Download, Calendar } from 'lucide-react-native'
-import Svg, { Rect } from 'react-native-svg'
 import { supabase } from '@/lib/supabase'
 import type { Reservation } from '@/types'
+import {
+  canonicalReservationRowId,
+  isTableReservationType,
+  reservationGateScanAndDisplay,
+  reservationRowGatePayloads,
+} from '@/lib/gateQrPayload'
 
 const YELLOW = '#a78bfa'
 
@@ -16,39 +21,6 @@ const STATUS: Record<string, { bg: string; color: string; label: string }> = {
   pending:   { bg: 'rgba(234,179,8,0.1)',    color: '#eab308', label: 'Pending' },
   cancelled: { bg: 'rgba(239,68,68,0.1)',    color: '#ef4444', label: 'Cancelled' },
   completed: { bg: 'rgba(107,114,128,0.1)', color: '#6b7280', label: 'Used' },
-}
-
-function QRCode({ size = 160 }: { size?: number }) {
-  const cell = size / 17
-  const pattern = [
-    [1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,1],
-    [1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1],
-    [1,0,1,1,1,0,1,0,0,1,1,0,1,1,1,0,1],
-    [1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1],
-    [1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1],
-    [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0],
-    [1,0,1,1,0,0,1,1,0,1,1,0,1,0,1,1,0],
-    [0,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,1],
-    [1,0,1,1,0,0,1,1,0,1,1,0,1,0,1,1,0],
-    [0,0,0,0,0,0,0,0,1,0,0,1,0,1,0,0,1],
-    [1,1,1,1,1,1,1,0,0,1,1,0,1,0,1,1,0],
-    [1,0,0,0,0,0,1,0,1,0,0,1,0,1,0,0,1],
-    [1,0,1,1,1,0,1,0,0,1,1,0,1,0,1,1,0],
-    [1,0,0,0,0,0,1,0,1,0,0,1,0,1,0,0,1],
-    [1,1,1,1,1,1,1,0,0,1,1,0,1,0,1,1,0],
-  ]
-  return (
-    <Svg width={size} height={size}>
-      <Rect width={size} height={size} fill="white" rx={8} />
-      {pattern.flatMap((row, r) =>
-        row.map((filled, c) =>
-          filled === 1 ? <Rect key={`${r}-${c}`} x={c*cell+1} y={r*cell+1} width={cell-1} height={cell-1} fill="#111" rx={1} /> : null
-        )
-      )}
-    </Svg>
-  )
 }
 
 export default function TicketsScreen() {
@@ -167,6 +139,31 @@ function QRModal({ reservation, onClose }: { reservation: Reservation; onClose: 
   const event = reservation.events as any
   const dateStr = event ? new Date(event.event_starting_date).toLocaleDateString('en-GB', { weekday: 'long', month: 'long', day: 'numeric' }) : ''
   const timeStr = event?.event_hours ?? ''
+  const rowId = canonicalReservationRowId(reservation as Reservation & { id?: string })
+  const isTable = isTableReservationType(reservation.type)
+  const tableGate = isTable
+    ? reservationGateScanAndDisplay({
+        reservation_id: rowId,
+        id: (reservation as Reservation & { id?: string }).id,
+        qr_code: reservation.qr_code,
+      })
+    : { scanPayload: null, displayId: null }
+  const ticketPayloads = !isTable
+    ? reservationRowGatePayloads({
+        reservation_id: rowId,
+        id: (reservation as Reservation & { id?: string }).id,
+        type: reservation.type,
+        qr_code: reservation.qr_code,
+        payments: (reservation as Reservation & { payments?: { payment_id?: string }[] }).payments,
+      })
+    : []
+  const qrUris = (isTable && tableGate.scanPayload
+    ? [tableGate.scanPayload]
+    : ticketPayloads
+  ).map(
+    (data) =>
+      `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}&bgcolor=ffffff&color=000000`,
+  )
 
   async function shareTicket() {
     await Share.share({ message: `My ticket for ${event?.event_name} at ${event?.clubs?.club_name} 🎉` })
@@ -192,14 +189,32 @@ function QRModal({ reservation, onClose }: { reservation: Reservation; onClose: 
 
           {/* QR */}
           <View style={s.qrContainer}>
-            <QRCode size={170} />
+            {qrUris.length > 0 ? (
+              <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+                {qrUris.map((uri) => (
+                  <View key={uri} style={{ width: 220, alignItems: 'center' }}>
+                    <Image source={{ uri }} style={{ width: 200, height: 200, backgroundColor: '#fff', borderRadius: 8 }} resizeMode="contain" />
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={[s.qrHint, { paddingVertical: 24 }]}>QR is not available yet.</Text>
+            )}
           </View>
-          <Text style={s.qrHint}>Show this QR code at the entrance</Text>
+          <Text style={s.qrHint}>
+            {qrUris.length > 1 ? 'Swipe for each ticket · ' : ''}
+            Show this QR code at the entrance
+          </Text>
+          {isTable && tableGate.displayId ? (
+            <Text style={[s.qrHint, { fontSize: 11 }]} selectable>
+              Reservation ID: {tableGate.displayId}
+            </Text>
+          ) : null}
 
           {/* Details grid */}
           <View style={s.detailsGrid}>
             {[
-              ['Type', reservation.type === 'table' ? 'Table reservation' : 'Ticket'],
+              ['Type', isTable ? 'Table reservation' : 'Ticket'],
               ['Quantity', String(reservation.nr_of_people)],
             ].map(([l, v]) => (
               <View key={l} style={s.detailItem}>

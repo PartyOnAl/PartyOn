@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
+import { getStaffHomeHref, isVenueStaffRole } from '@/lib/staffRoutes'
 
 // ── Shared input component ────────────────────────────────────────────────────
 function InputField({
@@ -108,8 +109,8 @@ export default function LoginScreen() {
         setLoading(false)
         return
       }
-      if (prof?.role === 'host' || prof?.role === 'staff') {
-        navigateAfterAuth('/(staff)')
+      if (prof && isVenueStaffRole(prof.role)) {
+        navigateAfterAuth(getStaffHomeHref(prof.role))
         setLoading(false)
         return
       }
@@ -135,8 +136,8 @@ export default function LoginScreen() {
         navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
         return
       }
-      if (prof?.role === 'host' || prof?.role === 'staff') {
-        navigateAfterAuth('/(staff)')
+      if (prof && isVenueStaffRole(prof.role)) {
+        navigateAfterAuth(getStaffHomeHref(prof.role))
         return
       }
     }

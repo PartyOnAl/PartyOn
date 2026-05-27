@@ -12,6 +12,13 @@ import { useAuth } from '@/lib/AuthContext'
 import type { Reservation, Attendee, ClaimedPromotion } from '@/lib/types'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { downloadTicketPdf } from '@/lib/ticketPdf'
+import {
+  canonicalReservationRowId,
+  isTableReservationType,
+  reservationGateScanAndDisplay,
+  reservationRowGatePayloads,
+  ticketGatePayload,
+} from '@/lib/gateQrPayload'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateLong(iso: string) {
@@ -279,11 +286,30 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
   if (!reservation) return null
   const currentReservation = reservation
   const ev = reservation.events as any
-  const isTable = reservation.type === 'table'
+  const isTable = isTableReservationType(reservation.type)
   const past = ev?.event_starting_date ? isPast(ev.event_starting_date) : false
   const effectiveStatus = past && reservation.status === 'confirmed' ? 'completed' : reservation.status
 
-  const qrUrl = reservation.qr_code && !past ? qrUrlFor(reservation.qr_code) : null
+  const rowId = canonicalReservationRowId(reservation as Reservation & { id?: string | null })
+  const { scanPayload: tableScanPayload, displayId: tableDisplayId } = isTable
+    ? reservationGateScanAndDisplay({
+        reservation_id: rowId,
+        id: (reservation as Reservation & { id?: string | null }).id,
+        qr_code: reservation.qr_code,
+      })
+    : { scanPayload: null, displayId: null }
+  const qrUrl = tableScanPayload && !past ? qrUrlFor(tableScanPayload) : null
+  const ticketScanPayloads = !isTable
+    ? reservationRowGatePayloads({
+        reservation_id: rowId,
+        id: (reservation as Reservation & { id?: string | null }).id,
+        type: reservation.type,
+        qr_code: reservation.qr_code,
+        payments: (reservation as { payments?: { payment_id?: string } | { payment_id?: string }[] }).payments,
+      })
+    : []
+  const ticketQrUrl =
+    ticketScanPayloads[0] && !past ? qrUrlFor(ticketScanPayloads[0]) : null
 
   async function handleShare() {
     try {
@@ -307,7 +333,7 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
         quantity: String(currentReservation.nr_of_people ?? 1),
         total: payment?.amount ?? null,
         isReservation: isTable,
-        qrCode: currentReservation.qr_code,
+        qrCode: isTable ? tableScanPayload : currentReservation.qr_code,
         attendees: attendees ?? [],
         status: effectiveStatus,
         venue: ev?.clubs?.club_address ?? null,
@@ -384,12 +410,24 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
                 <View style={styles.qrWrap}>
                   <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
                   <Text style={styles.qrCaption}>Show this QR code at the entrance</Text>
+                  {tableDisplayId ? (
+                    <>
+                      <Text style={[styles.qrCaption, { marginTop: SPACING.sm, fontWeight: '700' }]}>
+                        Reservation ID
+                      </Text>
+                      <Text style={[styles.qrCaption, { fontSize: 11 }]} selectable numberOfLines={2}>
+                        {tableDisplayId}
+                      </Text>
+                    </>
+                  ) : null}
                 </View>
               ) : (
                 <View style={styles.qrPast}>
                   <Ionicons name="qr-code-outline" size={52} color={COLORS.mutedDark} />
                   <Text style={styles.qrPastTitle}>QR unavailable</Text>
-                  <Text style={styles.qrPastSub}>Booking ID: {reservation.reservation_id}</Text>
+                  <Text style={styles.qrPastSub}>
+                    Reservation ID: {tableDisplayId ?? rowId ?? reservation.reservation_id}
+                  </Text>
                 </View>
               )
             ) : attendees === null ? (
@@ -418,21 +456,30 @@ function QRSheet({ reservation, onClose }: { reservation: Reservation | null; on
                         </View>
                       )}
                     </View>
-                    <Image source={{ uri: qrUrlFor(a.qr_code) }} style={styles.qrImage} resizeMode="contain" />
-                    <Text style={styles.qrCaption} numberOfLines={1} selectable>{a.qr_code}</Text>
+                    <Image
+                      source={{ uri: qrUrlFor(ticketGatePayload(a.qr_code) ?? a.qr_code) }}
+                      style={styles.qrImage}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.qrCaption} numberOfLines={2} selectable>
+                      {ticketGatePayload(a.qr_code) ?? a.qr_code}
+                    </Text>
                   </View>
                 ))}
               </View>
-            ) : qrUrl ? (
+            ) : ticketQrUrl ? (
               <View style={styles.qrWrap}>
-                <Image source={{ uri: qrUrl }} style={styles.qrImage} resizeMode="contain" />
+                <Image source={{ uri: ticketQrUrl }} style={styles.qrImage} resizeMode="contain" />
                 <Text style={styles.qrCaption}>Show this QR code at the entrance</Text>
+                <Text style={[styles.qrCaption, { fontSize: 11 }]} selectable numberOfLines={2}>
+                  {ticketScanPayloads[0]}
+                </Text>
               </View>
             ) : (
               <View style={styles.qrPast}>
                 <Ionicons name="qr-code-outline" size={52} color={COLORS.mutedDark} />
                 <Text style={styles.qrPastTitle}>QR unavailable</Text>
-                <Text style={styles.qrPastSub}>Booking ID: {reservation.reservation_id}</Text>
+                <Text style={styles.qrPastSub}>Booking ID: {rowId || reservation.reservation_id}</Text>
               </View>
             )}
 
@@ -809,7 +856,7 @@ export default function BookingsScreen() {
       Promise.all([
         supabase
           .from('reservations')
-          .select('*, events(event_id, event_name, event_starting_date, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(amount,status)')
+          .select('*, events(event_id, event_name, event_starting_date, event_image, club_id, clubs(club_address)), ticket_types(name,price), payments(payment_id,amount,status)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
         supabase

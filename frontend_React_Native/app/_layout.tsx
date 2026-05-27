@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import { PlatformSettingsProvider, usePlatformSettings } from '@/lib/platformSettings'
 import { navigateAfterAuth } from '@/lib/navigateAfterAuth'
+import { getStaffHomeHref, isVenueStaffRole } from '@/lib/staffRoutes'
 
 /** Expo Go loads no native push APIs (SDK 53+); skipping the module avoids startup warnings. */
 const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient
@@ -41,8 +42,8 @@ function AuthGuard() {
         navigateAfterAuth('/(manager)/(manager-tabs)/dashboard')
       } else if (profile?.role === 'admin') {
         navigateAfterAuth('/(admin)/(admin-tabs)/dashboard')
-      } else if (profile?.role === 'host' || profile?.role === 'staff') {
-        navigateAfterAuth('/(staff)')
+      } else if (isVenueStaffRole(profile?.role)) {
+        navigateAfterAuth(getStaffHomeHref(profile?.role))
       } else {
         navigateAfterAuth('/(tabs)')
       }
@@ -56,8 +57,8 @@ function AuthGuard() {
       router.replace('/(manager)/(manager-tabs)/dashboard')
     } else if (profile?.role === 'admin' && area === '(tabs)') {
       router.replace('/(admin)/(admin-tabs)/dashboard')
-    } else if ((profile?.role === 'host' || profile?.role === 'staff') && area === '(tabs)') {
-      router.replace('/(staff)')
+    } else if (isVenueStaffRole(profile?.role) && area === '(tabs)') {
+      router.replace(getStaffHomeHref(profile?.role))
     }
   }, [user, profile?.role, loading, segments])
 
@@ -121,7 +122,10 @@ export default function RootLayout() {
               <Stack.Screen name="(admin)" />
               <Stack.Screen name="(manager)" />
               <Stack.Screen name="(staff)" />
+              <Stack.Screen name="guard/guard" options={{ animation: 'fade' }} />
+              <Stack.Screen name="hostess" options={{ animation: 'fade' }} />
               <Stack.Screen name="event/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+              <Stack.Screen name="reserve/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="payment" options={{ presentation: 'card', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="payment-method" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="purchased-ticket" options={{ presentation: 'card', animation: 'slide_from_right' }} />

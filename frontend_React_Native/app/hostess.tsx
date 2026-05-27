@@ -20,6 +20,7 @@ import {
   CircleCheckBig,
   ClipboardList,
   DoorOpen,
+  LogOut,
   RefreshCcw,
   Sparkles,
   Undo2,
@@ -325,7 +326,7 @@ function nextStatus(status: GuestStatus): GuestStatus {
 
 export default function HostessScreen() {
   const router = useRouter()
-  const { user, loading: authInitializing } = useAuth()
+  const { user, loading: authInitializing, signOut } = useAuth()
   const insets = useSafeAreaInsets()
   const scrollRef = useRef<ScrollView>(null)
 
@@ -564,13 +565,15 @@ export default function HostessScreen() {
          * Use demo data until route param or authenticated user supplies an id.
          */
         if (!trimmedProfileId) {
-          setGuests(DEMO_GUESTS.map((g) => normalizeHostessGuest(g)))
-          setTables(DEMO_TABLES)
-          setClients(DEMO_CLIENTS)
-          setPaidTicketDeskClosedIds(() => new Set())
-          setIsLiveData(false)
-          setHasLoadedLiveData(false)
-          setSelectedTableByGuestId({})
+          if (!user) {
+            setGuests(DEMO_GUESTS.map((g) => normalizeHostessGuest(g)))
+            setTables(DEMO_TABLES)
+            setClients(DEMO_CLIENTS)
+            setPaidTicketDeskClosedIds(() => new Set())
+            setIsLiveData(false)
+            setHasLoadedLiveData(false)
+            setSelectedTableByGuestId({})
+          }
           return
         }
 
@@ -638,7 +641,7 @@ export default function HostessScreen() {
         setRefreshing(false)
       }
     },
-    [hasLoadedLiveData, hostessId],
+    [hasLoadedLiveData, hostessId, user],
   )
 
   useEffect(() => {
@@ -1168,6 +1171,31 @@ export default function HostessScreen() {
     setPaidTicketDeskModalPaymentId(null)
   }
 
+  const canGoBack = router.canGoBack()
+
+  function handleSignOut() {
+    Alert.alert('Sign out', 'Sign out of the hostess desk?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut()
+          router.replace('/(auth)/welcome')
+        },
+      },
+    ])
+  }
+
+  if (authInitializing || (loading && !hasLoadedLiveData && Boolean(hostessId.trim()))) {
+    return (
+      <View style={[styles.container, styles.bootScreen, { paddingTop: insets.top }]}>
+        <ActivityIndicator color={YELLOW} size="large" />
+        <Text style={styles.bootText}>Loading arrival desk…</Text>
+      </View>
+    )
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
@@ -1176,21 +1204,40 @@ export default function HostessScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <TouchableOpacity style={styles.headerButton} activeOpacity={0.8} onPress={() => router.back()}>
-            <ChevronLeft size={20} color={COLORS.white} />
-          </TouchableOpacity>
+          {canGoBack ? (
+            <TouchableOpacity
+              style={styles.headerButton}
+              activeOpacity={0.8}
+              onPress={() => router.back()}
+            >
+              <ChevronLeft size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerButtonPlaceholder} />
+          )}
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>PR / Hostess</Text>
             <Text style={styles.title}>Arrival Desk</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.headerBadge, !isLiveData && styles.headerBadgeFallback]}
-            activeOpacity={0.82}
-            onPress={() => loadFlow(true)}
-          >
-            {refreshing ? <ActivityIndicator size="small" color="#050505" /> : <Sparkles size={16} color="#050505" />}
-            <Text style={styles.headerBadgeText}>{isLiveData ? 'Live Data' : 'Data'}</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.headerBadge, !isLiveData && styles.headerBadgeFallback]}
+              activeOpacity={0.82}
+              onPress={() => loadFlow(true)}
+            >
+              {refreshing ? <ActivityIndicator size="small" color="#050505" /> : <Sparkles size={16} color="#050505" />}
+              <Text style={styles.headerBadgeText}>{isLiveData ? 'Live Data' : 'Data'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.logoutBtn}
+              onPress={handleSignOut}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+            >
+              <LogOut size={18} color={COLORS.red} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.hero}>
@@ -2498,6 +2545,8 @@ function MetricCard({ label, value, accent }: { label: string; value: number; ac
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
+  bootScreen: { alignItems: 'center', justifyContent: 'center', gap: SPACING.md },
+  bootText: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600' },
   content: { padding: SPACING.md, gap: SPACING.md },
   header: {
     flexDirection: 'row',
@@ -2514,7 +2563,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  headerButtonPlaceholder: { width: 42, height: 42 },
   headerCopy: { flex: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  logoutBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.red + '15',
+    borderWidth: 1,
+    borderColor: COLORS.red + '40',
+  },
   eyebrow: { color: COLORS.muted, fontSize: FONT.sm, fontWeight: '600' },
   title: { color: COLORS.white, fontSize: FONT.xxl, fontWeight: '900', marginTop: 2 },
   headerBadge: {
