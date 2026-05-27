@@ -100,31 +100,30 @@ export class EventService {
     return this.toListItem(events);
   }
 
-async createPayment(amount:number , quantity:number , events:any){
-  const session=await this.getStripe().checkout.sessions.create({
+async createPayment(amount: number, quantity: number, events: any, successUrl?: string, cancelUrl?: string) {
+  const base = (process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')
+  const session = await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
-    line_items:[
+    line_items: [
       {
         price_data: {
           currency: 'eur',
           product_data: {
-            name: 'Event Ticket',
+            name: events?.event_name ?? 'Ticket',
           },
           unit_amount: amount,
         },
         quantity: quantity,
       },
     ],
-    success_url: `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}?checkout_session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: 'http://localhost:5173/cancel',
+    success_url: successUrl ?? `${base}/purchased-ticket/${events.event_id}/${quantity}?checkout_session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: cancelUrl ?? `${base}/cancel`,
     metadata: {
-      amount: amount*0.01*quantity,
+      amount: amount * 0.01 * quantity,
     },
-  });
-  console.log('PRICE:', amount);
-console.log('QUANTITY:', quantity);
-   return { url: session.url };
+  })
+  return { url: session.url }
 }
 
 async createFeaturePayment(eventId: string, fee: number) {
@@ -140,8 +139,8 @@ async createFeaturePayment(eventId: string, fee: number) {
       quantity: 1,
     }],
     metadata: { event_id: eventId, payment_type: 'featured_event', amount: String(fee) },
-    success_url: `http://localhost:5173/manager/events?featured_paid=${eventId}`,
-    cancel_url: 'http://localhost:5173/manager/events',
+    success_url: `${(process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')}/manager/events?featured_paid=${eventId}`,
+    cancel_url: `${(process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')}/manager/events`,
   });
   return { url: session.url };
 }

@@ -206,19 +206,19 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      {/* Back button — fixed below navbar, takes no layout space */}
-      <button
-        type="button"
-        onClick={() => navigate(-1)}
-        aria-label="Go back"
-        className="fixed left-5 top-[72px] z-40 flex items-center gap-1.5 rounded-full border-0 bg-black/60 px-3 py-2 text-sm font-medium text-white backdrop-blur-md transition hover:bg-primary/80"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
-
       <main className="pb-16 pt-20">
         <div className="po-container">
+          {/* Back button — inline above the content grid */}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="mb-6 flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition hover:text-primary"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+
           <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
             {/* Image */}
             <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-muted/20 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">

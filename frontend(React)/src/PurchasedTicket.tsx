@@ -1,5 +1,6 @@
 import './PurchasedTicket.css'
 import { useEffect, useMemo, useState } from 'react'
+import { API_BASE_URL } from '@/api'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { Navbar } from '@/components/Navbar'
@@ -419,7 +420,7 @@ export default function PurchasedTicket() {
       // Legacy Stripe route: /purchased-ticket/:id/:quantity
       if (id && id !== 'undefined') {
         try {
-          const res = await fetch(`http://localhost:3000/event/${id}`)
+          const res = await fetch(`${API_BASE_URL}/event/${id}`)
           const data = (await res.json()) as {
             event_id?: string
             event_name?: string

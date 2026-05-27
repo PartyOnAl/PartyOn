@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { API_BASE_URL } from '@/api'
 import { ArrowLeft, Check, ChevronRight, Lock, Minus, Plus, Ticket } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Navbar } from '@/components/Navbar'
@@ -55,7 +56,7 @@ export default function Payment() {
   // Fallback: fetch from legacy API if no state
   useEffect(() => {
     if (stateEvent || !id || id === 'undefined') return
-    fetch(`http://localhost:3000/event/${id}`)
+    fetch(`${API_BASE_URL}/event/${id}`)
       .then((r) => r.json())
       .then((data: LegacyEvent) => setLegacyEvent(data))
       .catch(() => {})
@@ -75,7 +76,7 @@ export default function Payment() {
     if (paying) return
     setPaying(true)
     try {
-      const res = await fetch('http://localhost:3000/event/pay', {
+      const res = await fetch(`${API_BASE_URL}/event/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

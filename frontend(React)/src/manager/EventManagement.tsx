@@ -1,4 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/api'
 import { useSearchParams } from 'react-router-dom'
 import './ManagerDashboard.css'
 import './EventManagement.css'
@@ -1216,7 +1217,7 @@ export default function EventManagement() {
     setIsSubmitting(true)
     setToast(null)
     try {
-      const res = await fetch('http://localhost:3000/event/feature-pay', {
+      const res = await fetch(`${API_BASE_URL}/event/feature-pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId: ev.event_id, fee: featuredSlotFee }),
