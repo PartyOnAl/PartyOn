@@ -1,0 +1,168 @@
+import { deleteJsonAuth, getJsonAuth, patchJsonAuth, postJsonAuth } from '../api'
+
+export type AdminOverviewData = {
+  metrics: {
+    totalUsers: number
+    activeClubs: number
+    totalEvents: number
+    monthlyRevenue: number
+    totalBookings: number
+    activeSubscriptions: number
+    pendingApprovals: number
+    openDisputes: number
+  }
+  trends: {
+    users: number
+    clubs: number
+    events: number
+    revenue: number
+  }
+  revenuePoints: { month: string; value: number }[]
+  topClubs: {
+    id: string
+    rank: number
+    name: string
+    bookings: number
+    revenue: number
+    rating: number | null
+  }[]
+  topEvents: {
+    id: string
+    rank: number
+    name: string
+    venue: string
+    revenue: number
+    bookings: number
+    rating: number | null
+  }[]
+}
+
+export type AdminClub = {
+  id: string
+  name: string
+  status: 'pending' | 'approved' | 'rejected' | 'suspended'
+  location: string
+  phone: string
+  description: string
+  email: string
+  license: string
+  contact: string
+  applied: string
+}
+
+export type AdminClubsData = {
+  stats: {
+    pending: number
+    approved: number
+    rejected: number
+    suspended: number
+    total: number
+  }
+  clubs: AdminClub[]
+}
+
+export type AdminUser = {
+  id: string
+  name: string
+  joined: string
+  email: string
+  phone: string
+  roleRaw: string
+  type: 'customer' | 'club_manager' | 'staff' | 'admin'
+  avatar: string | null
+  bookings: number
+  bookingHistory: {
+    id: string
+    date: string
+    status: string
+    type: string
+    eventId: string | null
+  }[]
+  spent: number
+  status: 'active' | 'blocked'
+  complaints: number
+}
+
+export type AdminUsersData = {
+  stats: {
+    total: number
+    active: number
+    blocked: number
+    complaints: number
+  }
+  tabs: {
+    all: number
+    customer: number
+    managers: number
+    staff: number
+  }
+  users: AdminUser[]
+}
+
+export type AdminRevenueData = {
+  totalRevenue: number
+  trend: number
+  categories: {
+    label: string
+    key: 'ticket' | 'subscription' | 'advertisement'
+    value: number
+    icon: 'ticket' | 'card' | 'tag'
+  }[]
+  transactions: {
+    id: string
+    date: string
+    club: string
+    type: 'ticket' | 'subscription' | 'advertisement'
+    amount: number
+    commission: number
+    status: string
+  }[]
+  rates: { title: string; value: string; hint: string }[]
+}
+
+export function fetchAdminOverview(token: string) {
+  return getJsonAuth<AdminOverviewData>('/api/admin/overview', token)
+}
+
+export function fetchAdminClubs(token: string) {
+  return getJsonAuth<AdminClubsData>('/api/admin/clubs', token)
+}
+
+export function updateAdminClubStatus(
+  token: string,
+  clubId: string,
+  status: AdminClub['status'],
+) {
+  return patchJsonAuth<{ success: true }>(`/api/admin/clubs/${clubId}/status`, token, { status })
+}
+
+export function createAdminClub(
+  token: string,
+  payload: { name: string; email: string; address: string; phone?: string; description?: string },
+) {
+  return postJsonAuth<{ success: true; clubId: string }>('/api/admin/clubs', token, payload)
+}
+
+export function deleteAdminClub(token: string, clubId: string) {
+  return deleteJsonAuth<{ success: true }>(`/api/admin/clubs/${clubId}`, token)
+}
+
+export function fetchAdminUsers(token: string) {
+  return getJsonAuth<AdminUsersData>('/api/admin/users', token)
+}
+
+export function updateAdminUserStatus(
+  token: string,
+  userId: string,
+  status: AdminUser['status'],
+) {
+  return patchJsonAuth<{ success: true }>(`/api/admin/users/${userId}/status`, token, { status })
+}
+
+export function deleteAdminUser(token: string, userId: string) {
+  return deleteJsonAuth<{ success: true }>(`/api/admin/users/${userId}`, token)
+}
+
+export function fetchAdminRevenue(token: string) {
+  return getJsonAuth<AdminRevenueData>('/api/admin/revenue', token)
+}
