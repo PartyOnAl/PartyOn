@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Gift, MapPin, ReceiptText, Star, Ticket, Trash2, X } from 'lucide-react'
+import QRCode from 'react-qr-code'
+import { AlertTriangle, CalendarDays, ChevronRight, Copy, Gift, MapPin, ReceiptText, ScanLine, Star, Ticket, Trash2, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -178,6 +179,8 @@ export default function MyBookings() {
   const [disputePriority, setDisputePriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [disputeBusy, setDisputeBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
+  const [qrModalOffer, setQrModalOffer] = useState<ClaimedOffer | null>(null)
+  const [codeCopied, setCodeCopied] = useState(false)
 
   async function deleteBookingFromDb(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured) return
@@ -618,10 +621,11 @@ export default function MyBookings() {
                   return (
                     <article
                       key={offer.id}
-                      className="grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 md:grid-cols-[96px_1fr_auto] md:items-center"
+                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center"
+                      onClick={() => setQrModalOffer(offer)}
                     >
                       {/* Thumbnail */}
-                      <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                      <div className="h-[88px] w-[88px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
                         {promo?.image_url ? (
                           <img src={promo.image_url} alt="" className="h-full w-full object-cover" />
                         ) : (
@@ -632,13 +636,16 @@ export default function MyBookings() {
                       </div>
 
                       {/* Info */}
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-1.5">
                         <h3 className="truncate font-semibold text-white">{promo?.title ?? 'Promotion'}</h3>
                         {promo?.clubs?.club_name && (
-                          <p className="text-sm text-muted-foreground">{promo.clubs.club_name}</p>
+                          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <MapPin className="h-3 w-3 shrink-0 text-primary/70" />
+                            {promo.clubs.club_name}
+                          </p>
                         )}
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${statusColor}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize ${statusColor}`}>
                             {offer.status}
                           </span>
                           {promo?.valid_until && (
@@ -647,27 +654,32 @@ export default function MyBookings() {
                             </span>
                           )}
                         </div>
-                      </div>
-
-                      {/* Code */}
-                      <div className="flex flex-col items-start gap-2 md:items-end">
-                        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-3 py-2">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                          <div>
-                            <p className="text-[10px] font-medium text-emerald-400">Redemption Code</p>
-                            <p className="font-mono text-sm font-bold tracking-widest text-white">
-                              {offer.redemption_code.toUpperCase()}
-                            </p>
-                          </div>
-                        </div>
                         {promo && (
                           <Link
                             to={`/promotions/offer/${encodeURIComponent(promo.promotion_id)}`}
-                            className="text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                            className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            View offer
+                            View offer →
                           </Link>
                         )}
+                      </div>
+
+                      {/* QR code preview */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className="rounded-xl border border-white/15 bg-white p-2 shadow-sm">
+                          <QRCode
+                            value={offer.redemption_code.toUpperCase()}
+                            size={72}
+                            bgColor="#ffffff"
+                            fgColor="#0a0a0f"
+                            level="M"
+                          />
+                        </div>
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-white/40">
+                          <ScanLine className="h-2.5 w-2.5" />
+                          Tap to scan
+                        </span>
                       </div>
                     </article>
                   )
@@ -822,6 +834,97 @@ export default function MyBookings() {
           )}
         </div>
       </main>
+
+      {/* ── QR Code modal ────────────────────────────────────────────────── */}
+      {qrModalOffer ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 px-4 pb-4 backdrop-blur-sm sm:items-center sm:pb-0"
+          onClick={() => { setQrModalOffer(null); setCodeCopied(false) }}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl border border-white/12 bg-[#0e0e14] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Handle bar for mobile */}
+            <div className="flex justify-center pt-3 sm:hidden">
+              <div className="h-1 w-10 rounded-full bg-white/20" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-start justify-between px-5 pb-3 pt-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-primary/70">My Offer</p>
+                <h2 className="mt-0.5 truncate text-base font-bold text-white">
+                  {qrModalOffer.promotion?.title ?? 'Promotion'}
+                </h2>
+                {qrModalOffer.promotion?.clubs?.club_name && (
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3 w-3 shrink-0 text-primary/60" />
+                    {qrModalOffer.promotion.clubs.club_name}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setQrModalOffer(null); setCodeCopied(false) }}
+                className="ml-2 shrink-0 rounded-full border border-white/10 p-1.5 text-white/40 transition hover:bg-white/8 hover:text-white/70"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* QR Code */}
+            <div className="flex flex-col items-center gap-4 px-5 pb-6">
+              <div className="rounded-2xl border-4 border-white bg-white p-4 shadow-[0_0_40px_rgba(168,85,247,0.25)]">
+                <QRCode
+                  value={qrModalOffer.redemption_code.toUpperCase()}
+                  size={200}
+                  bgColor="#ffffff"
+                  fgColor="#05050a"
+                  level="M"
+                />
+              </div>
+
+              {/* Instruction */}
+              <p className="text-center text-sm text-muted-foreground">
+                Show this QR code to venue staff to redeem your offer
+              </p>
+
+              {/* Code text + copy */}
+              <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <p className="flex-1 text-center font-mono text-lg font-bold tracking-[0.2em] text-white">
+                  {qrModalOffer.redemption_code.toUpperCase()}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(qrModalOffer.redemption_code.toUpperCase())
+                      .then(() => { setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000) })
+                  }}
+                  className="shrink-0 rounded-lg border border-white/15 bg-white/8 p-2 text-white/50 transition hover:border-primary/40 hover:bg-primary/15 hover:text-primary"
+                  aria-label="Copy code"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+              {codeCopied && (
+                <p className="-mt-2 text-xs font-semibold text-emerald-400">Copied to clipboard!</p>
+              )}
+
+              {/* Valid until */}
+              {qrModalOffer.promotion?.valid_until && (
+                <p className="text-xs text-muted-foreground">
+                  Valid until{' '}
+                  {new Date(qrModalOffer.promotion.valid_until).toLocaleDateString('en-GB', {
+                    day: 'numeric', month: 'long', year: 'numeric',
+                  })}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── Review modal ─────────────────────────────────────────────────── */}
       {reviewModal ? (
