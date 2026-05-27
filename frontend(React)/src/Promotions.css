@@ -471,14 +471,39 @@
   }
 
   .promotions-date-popover {
-    width: min(20rem, calc(100vw - 2rem));
+    position: fixed;
+    top: 50%;
+    left: 1rem;
+    right: 1rem;
+    z-index: 70;
+    width: auto;
+    max-height: calc(100svh - 2rem);
+    transform: translateY(-50%);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .promotions-calendar {
+    width: 100%;
+    max-width: 22rem;
+    margin: 0 auto;
     box-shadow:
       0 24px 70px rgba(0, 0, 0, 0.64),
       0 0 0 1px hsl(var(--primary) / 0.22),
       0 0 36px hsl(var(--primary) / 0.12);
+  }
+
+  .promotions-calendar__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .promotions-calendar__actions {
+    width: 100%;
+  }
+
+  .promotions-calendar__footer button {
+    flex: 1;
   }
 }
 

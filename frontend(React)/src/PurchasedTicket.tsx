@@ -479,6 +479,7 @@ export default function PurchasedTicket() {
   const quantityLabel = booking
     ? `${booking.quantity} ${booking.bookingType}${booking.quantity > 1 ? 's' : ''}`
     : ''
+  const isSharedReservation = booking?.bookingType === 'reservation' && booking.quantity > 1
 
   async function buildPdfBlob(): Promise<{ blob: Blob; filename: string }> {
     const { jsPDF } = await import('jspdf')
@@ -509,7 +510,12 @@ export default function PurchasedTicket() {
       if (booking!.clubAddress) doc.text(booking!.clubAddress, 14, 59)
       doc.text(`Order: #${orderId}`, 14, 67)
 
-      if (qrSrcs.length > 1) {
+      if (booking!.bookingType === 'reservation' && booking!.quantity > 1) {
+        doc.setTextColor(147, 51, 234)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text(`Shared reservation QR for ${booking!.quantity} guests`, 14, 76)
+      } else if (qrSrcs.length > 1) {
         doc.setTextColor(147, 51, 234)
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(11)
@@ -630,6 +636,11 @@ export default function PurchasedTicket() {
               </div>
               <h1 className="purchased-ticket__headline">You&apos;re in</h1>
               <p className="purchased-ticket__sub">Your booking is confirmed</p>
+              {isSharedReservation ? (
+                <p className="purchased-ticket__share-hint">
+                  Share the group QR with your friends so everyone has the reservation code.
+                </p>
+              ) : null}
             </header>
 
             {/* Event summary strip */}
@@ -750,7 +761,7 @@ export default function PurchasedTicket() {
                   onClick={() => setPreviewOpen(true)}
                 >
                   <QrCode size={20} />
-                  Full QR
+                  {isSharedReservation ? 'Group QR' : 'Full QR'}
                 </button>
                 <button
                   type="button"
@@ -758,7 +769,7 @@ export default function PurchasedTicket() {
                   onClick={() => void handleShare()}
                 >
                   <Share2 size={20} />
-                  Share
+                  {isSharedReservation ? 'Share QR' : 'Share'}
                 </button>
                 <button
                   type="button"

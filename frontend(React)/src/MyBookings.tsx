@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
-import QRCode from 'react-qr-code'
-import { AlertTriangle, CalendarDays, ChevronRight, Copy, Gift, MapPin, ReceiptText, ScanLine, Star, Ticket, Trash2, X } from 'lucide-react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { QRCode } from 'react-qr-code'
+import { AlertTriangle, CalendarDays, ChevronRight, Copy, Gift, MapPin, ReceiptText, ScanLine, Share2, Star, Ticket, Trash2, X } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 type ClaimedOffer = {
   id: string
-  redemption_code: string
+  redemption_code: string | null
   status: string
   claimed_at: string
+  rating: number | null
+  review_comment: string | null
   promotion: {
     promotion_id: string
     title: string
@@ -99,6 +101,52 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  return String(value)
+}
+
+function normalizeClaimedOffer(row: unknown): ClaimedOffer | null {
+  const source = asRecord(row)
+  if (!source) return null
+  const id = nullableString(source.id)
+  if (!id) return null
+
+  const rawPromotion = one(source.promotion as unknown[] | Record<string, unknown> | null | undefined)
+  const promotionSource = asRecord(rawPromotion)
+  const rawClub = one(promotionSource?.clubs as unknown[] | Record<string, unknown> | null | undefined)
+  const clubSource = asRecord(rawClub)
+
+  return {
+    id,
+    redemption_code: nullableString(source.redemption_code),
+    status: nullableString(source.status) ?? 'claimed',
+    claimed_at: nullableString(source.claimed_at) ?? '',
+    rating: typeof source.rating === 'number' ? source.rating : source.rating == null ? null : Number(source.rating) || null,
+    review_comment: nullableString(source.review_comment),
+    promotion: promotionSource
+      ? {
+          promotion_id: nullableString(promotionSource.promotion_id) ?? '',
+          title: nullableString(promotionSource.title) ?? 'Promotion',
+          image_url: nullableString(promotionSource.image_url),
+          description: nullableString(promotionSource.description),
+          valid_until: nullableString(promotionSource.valid_until),
+          club_id: nullableString(promotionSource.club_id),
+          clubs: clubSource
+            ? {
+                club_name: nullableString(clubSource.club_name),
+                club_address: nullableString(clubSource.club_address),
+              }
+            : null,
+        }
+      : null,
+  }
+}
+
 function formatDateLine(value: string | null): string {
   if (!value) return 'Date not available'
   const d = new Date(value)
@@ -130,8 +178,83 @@ function isPastBooking(booking: Pick<BookingItem, 'eventDate'>): boolean {
   return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < new Date()
 }
 
+function canCancelReservation(booking: Pick<BookingItem, 'eventDate'>): boolean {
+  if (!booking.eventDate) return false
+  const eventDate = new Date(booking.eventDate)
+  if (Number.isNaN(eventDate.getTime())) return false
+  return eventDate.getTime() - Date.now() >= 24 * 60 * 60 * 1000
+}
+
+function getClaimCode(offer: Pick<ClaimedOffer, 'id' | 'redemption_code'>): string {
+  return String(offer.redemption_code || offer.id || 'PARTYON').toUpperCase()
+}
+
+function sanitizeFileName(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'party-on-promotion'
+}
+
+async function svgToPngDataUrl(svg: SVGSVGElement): Promise<string> {
+  const xml = new XMLSerializer().serializeToString(svg)
+  const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(svgBlob)
+  try {
+    const image = new Image()
+    image.decoding = 'async'
+    const loaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('Could not render QR code.'))
+    })
+    image.src = url
+    await loaded
+    const canvas = document.createElement('canvas')
+    canvas.width = 720
+    canvas.height = 720
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Could not prepare QR code.')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/png')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 type ExistingRating = { id: string; rating: number; comment: string | null }
 type ReviewModal = { bookingId: string; eventId: string; eventName: string }
+
+class MyBookingsErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
+  state = { message: null }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { message: error instanceof Error ? error.message : 'Something went wrong while loading this section.' }
+  }
+
+  render() {
+    if (this.state.message) {
+      return (
+        <div className="min-h-screen bg-background text-foreground">
+          <Navbar />
+          <main className="po-container px-4 pb-16 pt-24 md:px-0">
+            <section className="mx-auto max-w-3xl rounded-2xl border border-red-500/35 bg-red-500/10 p-6 text-red-100">
+              <h1 className="text-xl font-bold text-white">My Bookings could not load</h1>
+              <p className="mt-2 text-sm">{this.state.message}</p>
+              <button
+                type="button"
+                onClick={() => this.setState({ message: null })}
+                className="mt-4 rounded-full border border-white/15 bg-white/8 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/12"
+              >
+                Try again
+              </button>
+            </section>
+          </main>
+          <LovableFooter />
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function StarPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const [hovered, setHovered] = useState(0)
@@ -156,7 +279,7 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
   )
 }
 
-export default function MyBookings() {
+function MyBookingsPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -182,16 +305,130 @@ export default function MyBookings() {
   const [disputeBusy, setDisputeBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [qrModalOffer, setQrModalOffer] = useState<ClaimedOffer | null>(null)
+  const qrModalQrRef = useRef<HTMLDivElement | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
   const [offerFilter, setOfferFilter] = useState<OfferFilter>('active')
   const [cancelTarget, setCancelTarget] = useState<{ type: 'promotion'; id: string } | { type: 'reservation'; booking: BookingItem } | null>(null)
   const [cancelBusy, setCancelBusy] = useState(false)
-  const [promoReviewModal, setPromoReviewModal] = useState<{ offerId: string; promoTitle: string } | null>(null)
+  const [promoReviewModal, setPromoReviewModal] = useState<{ offerId: string; promoTitle: string; existingRating: number | null } | null>(null)
   const [promoDisputeTarget, setPromoDisputeTarget] = useState<ClaimedOffer | null>(null)
   const [promoDisputeSubject, setPromoDisputeSubject] = useState('')
   const [promoDisputeDescription, setPromoDisputeDescription] = useState('')
   const [promoDisputePriority, setPromoDisputePriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [promoDisputeBusy, setPromoDisputeBusy] = useState(false)
+
+  async function buildClaimedOfferPdf(offer: ClaimedOffer) {
+    const title = offer.promotion?.title ?? 'Claimed promotion'
+    const venue = offer.promotion?.clubs?.club_name
+    const address = offer.promotion?.clubs?.club_address
+    const code = getClaimCode(offer)
+    const validUntil = offer.promotion?.valid_until
+      ? new Date(offer.promotion.valid_until).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : null
+    const qrSvg = qrModalQrRef.current?.querySelector('svg')
+    const qrDataUrl = qrSvg ? await svgToPngDataUrl(qrSvg) : null
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+
+    doc.setFillColor(5, 5, 10)
+    doc.rect(0, 0, 210, 297, 'F')
+    doc.setTextColor(236, 72, 153)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('PARTYON CLAIMED PROMOTION', 18, 24)
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(24)
+    doc.text(title, 18, 38, { maxWidth: 174 })
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(12)
+    doc.setTextColor(190, 190, 205)
+    if (venue) doc.text(venue, 18, 49, { maxWidth: 174 })
+
+    if (qrDataUrl) {
+      doc.setFillColor(255, 255, 255)
+      doc.roundedRect(50, 62, 110, 110, 6, 6, 'F')
+      doc.addImage(qrDataUrl, 'PNG', 56, 68, 98, 98)
+    }
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.text('Show this QR code to venue staff to redeem your offer.', 18, 190, { maxWidth: 174 })
+
+    doc.setTextColor(190, 190, 205)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+    let y = 205
+    if (offer.promotion?.description) {
+      doc.text(offer.promotion.description, 18, y, { maxWidth: 174 })
+      y += 14
+    }
+    if (address) {
+      doc.text(`Location: ${address}`, 18, y, { maxWidth: 174 })
+      y += 8
+    }
+    if (validUntil) {
+      doc.text(`Valid until: ${validUntil}`, 18, y)
+      y += 8
+    }
+
+    doc.setTextColor(236, 72, 153)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text('REDEMPTION CODE', 18, y + 8)
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(18)
+    doc.text(code, 18, y + 19)
+
+    doc.setTextColor(150, 150, 165)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text('Generated by PartyOn', 18, 282)
+
+    return {
+      blob: doc.output('blob'),
+      filename: `${sanitizeFileName(title)}-${code}.pdf`,
+      title,
+      venue,
+      code,
+    }
+  }
+
+  async function shareClaimedOffer(offer: ClaimedOffer) {
+    const { blob, filename, title, venue, code } = await buildClaimedOfferPdf(offer)
+    const file = new File([blob], filename, { type: 'application/pdf' })
+    const url = `${window.location.origin}/my-bookings?tab=offers`
+    const text = [
+      `${title}${venue ? ` at ${venue}` : ''}`,
+      `Redemption code: ${code}`,
+      'QR code attached as a PDF.',
+    ].join('\n')
+
+    if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+      try {
+        await navigator.share({ title, text, url, files: [file] })
+        return
+      } catch {
+        return
+      }
+    }
+
+    const downloadUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(downloadUrl)
+    setShareCopied(true)
+    setTimeout(() => setShareCopied(false), 2500)
+  }
 
   async function deleteBookingFromDb(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured) return
@@ -402,6 +639,7 @@ export default function MyBookings() {
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
+      if (booking.kind === 'reservation' && normalizeStatus(booking.status) === 'cancelled') return false
       const bookingDate = booking.eventDate ? new Date(booking.eventDate) : null
       if (!bookingDate || Number.isNaN(bookingDate.getTime())) return filter === 'upcoming'
       return filter === 'upcoming' ? !isPastBooking(booking) : isPastBooking(booking)
@@ -410,18 +648,11 @@ export default function MyBookings() {
 
   const filteredOffers = useMemo(() => {
     return claimedOffers.filter((offer) => {
-      const s = (offer.status ?? '').toLowerCase()
+      const s = String(offer.status ?? '').toLowerCase()
       if (offerFilter === 'active') return s !== 'redeemed' && s !== 'used' && s !== 'expired'
       return s === 'redeemed' || s === 'used'
     })
   }, [claimedOffers, offerFilter])
-
-  const activeOfferCount = useMemo(() => {
-    return claimedOffers.filter((o) => {
-      const s = (o.status ?? '').toLowerCase()
-      return s !== 'redeemed' && s !== 'used' && s !== 'expired' && s !== 'cancelled'
-    }).length
-  }, [claimedOffers])
 
   useEffect(() => {
     if (filter !== 'past' || !userId || !supabase || !isSupabaseConfigured) return
@@ -453,18 +684,51 @@ export default function MyBookings() {
   useEffect(() => {
     if (activeTab !== 'offers' || !supabase || !isSupabaseConfigured) return
     const sb = supabase
+    let active = true
     setOffersLoading(true)
     void sb.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      const { data } = await sb
+      if (!user) {
+        if (!active) return
+        setClaimedOffers([])
+        setOffersLoading(false)
+        return
+      }
+      const claimedResult = await sb
         .from('claimed_promotions')
-        .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
+        .select('id, redemption_code, status, claimed_at, rating, review_comment, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
         .eq('user_id', user.id)
         .neq('status', 'cancelled')
         .order('claimed_at', { ascending: false })
-      setClaimedOffers((data ?? []) as unknown as ClaimedOffer[])
+      let data = claimedResult.data as unknown[] | null
+      let error = claimedResult.error
+      if (error && /rating|review_comment/i.test(error.message)) {
+        const fallback = await sb
+          .from('claimed_promotions')
+          .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
+          .eq('user_id', user.id)
+          .neq('status', 'cancelled')
+          .order('claimed_at', { ascending: false })
+        data = fallback.data as unknown[] | null
+        error = fallback.error
+      }
+      if (!active) return
+      if (error) {
+        setActionMsg(error.message)
+        setClaimedOffers([])
+        setOffersLoading(false)
+        return
+      }
+      setClaimedOffers((data ?? []).map(normalizeClaimedOffer).filter((offer): offer is ClaimedOffer => !!offer))
+      setOffersLoading(false)
+    }).catch((err: unknown) => {
+      if (!active) return
+      setActionMsg(err instanceof Error ? err.message : 'Could not load claimed promotions.')
+      setClaimedOffers([])
       setOffersLoading(false)
     })
+    return () => {
+      active = false
+    }
   }, [activeTab])
 
   function openReviewModal(booking: BookingItem) {
@@ -546,15 +810,20 @@ export default function MyBookings() {
 
   async function cancelFreeReservation(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured || !booking.reservationKey) return
-    setCancelBusy(true)
-    const { error } = await supabase.from('reservations').update({ status: 'cancelled' }).eq('id', booking.reservationKey)
-    if (error) {
-      await supabase.from('reservations').update({ status: 'cancelled' }).eq('reservation_id', booking.reservationKey)
+    if (!canCancelReservation(booking)) {
+      setCancelTarget(null)
+      setActionMsg('Reservations can only be cancelled up to 24 hours before the event.')
+      return
     }
-    setBookings((prev) => prev.map((b) => b.bookingId === booking.bookingId ? { ...b, status: 'cancelled' } : b))
+    setCancelBusy(true)
+    const { error } = await supabase.from('reservations').delete().eq('id', booking.reservationKey)
+    if (error) {
+      await supabase.from('reservations').delete().eq('reservation_id', booking.reservationKey)
+    }
+    setBookings((prev) => prev.filter((b) => b.bookingId !== booking.bookingId))
     setCancelBusy(false)
     setCancelTarget(null)
-    setActionMsg('Reservation cancelled.')
+    setActionMsg('Reservation cancelled and removed from your bookings.')
   }
 
   async function handlePromoReviewSubmit() {
@@ -562,9 +831,22 @@ export default function MyBookings() {
     setReviewBusy(true)
     const { error } = await supabase
       .from('claimed_promotions')
-      .update({ rating: reviewDraft.rating, review_comment: reviewDraft.comment.trim() || null })
+      .update({ rating: reviewDraft.rating, review_comment: reviewDraft.comment.trim() || null, reviewed_at: new Date().toISOString() })
       .eq('id', promoReviewModal.offerId)
+    if (error) {
+      setReviewBusy(false)
+      setActionMsg(error.message)
+      return
+    }
+    setClaimedOffers((prev) => prev.map((offer) => (
+      offer.id === promoReviewModal.offerId
+        ? { ...offer, rating: reviewDraft.rating, review_comment: reviewDraft.comment.trim() || null }
+        : offer
+    )))
     setReviewBusy(false)
+    setActionMsg('Review saved. Thank you!')
+    setPromoReviewModal(null)
+    return
     setActionMsg(error ? 'Thank you for your feedback!' : 'Review saved — thank you!')
     setPromoReviewModal(null)
   }
@@ -579,13 +861,19 @@ export default function MyBookings() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setPromoDisputeBusy(false); return }
     const clubId = promoDisputeTarget?.promotion?.club_id ?? null
+    const promotionTitle = promoDisputeTarget?.promotion?.title ?? 'Promotion'
+    const claimCode = promoDisputeTarget ? getClaimCode(promoDisputeTarget) : null
     const { error } = await supabase.from('disputes').insert({
       user_id: user.id,
       club_id: clubId,
       reservation_id: null,
       event_id: null,
-      subject: promoDisputeSubject.trim(),
-      description: promoDisputeDescription.trim(),
+      subject: `Promotion: ${promoDisputeSubject.trim()}`,
+      description: [
+        `Promotion: ${promotionTitle}`,
+        claimCode ? `Redemption code: ${claimCode}` : null,
+        promoDisputeDescription.trim(),
+      ].filter(Boolean).join('\n\n'),
       priority: promoDisputePriority,
     })
     setPromoDisputeBusy(false)
@@ -603,7 +891,7 @@ export default function MyBookings() {
       <main className="po-container px-4 pb-16 pt-24 md:px-0">
         <div className="mx-auto w-full max-w-5xl">
           <header className="mb-6">
-            <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">My Activity</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">My Bookings</h1>
             <p className="mt-2 text-sm text-muted-foreground md:text-base">
               Your tickets, reservations, and offers in one place
             </p>
@@ -628,16 +916,11 @@ export default function MyBookings() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('offers')}
-                  className={`relative pb-3 text-sm font-semibold transition-colors inline-flex items-center gap-2 ${
+                  className={`relative pb-3 text-sm font-semibold transition-colors ${
                     activeTab === 'offers' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   Claimed Promotions
-                  {activeOfferCount > 0 && (
-                    <span className="rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
-                      {activeOfferCount}
-                    </span>
-                  )}
                   {activeTab === 'offers' ? (
                     <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
                   ) : null}
@@ -734,15 +1017,25 @@ export default function MyBookings() {
               <section className="space-y-3">
                 {filteredOffers.map((offer) => {
                   const promo = offer.promotion
-                  const isUsed = offer.status === 'redeemed' || offer.status === 'used'
+                  const claimCode = getClaimCode(offer)
+                  const offerStatus = String(offer.status ?? '').toLowerCase()
+                  const isUsed = offerStatus === 'redeemed' || offerStatus === 'used'
                   const statusColor = isUsed
                     ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300'
                     : 'border-primary/30 bg-primary/10 text-primary'
                   return (
                     <article
                       key={offer.id}
-                      className={`grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center ${!isUsed ? 'cursor-pointer' : ''}`}
-                      onClick={!isUsed ? () => setQrModalOffer(offer) : undefined}
+                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center"
+                      onClick={() => setQrModalOffer(offer)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setQrModalOffer(offer)
+                        }
+                      }}
                     >
                       {/* Thumbnail */}
                       <div className="h-[88px] w-[88px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
@@ -774,15 +1067,6 @@ export default function MyBookings() {
                             </span>
                           )}
                         </div>
-                        {promo && (
-                          <Link
-                            to={`/promotions/offer/${encodeURIComponent(promo.promotion_id)}`}
-                            className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            View offer →
-                          </Link>
-                        )}
                       </div>
 
                       {/* Right actions */}
@@ -791,11 +1075,11 @@ export default function MyBookings() {
                         <div className="flex flex-col items-end gap-2 self-stretch py-0.5">
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setReviewDraft({ rating: 0, comment: '' }); setPromoReviewModal({ offerId: offer.id, promoTitle: promo?.title ?? 'Promotion' }) }}
+                            onClick={(e) => { e.stopPropagation(); setReviewDraft({ rating: offer.rating ?? 0, comment: offer.review_comment ?? '' }); setPromoReviewModal({ offerId: offer.id, promoTitle: promo?.title ?? 'Promotion', existingRating: offer.rating }) }}
                             className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/40 transition-all duration-150 hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
                           >
                             <Star className="h-3 w-3" />
-                            Rate
+                            {offer.rating ? `${offer.rating}/5` : 'Rate'}
                           </button>
                           {promo?.club_id && (
                             <button
@@ -816,7 +1100,7 @@ export default function MyBookings() {
                             onClick={() => setQrModalOffer(offer)}
                           >
                             <QRCode
-                              value={offer.redemption_code.toUpperCase()}
+                              value={claimCode}
                               size={72}
                               bgColor="#ffffff"
                               fgColor="#0a0a0f"
@@ -887,6 +1171,8 @@ export default function MyBookings() {
                     ? 'border-blue-400/30 bg-blue-400/10 text-blue-300'
                     : 'border-primary/30 bg-primary/10 text-primary'
                 const canFileDispute = isPastBooking(booking) && !!booking.clubId
+                const isActiveReservation = booking.kind === 'reservation' && status !== 'cancelled'
+                const canCancelCurrentReservation = isActiveReservation && canCancelReservation(booking)
 
                 return (
                   <article
@@ -982,14 +1268,24 @@ export default function MyBookings() {
                       ) : (
                         <div className="flex flex-col items-end gap-2">
                           <ChevronRight className="h-4 w-4 text-white/25" />
-                          {booking.kind === 'reservation' && normalizeStatus(booking.status) !== 'cancelled' && (
+                          {isActiveReservation && (
                             <button
                               type="button"
+                              disabled={!canCancelCurrentReservation}
+                              title={
+                                canCancelCurrentReservation
+                                  ? 'Cancel this reservation'
+                                  : 'Reservations can only be cancelled up to 24 hours before the event'
+                              }
                               onClick={(e) => { e.stopPropagation(); setCancelTarget({ type: 'reservation', booking }) }}
-                              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/35 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold transition ${
+                                canCancelCurrentReservation
+                                  ? 'border-red-400/25 bg-red-500/10 text-red-200 shadow-[0_0_18px_-10px_rgba(248,113,113,0.9)] hover:border-red-300/45 hover:bg-red-500/18 hover:text-white'
+                                  : 'cursor-not-allowed border-white/10 bg-white/5 text-white/30'
+                              }`}
                             >
-                              <X className="h-2.5 w-2.5" />
-                              Cancel
+                              <X className="h-3 w-3" />
+                              {canCancelCurrentReservation ? 'Cancel reservation' : 'Cancellation closed'}
                             </button>
                           )}
                         </div>
@@ -1007,10 +1303,10 @@ export default function MyBookings() {
       {qrModalOffer ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 px-4 pb-4 backdrop-blur-sm sm:items-center sm:pb-0"
-          onClick={() => { setQrModalOffer(null); setCodeCopied(false) }}
+          onClick={() => { setQrModalOffer(null); setCodeCopied(false); setShareCopied(false) }}
         >
           <div
-            className="w-full max-w-sm overflow-hidden rounded-3xl border border-white/12 bg-[#0e0e14] shadow-2xl"
+            className="w-full max-w-md overflow-hidden rounded-3xl border border-white/12 bg-[#0e0e14] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Handle bar for mobile */}
@@ -1034,7 +1330,7 @@ export default function MyBookings() {
               </div>
               <button
                 type="button"
-                onClick={() => { setQrModalOffer(null); setCodeCopied(false) }}
+                onClick={() => { setQrModalOffer(null); setCodeCopied(false); setShareCopied(false) }}
                 className="ml-2 shrink-0 rounded-full border border-white/10 p-1.5 text-white/40 transition hover:bg-white/8 hover:text-white/70"
                 aria-label="Close"
               >
@@ -1044,9 +1340,9 @@ export default function MyBookings() {
 
             {/* QR Code */}
             <div className="flex flex-col items-center gap-4 px-5 pb-6">
-              <div className="rounded-2xl border-4 border-white bg-white p-4 shadow-[0_0_40px_rgba(168,85,247,0.25)]">
+              <div ref={qrModalQrRef} className="rounded-2xl border-4 border-white bg-white p-4 shadow-[0_0_40px_rgba(168,85,247,0.25)]">
                 <QRCode
-                  value={qrModalOffer.redemption_code.toUpperCase()}
+                  value={getClaimCode(qrModalOffer)}
                   size={200}
                   bgColor="#ffffff"
                   fgColor="#05050a"
@@ -1059,15 +1355,46 @@ export default function MyBookings() {
                 Show this QR code to venue staff to redeem your offer
               </p>
 
+              <div className="grid w-full gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm">
+                <div className="flex items-start gap-3">
+                  <Gift className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white">{qrModalOffer.promotion?.title ?? 'Promotion'}</p>
+                    {qrModalOffer.promotion?.description && (
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                        {qrModalOffer.promotion.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {qrModalOffer.promotion?.clubs?.club_address && (
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <MapPin className="h-4 w-4 shrink-0 text-primary/70" />
+                    <span className="min-w-0 truncate">{qrModalOffer.promotion.clubs.club_address}</span>
+                  </div>
+                )}
+                {qrModalOffer.promotion?.valid_until && (
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <CalendarDays className="h-4 w-4 shrink-0 text-primary/70" />
+                    <span>
+                      Valid until{' '}
+                      {new Date(qrModalOffer.promotion.valid_until).toLocaleDateString('en-GB', {
+                        day: 'numeric', month: 'long', year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {/* Code text + copy */}
               <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <p className="flex-1 text-center font-mono text-lg font-bold tracking-[0.2em] text-white">
-                  {qrModalOffer.redemption_code.toUpperCase()}
+                  {getClaimCode(qrModalOffer)}
                 </p>
                 <button
                   type="button"
                   onClick={() => {
-                    void navigator.clipboard.writeText(qrModalOffer.redemption_code.toUpperCase())
+                    void navigator.clipboard.writeText(getClaimCode(qrModalOffer))
                       .then(() => { setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000) })
                   }}
                   className="shrink-0 rounded-lg border border-white/15 bg-white/8 p-2 text-white/50 transition hover:border-primary/40 hover:bg-primary/15 hover:text-primary"
@@ -1080,14 +1407,18 @@ export default function MyBookings() {
                 <p className="-mt-2 text-xs font-semibold text-emerald-400">Copied to clipboard!</p>
               )}
 
-              {/* Valid until */}
-              {qrModalOffer.promotion?.valid_until && (
-                <p className="text-xs text-muted-foreground">
-                  Valid until{' '}
-                  {new Date(qrModalOffer.promotion.valid_until).toLocaleDateString('en-GB', {
-                    day: 'numeric', month: 'long', year: 'numeric',
-                  })}
-                </p>
+              <div className="w-full">
+                <button
+                  type="button"
+                  onClick={() => void shareClaimedOffer(qrModalOffer)}
+                  className="inline-flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-2xl border border-white/12 bg-white/[0.06] px-3 py-3 text-sm font-semibold text-white/85 transition hover:border-primary/40 hover:bg-primary/15 hover:text-white"
+                >
+                  <Share2 className="h-5 w-5" />
+                  Share PDF
+                </button>
+              </div>
+              {shareCopied && (
+                <p className="-mt-2 text-xs font-semibold text-emerald-400">PDF ready to share or downloaded.</p>
               )}
             </div>
           </div>
@@ -1250,7 +1581,7 @@ export default function MyBookings() {
             <p className="mt-2 text-sm text-muted-foreground">
               {cancelTarget.type === 'promotion'
                 ? 'This will remove the claimed promotion from your account. This action cannot be undone.'
-                : 'Your reservation will be cancelled. This action cannot be undone.'}
+                : 'This will permanently remove the reservation from your bookings and the database. You can cancel up to 24 hours before the event.'}
             </p>
             <div className="mt-5 flex gap-3">
               <button
@@ -1339,7 +1670,7 @@ export default function MyBookings() {
                 onClick={() => void handlePromoReviewSubmit()}
                 className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
               >
-                {reviewBusy ? 'Saving…' : 'Submit review'}
+                {reviewBusy ? 'Saving…' : promoReviewModal.existingRating ? 'Update review' : 'Submit review'}
               </button>
             </div>
           </div>
@@ -1413,5 +1744,13 @@ export default function MyBookings() {
 
       <LovableFooter />
     </div>
+  )
+}
+
+export default function MyBookings() {
+  return (
+    <MyBookingsErrorBoundary>
+      <MyBookingsPage />
+    </MyBookingsErrorBoundary>
   )
 }

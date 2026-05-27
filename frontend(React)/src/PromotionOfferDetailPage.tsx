@@ -58,6 +58,19 @@ const heroGlassBtn =
 const saveShareOutlineHoverGlow =
   'group h-11 flex-1 gap-2 rounded-full border border-border/50 bg-background/95 text-sm font-semibold text-foreground shadow-sm transition-[border-color,box-shadow,background-color,color] duration-200 hover:border-primary/35 hover:!bg-background hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12),0_0_22px_hsl(var(--primary)/0.06)]'
 
+function formatPriceValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function canonicalPromotionUrl(offerId: string): string {
+  const configured =
+    import.meta.env.VITE_PUBLIC_SITE_URL?.trim() ||
+    import.meta.env.VITE_SITE_URL?.trim() ||
+    window.location.origin
+  const base = configured.replace(/\/$/, '')
+  return `${base}/promotions/offer/${encodeURIComponent(offerId)}`
+}
+
 export default function PromotionOfferDetailPage() {
   const { offerId } = useParams<{ offerId: string }>()
   const navigate = useNavigate()
@@ -89,12 +102,24 @@ export default function PromotionOfferDetailPage() {
     if (searchParams.get('claimed') !== 'true') return
     if (!user || !resolvedId || !supabase || !isSupabaseConfigured) return
     void (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('claimed_promotions')
         .insert({ user_id: user.id, promotion_id: resolvedId })
         .select('redemption_code')
         .single()
       if (data) setClaimedCode((data as { redemption_code: string }).redemption_code)
+      if (error?.code === '23505') {
+        const { data: existing } = await supabase
+          .from('claimed_promotions')
+          .select('redemption_code, status')
+          .eq('user_id', user.id)
+          .eq('promotion_id', resolvedId)
+          .maybeSingle()
+        const row = existing as { redemption_code: string | null; status: string | null } | null
+        if (row && String(row.status ?? 'claimed').toLowerCase() !== 'cancelled') {
+          setClaimedCode(row.redemption_code ?? '')
+        }
+      }
       // Clean ?claimed=true from the URL without triggering a re-render loop
       setSearchParams((prev) => { prev.delete('claimed'); return prev }, { replace: true })
     })()
@@ -112,12 +137,15 @@ export default function PromotionOfferDetailPage() {
       .then(({ data }) => setSaved(!!data))
     void supabase
       .from('claimed_promotions')
-      .select('redemption_code')
+      .select('redemption_code, status')
       .eq('user_id', user.id)
       .eq('promotion_id', resolvedId)
-      .neq('status', 'cancelled')
       .maybeSingle()
-      .then(({ data }) => setClaimedCode((data as { redemption_code: string } | null)?.redemption_code ?? null))
+      .then(({ data }) => {
+        const row = data as { redemption_code: string | null; status: string | null } | null
+        const status = String(row?.status ?? 'claimed').toLowerCase()
+        setClaimedCode(row && status !== 'cancelled' ? row.redemption_code ?? '' : null)
+      })
   }, [user, resolvedId])
 
   async function handleToggleSave() {
@@ -175,11 +203,26 @@ export default function PromotionOfferDetailPage() {
             cancel_url: cancelUrl,
           }),
         })
-        const data = (await res.json()) as { url?: string; message?: string }
-        if (data.url) { window.location.href = data.url; return }
-        setPayError(data.message ?? 'Payment could not be started. Please try again.')
+        const text = await res.text()
+        let data: { url?: string; message?: string | string[] } | null = null
+        if (text) {
+          try {
+            data = JSON.parse(text) as { url?: string; message?: string | string[] }
+          } catch {
+            data = null
+          }
+        }
+        const message = Array.isArray(data?.message) ? data.message.join(', ') : data?.message
+        if (!res.ok) {
+          setPayError(message ?? `Payment server returned ${res.status}. Please try again.`)
+          setPaying(false)
+          return
+        }
+        if (data?.url) { window.location.href = data.url; return }
+        setPayError(message ?? 'Payment server did not return a Stripe checkout link. Please try again.')
       } catch {
-        setPayError('Could not connect to the payment server. Please check your connection and try again.')
+        const backend = API_BASE_URL || 'the local Vite proxy'
+        setPayError(`Could not reach the payment API through ${backend}. Make sure the backend is running and VITE_API_URL or VITE_API_PROXY_TARGET points to it.`)
       }
       setPaying(false)
       return
@@ -211,7 +254,7 @@ export default function PromotionOfferDetailPage() {
   }
 
   async function shareOffer() {
-    const url = window.location.href
+    const url = canonicalPromotionUrl(resolvedId)
     if (navigator.share) {
       try {
         await navigator.share({ title: offer?.title, url })
@@ -282,7 +325,7 @@ export default function PromotionOfferDetailPage() {
       ? 'Free Entry'
       : offer.checkoutPrice === 0
         ? 'FREE'
-        : `${offer.currency}${offer.checkoutPrice}`
+        : `${offer.currency}${formatPriceValue(offer.checkoutPrice)}`
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -498,7 +541,7 @@ export default function PromotionOfferDetailPage() {
                           {offer.checkoutPrice < offer.originalPrice ? (
                             <p className="text-lg text-muted-foreground line-through">
                               {offer.currency}
-                              {offer.originalPrice}
+                              {formatPriceValue(offer.originalPrice)}
                             </p>
                           ) : null}
                           <p className="text-4xl font-bold text-primary">
@@ -507,7 +550,7 @@ export default function PromotionOfferDetailPage() {
                           {savings > 0 ? (
                             <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
                               You save {offer.currency}
-                              {savings} ({discountPct}% off)
+                              {formatPriceValue(savings)} ({discountPct}% off)
                             </span>
                           ) : null}
                         </div>
@@ -520,8 +563,11 @@ export default function PromotionOfferDetailPage() {
                       <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
                         <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-emerald-400">Offer Claimed</p>
-                          <p className="font-mono text-sm font-bold tracking-widest text-white">
+                          <p className="text-xs font-medium text-emerald-400">Promotion claimed</p>
+                          <p className="text-sm font-semibold text-white">
+                            Open My Bookings to show the QR code.
+                          </p>
+                          <p className="mt-1 font-mono text-xs font-bold tracking-widest text-white/70">
                             {claimedCode.toUpperCase()}
                           </p>
                         </div>
@@ -538,7 +584,7 @@ export default function PromotionOfferDetailPage() {
                       onClick={() => { setPayError(null); void handleClaimOffer() }}
                       disabled={claiming || paying}
                     >
-                      {paying ? 'Redirecting to payment…' : claiming ? 'Claiming…' : claimedCode ? 'View in Your Offers' : offer.ctaLabel}
+                      {paying ? 'Redirecting to payment…' : claiming ? 'Claiming…' : claimedCode ? 'Check My Bookings' : offer.ctaLabel}
                     </Button>
                     {payError && (
                       <p className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-xs font-medium text-red-300">

@@ -8,6 +8,7 @@ import { LovableFooter } from '@/components/LovableFooter'
 import type { EventDetail } from '@/types'
 
 type Step = 'ticket' | 'payment'
+const MAX_TICKET_QUANTITY = 5
 
 type LegacyEvent = {
   event_id?: string
@@ -74,6 +75,10 @@ export default function Payment() {
 
   async function handlePay() {
     if (paying) return
+    if (quantity > MAX_TICKET_QUANTITY) {
+      setQuantity(MAX_TICKET_QUANTITY)
+      return
+    }
     setPaying(true)
     try {
       const res = await fetch(`${API_BASE_URL}/event/pay`, {
@@ -186,8 +191,9 @@ export default function Payment() {
                   <span className="min-w-[2rem] text-center text-xl font-bold text-white">{quantity}</span>
                   <button
                     type="button"
-                    onClick={() => setQuantity((q) => q + 1)}
-                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-white/6 text-white transition hover:border-white/30 hover:bg-white/10"
+                    onClick={() => setQuantity((q) => Math.min(MAX_TICKET_QUANTITY, q + 1))}
+                    disabled={quantity >= MAX_TICKET_QUANTITY}
+                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-white/6 text-white transition hover:border-white/30 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -195,6 +201,11 @@ export default function Payment() {
                     {quantity} × {currency}{unitPrice.toFixed(2)}
                   </span>
                 </div>
+                {quantity >= MAX_TICKET_QUANTITY && (
+                  <p className="mt-3 text-xs text-white/35">
+                    Ticket purchases are limited to {MAX_TICKET_QUANTITY} per order.
+                  </p>
+                )}
               </div>
 
               {/* Total + opt-in */}

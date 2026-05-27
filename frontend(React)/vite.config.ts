@@ -37,6 +37,7 @@ export default defineConfig(({ mode }) => {
         '/catalog': { target: apiTarget, changeOrigin: true },
         '/suggestions': { target: apiTarget, changeOrigin: true },
         '/auth': { target: apiTarget, changeOrigin: true },
+        '/event': { target: apiTarget, changeOrigin: true },
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },
         '/dashboard': { target: apiTarget, changeOrigin: true },

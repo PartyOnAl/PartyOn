@@ -27,6 +27,11 @@ create index if not exists claimed_promotions_user_idx
 create index if not exists claimed_promotions_promo_idx
   on public.claimed_promotions (promotion_id);
 
+alter table public.claimed_promotions
+  add column if not exists rating integer check (rating between 1 and 5),
+  add column if not exists review_comment text,
+  add column if not exists reviewed_at timestamptz;
+
 -- ── RLS ──────────────────────────────────────────────────────────────────────
 alter table public.claimed_promotions enable row level security;
 

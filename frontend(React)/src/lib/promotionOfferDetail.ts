@@ -129,6 +129,10 @@ function currencyDisplay(promo: Promotion): string {
   return '€'
 }
 
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
 export function buildPromotionOfferDetail(
   id: string,
   promotions: Promotion[],
@@ -191,7 +195,7 @@ export function buildPromotionOfferDetail(
         ? promo.listPrice
         : 0)
     savingsAmount =
-      patch.savingsAmount ?? Math.max(0, originalPrice - checkoutPrice)
+      patch.savingsAmount ?? roundMoney(Math.max(0, originalPrice - checkoutPrice))
     savingsPercentLabel =
       patch.savingsPercentLabel !== undefined
         ? patch.savingsPercentLabel
