@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Crown, Trash2 } from 'lucide-react'
+import { ChevronDown, Clock, Crown, TrendingUp, Trash2, Users, XCircle } from 'lucide-react'
 import './ManagerDashboard.css'
 import './ReservationManagement.css'
+import DateRangePicker from './DateRangePicker'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
-import { isPaidTicketEvent } from './eventPaidEntry'
+import { isPaidTicketEvent, reservationGuestCount, totalGuestCount } from './eventPaidEntry'
+import {
+  NO_SHOW_STATUS,
+  getNoShowState,
+  incrementNoShowBadgeCount,
+  loadNoShowGraceMinutes,
+  reservationIsNoShow,
+  normalizeReservationStatus,
+} from './noShow'
 
-type FilterTab = 'all' | 'tickets' | 'tables'
+type FilterTab = 'all' | 'tickets'
+type DatePreset = 'all' | 'tonight' | 'this_week' | 'custom'
 type FloorStatus = 'available' | 'reserved' | 'occupied'
 
 type PaymentRow = { amount: string; status: string | null }
@@ -29,6 +39,7 @@ type ReservationRow = {
     ticket_price: string | null
     final_ticket_price: string | null
     event_type: string | null
+    event_starting_date: string | null
   } | null
   payments: PaymentRow[]
 }
@@ -73,6 +84,7 @@ type TableDisplay = {
   guestName?: string
   eventLabel?: string
   linkedReservationId?: string
+  noShow?: boolean
 }
 
 type VipPackageDraft = { minSpend: string; bottleNote: string }
@@ -295,7 +307,6 @@ const FLOOR_PLAN_XY_SLOTS: { x: number; y: number }[] = [
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'tickets', label: 'Tickets' },
-  { id: 'tables', label: 'Tables' },
 ]
 
 function naturalCompareTableNum(a: string, b: string) {
@@ -350,7 +361,7 @@ function layoutTablesForFloor(rows: DbTableRow[]): FloorTableConfig[] {
 
 function getPrimaryReservationForTable(tableId: string, reservations: ReservationRow[]): ReservationRow | null {
   const list = reservations.filter(
-    (r) => r.table_id === tableId && ['pending', 'confirmed'].includes((r.status ?? '').toLowerCase()),
+    (r) => r.table_id === tableId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)),
   )
   list.sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -389,6 +400,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
       guestName: reservationGuestLabel(primary),
       eventLabel: primary.events?.event_name ?? undefined,
       linkedReservationId: primary.reservation_id,
+      noShow: reservationIsNoShow(primary.status),
     }
   }
 
@@ -419,18 +431,50 @@ function isTableBookingType(t: string | null) {
 
 function matchesFilter(row: ReservationRow, tab: FilterTab) {
   if (tab === 'all') return true
-  if (tab === 'tickets') return row.type === 'ticket'
-  return isTableBookingType(row.type)
+  return row.type === 'ticket'
+}
+
+function localDateStr(date: Date): string {
+  return date.toLocaleDateString('en-CA') // YYYY-MM-DD
+}
+
+function matchesDatePreset(row: ReservationRow, preset: DatePreset, from: string, to: string): boolean {
+  if (preset === 'all') return true
+  const eventDate = row.events?.event_starting_date?.slice(0, 10) ?? null
+  const today = new Date()
+  const todayStr = localDateStr(today)
+  if (preset === 'tonight') return eventDate === todayStr
+  if (preset === 'this_week') {
+    const monday = new Date(today)
+    const diff = today.getDay() === 0 ? -6 : 1 - today.getDay()
+    monday.setDate(today.getDate() + diff)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    return !!eventDate && eventDate >= localDateStr(monday) && eventDate <= localDateStr(sunday)
+  }
+  if (preset === 'custom') {
+    if (!from && !to) return true
+    if (!eventDate) return false
+    if (from && eventDate < from) return false
+    if (to && eventDate > to) return false
+    return true
+  }
+  return true
 }
 
 function resolvedAmount(payments: PaymentRow[]) {
-  const paid = payments.filter((p) => p.status === 'paid')
+  const paid = payments.filter((p) => paymentIsCompleted(p.status))
   if (paid.length === 0) return null
   return paid.reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
 }
 
 function resolvedPaymentStatus(payments: PaymentRow[]): 'paid' | 'pending' {
-  return payments.some((p) => p.status === 'paid') ? 'paid' : 'pending'
+  return payments.some((p) => paymentIsCompleted(p.status)) ? 'paid' : 'pending'
+}
+
+function paymentIsCompleted(status: string | null) {
+  const s = (status ?? '').trim().toLowerCase()
+  return s === 'paid' || s === 'completed' || s === 'succeeded'
 }
 
 /** Free entry using same rules as Event Management / dashboard. Missing event pricing → treat as paid path. */
@@ -493,6 +537,81 @@ function reservationIsCancelled(status: string | null) {
   return s === 'cancelled' || s === 'canceled'
 }
 
+function reservationStatusLabel(status: string | null) {
+  if (reservationIsNoShow(status)) return 'No-Show'
+  if (normalizeReservationStatus(status) === 'confirmed') return 'Confirmed'
+  if (reservationIsCancelled(status)) return 'Cancelled'
+  return 'Pending'
+}
+
+function reservationStatusClass(status: string | null) {
+  if (reservationIsNoShow(status)) return 'res-mgmt__pill res-mgmt__pill--noshow'
+  if (normalizeReservationStatus(status) === 'confirmed') return 'res-mgmt__pill res-mgmt__pill--ok'
+  if (reservationIsCancelled(status)) return 'res-mgmt__pill res-mgmt__pill--cancelled'
+  return 'res-mgmt__pill res-mgmt__pill--pending'
+}
+
+// ─── Custom Event Select (pink hover, no native browser blue) ─────────────────
+function EventSelect({
+  value,
+  onChange,
+  events,
+}: {
+  value: string
+  onChange: (v: string) => void
+  events: ClubEventRow[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function close(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const label = value === 'all'
+    ? 'All Events'
+    : events.find((e) => e.event_id === value)?.event_name ?? 'All Events'
+
+  return (
+    <div className="res-mgmt__ev-select" ref={ref}>
+      <button
+        type="button"
+        className="res-mgmt__ev-select-trigger"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="res-mgmt__ev-select-label">
+          {value !== 'all' && <span className="res-mgmt__ev-dot" aria-hidden />}
+          <span className={value !== 'all' ? 'res-mgmt__ev-select-label--active' : ''}>{label}</span>
+        </span>
+        <ChevronDown size={14} className={`res-mgmt__ev-chevron${open ? ' res-mgmt__ev-chevron--open' : ''}`} />
+      </button>
+      {open && (
+        <div className="res-mgmt__ev-select-menu" role="listbox">
+          {[{ event_id: 'all', event_name: 'All Events' }, ...events].map((ev) => (
+            <button
+              key={ev.event_id}
+              type="button"
+              role="option"
+              aria-selected={value === ev.event_id}
+              className={`res-mgmt__ev-select-opt${value === ev.event_id ? ' res-mgmt__ev-select-opt--active' : ''}`}
+              onClick={() => { onChange(ev.event_id); setOpen(false) }}
+            >
+              {ev.event_name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ReservationManagement() {
   const { club, clubId } = useManagerClub()
   const { user } = useAuth()
@@ -503,6 +622,10 @@ export default function ReservationManagement() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterTab>('all')
+  const [datePreset, setDatePreset] = useState<DatePreset>('tonight')
+  const [customDateFrom, setCustomDateFrom] = useState('')
+  const [customDateTo, setCustomDateTo] = useState('')
+  const [eventFilter, setEventFilter] = useState<string>('all')
 
   const [selectedFloorTableId, setSelectedFloorTableId] = useState<string | null>(null)
   const [manageTableId, setManageTableId] = useState<string | null>(null)
@@ -556,8 +679,17 @@ export default function ReservationManagement() {
   const [detailReservationId, setDetailReservationId] = useState<string | null>(null)
   const [cancelDialogReservationId, setCancelDialogReservationId] = useState<string | null>(null)
   const [cancelDialogBusy, setCancelDialogBusy] = useState(false)
+  const [deleteDialogReservationId, setDeleteDialogReservationId] = useState<string | null>(null)
+  const [deleteDialogBusy, setDeleteDialogBusy] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [noShowActionReservationId, setNoShowActionReservationId] = useState<string | null>(null)
+  const [noShowActionBusy, setNoShowActionBusy] = useState(false)
+  const [noShowGraceMinutes, setNoShowGraceMinutes] = useState(loadNoShowGraceMinutes)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const autoNoShowRef = useRef<Set<string>>(new Set())
 
   const cardRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const calendarRef = useRef<HTMLDivElement>(null)
 
   const loadClubData = useCallback(async () => {
     if (!clubId || !supabase || !isSupabaseConfigured) {
@@ -610,7 +742,7 @@ export default function ReservationManagement() {
         `
           reservation_id, type, status, nr_of_people, created_at, table_id, event_id, notes,
           user:profiles(id, name, surname),
-          events(event_name, ticket_price, final_ticket_price, event_type),
+          events(event_name, ticket_price, final_ticket_price, event_type, event_starting_date),
           payments(amount, status)
         `,
       )
@@ -663,10 +795,7 @@ export default function ReservationManagement() {
       prevResHashRef.current = location.hash
       return
     }
-    const prev = prevResHashRef.current
     prevResHashRef.current = location.hash
-    if (location.hash === '#tables') setFilter('tables')
-    else if (prev === '#tables') setFilter('all')
   }, [location.pathname, location.hash])
 
   useEffect(() => {
@@ -682,6 +811,17 @@ export default function ReservationManagement() {
     const t = window.setTimeout(() => setToastMessage(null), 3200)
     return () => window.clearTimeout(t)
   }, [toastMessage])
+
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    setNoShowGraceMinutes(club?.no_show_grace_period_minutes ?? loadNoShowGraceMinutes())
+  }, [club?.no_show_grace_period_minutes])
 
   async function handleApprove(reservationId: string) {
     if (!supabase) return
@@ -734,6 +874,144 @@ export default function ReservationManagement() {
     }
   }
 
+  async function executeDeleteReservation(reservationId: string) {
+    if (!supabase) return
+    setDeleteDialogBusy(true)
+    try {
+      const { error: err } = await supabase
+        .from('reservations')
+        .delete()
+        .eq('reservation_id', reservationId)
+      if (err) { setToastMessage(err.message); return }
+      setReservations((prev) => prev.filter((r) => r.reservation_id !== reservationId))
+      setDetailReservationId((id) => (id === reservationId ? null : id))
+      setDeleteDialogReservationId(null)
+    } finally {
+      setDeleteDialogBusy(false)
+    }
+  }
+
+  async function freeReservationTable(row: ReservationRow) {
+    if (!supabase || !row.table_id) return
+    const table = dbTables.find((t) => t.id === row.table_id)
+    const position = table ? positionJsonWithoutFloorUi(table.position) : undefined
+    const payload: { table_status: string; position?: string | null } = { table_status: 'available' }
+    if (position !== undefined) payload.position = position
+    await supabase.from('tables').update(payload).eq('id', row.table_id)
+  }
+
+  async function markReservationNoShow(row: ReservationRow, openActions = false) {
+    if (!supabase || reservationIsNoShow(row.status)) return
+    const { error: err } = await supabase
+      .from('reservations')
+      .update({ status: NO_SHOW_STATUS })
+      .eq('reservation_id', row.reservation_id)
+    if (err) {
+      setToastMessage(err.message)
+      return
+    }
+    setReservations((prev) =>
+      prev.map((r) => (r.reservation_id === row.reservation_id ? { ...r, status: NO_SHOW_STATUS } : r)),
+    )
+    incrementNoShowBadgeCount()
+    setToastMessage('Reservation marked as No-Show.')
+    if (openActions) setNoShowActionReservationId(row.reservation_id)
+  }
+
+  async function freeNoShowTable(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      await freeReservationTable(row)
+      const { error: err } = await supabase
+        .from('reservations')
+        .update({ status: NO_SHOW_STATUS, table_id: null })
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      setReservations((prev) =>
+        prev.map((r) =>
+          r.reservation_id === row.reservation_id
+            ? { ...r, status: NO_SHOW_STATUS, table_id: null }
+            : r,
+        ),
+      )
+      setNoShowActionReservationId(null)
+      setToastMessage('Table freed and reservation archived as No-Show.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
+  async function removeNoShowReservation(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      await freeReservationTable(row)
+      const { error: err } = await supabase
+        .from('reservations')
+        .delete()
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      setReservations((prev) => prev.filter((r) => r.reservation_id !== row.reservation_id))
+      setNoShowActionReservationId(null)
+      setToastMessage('Reservation removed and table freed.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
+  async function markArrivedLate(row: ReservationRow) {
+    if (!supabase) return
+    setNoShowActionBusy(true)
+    try {
+      const { error: err } = await supabase
+        .from('reservations')
+        .update({ status: 'confirmed' })
+        .eq('reservation_id', row.reservation_id)
+      if (err) {
+        setToastMessage(err.message)
+        return
+      }
+      if (row.table_id) {
+        const tryOcc = await supabase.from('tables').update({ table_status: 'occupied' }).eq('id', row.table_id).select('id')
+        if (tryOcc.error) {
+          const table = dbTables.find((t) => t.id === row.table_id)
+          const rec = buildPositionRecord(table?.position ?? null)
+          rec.floor_ui_status = 'occupied'
+          await supabase.from('tables').update({ position: JSON.stringify(rec) }).eq('id', row.table_id)
+        }
+      }
+      setReservations((prev) =>
+        prev.map((r) => (r.reservation_id === row.reservation_id ? { ...r, status: 'confirmed' } : r)),
+      )
+      setNoShowActionReservationId(null)
+      setToastMessage('Guest marked as arrived late.')
+      void loadClubData()
+    } finally {
+      setNoShowActionBusy(false)
+    }
+  }
+
+  // Close calendar when clicking outside
+  useEffect(() => {
+    if (!calendarOpen) return
+    function onOutsideClick(e: MouseEvent) {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setCalendarOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onOutsideClick)
+    return () => document.removeEventListener('mousedown', onOutsideClick)
+  }, [calendarOpen])
+
   const floorConfigs = useMemo(() => layoutTablesForFloor(dbTables), [dbTables])
 
   const tableDisplays = useMemo(() => {
@@ -744,54 +1022,77 @@ export default function ReservationManagement() {
     return m
   }, [dbTables, reservations])
 
-  const visibleRows = useMemo(
-    () => reservations.filter((r) => matchesFilter(r, filter)),
-    [reservations, filter],
-  )
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return
+    for (const row of reservations) {
+      if (autoNoShowRef.current.has(row.reservation_id)) continue
+      const tableOccupied = row.table_id
+        ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
+        : false
+      const noShow = getNoShowState(
+        row.status,
+        row.events?.event_starting_date,
+        noShowGraceMinutes,
+        nowMs,
+        tableOccupied,
+      )
+      if (noShow.state !== 'expired') continue
+      autoNoShowRef.current.add(row.reservation_id)
+      void markReservationNoShow(row, true)
+    }
+  }, [reservations, tableDisplays, noShowGraceMinutes, nowMs])
+
+  const visibleRows = useMemo(() => {
+    return reservations.filter((r) => {
+      if (!matchesFilter(r, filter)) return false
+      if (!matchesDatePreset(r, datePreset, customDateFrom, customDateTo)) return false
+      if (eventFilter !== 'all' && r.event_id !== eventFilter) return false
+      return true
+    })
+  }, [reservations, filter, datePreset, customDateFrom, customDateTo, eventFilter])
 
   const tableReservationsOptions = useMemo(
     () => reservations.filter((r) => isTableBookingType(r.type)),
     [reservations],
   )
 
-  const confirmed = reservations.filter((r) => r.status === 'confirmed').length
-  const pending = reservations.filter((r) => r.status === 'pending').length
-  const totalRevenue = useMemo(() => {
-    const allFree =
-      reservations.length > 0 && reservations.every((r) => reservationEventIsFree(r))
-    if (allFree) return 0
-    return reservations
-      .flatMap((r) => r.payments)
-      .filter((p) => p.status === 'paid')
-      .reduce((s, p) => s + parseFloat(p.amount || '0'), 0)
-  }, [reservations])
-
-  const reservationStats = [
-    { label: 'Total Reservations', value: String(reservations.length) },
-    { label: 'Confirmed', value: String(confirmed) },
-    { label: 'Pending', value: String(pending) },
-    { label: 'Total Revenue', value: `€${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0 })}` },
-  ]
-
-  const vipCount = floorConfigs.filter((t) => t.isVip).length
-  const standardCount = floorConfigs.filter((t) => !t.isVip).length
-  const reservedCount = floorConfigs.filter((t) => tableDisplays[t.id]?.status === 'reserved').length
-  const availableCount = floorConfigs.filter((t) => tableDisplays[t.id]?.status === 'available').length
-  const occupiedCount = floorConfigs.filter((t) => tableDisplays[t.id]?.status === 'occupied').length
-
-  const tableStats = useMemo(
-    () => [
-      { label: 'Total Tables', value: String(floorConfigs.length) },
-      { label: 'VIP Tables', value: String(vipCount) },
-      { label: 'Standard Tables', value: String(standardCount) },
-      { label: 'Reserved', value: String(reservedCount) },
-      { label: 'Available', value: String(availableCount) },
-      ...(occupiedCount > 0 ? [{ label: 'Occupied', value: String(occupiedCount) }] : []),
-    ],
-    [floorConfigs.length, vipCount, standardCount, reservedCount, availableCount, occupiedCount],
+  const pendingCount = reservations.filter((r) => normalizeReservationStatus(r.status) === 'pending').length
+  const cancelledCount = reservations.filter((r) => normalizeReservationStatus(r.status) === 'cancelled').length
+  // Sum actual payment amounts for completed payments — same logic as the dashboard backend
+  const totalRevenue = useMemo(
+    () =>
+      reservations
+        .flatMap((r) => r.payments.filter((p) => paymentIsCompleted(p.status)))
+        .reduce((sum, p) => sum + parseFloat(String(p.amount || '0')), 0),
+    [reservations],
   )
 
-  const stats = filter === 'tables' ? tableStats : reservationStats
+  const statCards = [
+    {
+      label: 'Total Reservations',
+      value: String(totalGuestCount(reservations)),
+      accent: 'purple',
+      icon: <Users size={22} aria-hidden />,
+    },
+    {
+      label: 'Pending',
+      value: String(pendingCount),
+      accent: 'amber',
+      icon: <Clock size={22} aria-hidden />,
+    },
+    {
+      label: 'Total Revenue',
+      value: `€${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0 })}`,
+      accent: 'pink',
+      icon: <TrendingUp size={22} aria-hidden />,
+    },
+    {
+      label: 'Cancelled',
+      value: String(cancelledCount),
+      accent: 'red',
+      icon: <XCircle size={22} aria-hidden />,
+    },
+  ]
 
   const detailRow = useMemo(
     () =>
@@ -799,6 +1100,14 @@ export default function ReservationManagement() {
         ? reservations.find((r) => r.reservation_id === detailReservationId) ?? null
         : null,
     [detailReservationId, reservations],
+  )
+
+  const noShowActionRow = useMemo(
+    () =>
+      noShowActionReservationId
+        ? reservations.find((r) => r.reservation_id === noShowActionReservationId) ?? null
+        : null,
+    [noShowActionReservationId, reservations],
   )
 
   useEffect(() => {
@@ -1307,7 +1616,7 @@ export default function ReservationManagement() {
 
   function statusPillClass(status: FloorStatus) {
     if (status === 'available') return 'res-mgmt__floor-pill--ok'
-    if (status === 'reserved') return 'res-mgmt__floor-pill--amber'
+    if (status === 'reserved') return 'res-mgmt__floor-pill--red'
     return 'res-mgmt__floor-pill--red'
   }
 
@@ -1339,9 +1648,28 @@ export default function ReservationManagement() {
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
               const eventFree = reservationEventIsFree(row)
+              const tableOccupied = row.table_id
+                ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
+                : false
+              const noShow = getNoShowState(
+                row.status,
+                row.events?.event_starting_date,
+                noShowGraceMinutes,
+                nowMs,
+                tableOccupied,
+              )
 
               return (
-                <tr key={row.reservation_id}>
+                <tr
+                  key={row.reservation_id}
+                  className={
+                    noShow.state === 'expired' || noShow.state === 'no_show'
+                      ? 'res-mgmt__row--noshow'
+                      : noShow.state === 'countdown'
+                        ? 'res-mgmt__row--late'
+                        : ''
+                  }
+                >
                   <td>
                     <div className="res-mgmt__customer">
                       <span className="res-mgmt__customer-name">{guestName}</span>
@@ -1357,28 +1685,27 @@ export default function ReservationManagement() {
                   <td>
                     <span className="res-mgmt__guests">
                       <IconUser />
-                      {row.nr_of_people ?? 1}
+                      {reservationGuestCount(row)}
                     </span>
                   </td>
                   <td className="res-mgmt__cell-amount">
                     {amount != null ? `€${amount.toLocaleString('en-US', { minimumFractionDigits: 0 })}` : '—'}
                   </td>
                   <td>
-                    <span
-                      className={
-                        row.status === 'confirmed'
-                          ? 'res-mgmt__pill res-mgmt__pill--ok'
-                          : reservationIsCancelled(row.status)
-                            ? 'res-mgmt__pill res-mgmt__pill--cancelled'
-                            : 'res-mgmt__pill res-mgmt__pill--pending'
-                      }
-                    >
-                      {row.status === 'confirmed'
-                        ? 'Confirmed'
-                        : reservationIsCancelled(row.status)
-                          ? 'Cancelled'
-                          : 'Pending'}
-                    </span>
+                    <div className="res-mgmt__status-stack">
+                      <span className={reservationStatusClass(row.status)}>
+                        {reservationStatusLabel(row.status)}
+                      </span>
+                      {noShow.state === 'countdown' ? (
+                        <span className="res-mgmt__noshow-countdown">
+                          {(() => {
+                            const lateMs = noShowGraceMinutes * 60_000 - noShow.remainingMs
+                            const lateMin = Math.floor(lateMs / 60_000)
+                            return lateMin < 1 ? 'Late · just now' : `Late · ${lateMin} min`
+                          })()}
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td>
                     {eventFree ? (
@@ -1406,7 +1733,27 @@ export default function ReservationManagement() {
                       >
                         <IconEye />
                       </button>
-                      {!reservationIsCancelled(row.status) ? (
+                      {reservationIsCancelled(row.status) ? (
+                        <button
+                          type="button"
+                          className="res-mgmt__icon-btn res-mgmt__icon-btn--delete"
+                          title="Delete permanently"
+                          aria-label={`Delete reservation for ${guestName}`}
+                          onClick={() => setDeleteDialogReservationId(row.reservation_id)}
+                        >
+                          <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
+                        </button>
+                      ) : reservationIsNoShow(row.status) ? (
+                        <button
+                          type="button"
+                          className="res-mgmt__icon-btn res-mgmt__icon-btn--noshow"
+                          title="No-show actions"
+                          aria-label={`Open no-show actions for ${guestName}`}
+                          onClick={() => setNoShowActionReservationId(row.reservation_id)}
+                        >
+                          <XCircle className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
+                        </button>
+                      ) : (
                         <button
                           type="button"
                           className="res-mgmt__icon-btn res-mgmt__icon-btn--cancel"
@@ -1416,8 +1763,8 @@ export default function ReservationManagement() {
                         >
                           <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
                         </button>
-                      ) : null}
-                      {row.status === 'pending' && (
+                      )}
+                      {normalizeReservationStatus(row.status) === 'pending' && (
                         <>
                           <button
                             type="button"
@@ -1490,59 +1837,108 @@ export default function ReservationManagement() {
         <div className="manager-dash__main manager-dash__main--res-mgmt">
           <ManagerTopBar clubName={club?.club_name} />
 
-          <div className={`res-mgmt__bound${filter === 'tables' ? ' res-mgmt__bound--wide' : ''}`}>
+          <div className="res-mgmt__bound">
             {error ? (
               <p className="res-mgmt__inline-warn" role="alert">
                 {error}
               </p>
             ) : null}
 
-            <header className={filter === 'tables' ? 'res-mgmt__head res-mgmt__head--split' : 'res-mgmt__head'}>
+            <header className="res-mgmt__head">
               <div className="res-mgmt__head-text">
-                <h1 className="manager-dash__page-title">
-                  {filter === 'tables' ? 'Table Management' : 'Reservation Management'}
-                </h1>
-                <p className="manager-dash__page-sub">
-                  {filter === 'tables'
-                    ? 'Floor layout and table status from your database — synced with reservations.'
-                    : 'Manage all bookings and ticket sales'}
-                </p>
+                <h1 className="res-mgmt__title">Reservation Management</h1>
+                <p className="res-mgmt__subtitle">Manage all bookings and ticket sales</p>
               </div>
-              {filter === 'tables' ? (
-                <button type="button" className="res-mgmt__add-table-btn" onClick={() => setAddTableOpen(true)}>
-                  + Add table
-                </button>
-              ) : null}
             </header>
 
-            <section
-              className={filter === 'tables' ? 'res-mgmt__stats res-mgmt__stats--tables' : 'res-mgmt__stats'}
-              aria-label={filter === 'tables' ? 'Table statistics' : 'Reservation statistics'}
-            >
-              {stats.map((s) => (
-                <article key={s.label} className="res-mgmt__stat">
-                  <p className="res-mgmt__stat-value">{s.value}</p>
-                  <p className="res-mgmt__stat-label">{s.label}</p>
+            {/* ── Stat cards ───────────────────────────────────────────────── */}
+            <section className="res-mgmt__stats" aria-label="Reservation statistics">
+              {statCards.map((s) => (
+                <article key={s.label} className={`res-mgmt__stat res-mgmt__stat--${s.accent}`}>
+                  <div className="res-mgmt__stat-body">
+                    <p className={`res-mgmt__stat-value res-mgmt__stat-value--${s.accent}`}>{s.value}</p>
+                    <p className="res-mgmt__stat-label">{s.label}</p>
+                  </div>
+                  <div className={`res-mgmt__stat-icon res-mgmt__stat-icon--${s.accent}`}>{s.icon}</div>
                 </article>
               ))}
             </section>
 
-            <div className="res-mgmt__tabs" role="tablist" aria-label="Reservation type filter">
-              {FILTER_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={filter === t.id}
-                  className={filter === t.id ? 'res-mgmt__tab res-mgmt__tab--active' : 'res-mgmt__tab'}
-                  onClick={() => setFilter(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
+            {/* ── Combined filter row ──────────────────────────────────────── */}
+            <div className="res-mgmt__filter-combined">
+              {/* Left: type tabs */}
+              <div className="res-mgmt__filter-left" role="tablist" aria-label="Reservation type filter">
+                {FILTER_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === t.id}
+                    className={filter === t.id ? 'res-mgmt__tab res-mgmt__tab--active' : 'res-mgmt__tab'}
+                    onClick={() => setFilter(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Right: date preset + floating calendar */}
+              <div className="res-mgmt__filter-right" ref={calendarRef}>
+                {(['tonight', 'this_week', 'custom', 'all'] as DatePreset[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={datePreset === p ? 'res-mgmt__date-btn res-mgmt__date-btn--active' : 'res-mgmt__date-btn'}
+                    onClick={() => {
+                      if (p === 'custom') {
+                        setDatePreset('custom')
+                        setCalendarOpen((prev) => datePreset !== 'custom' ? true : !prev)
+                      } else {
+                        setDatePreset(p)
+                        setCalendarOpen(false)
+                        setCustomDateFrom('')
+                        setCustomDateTo('')
+                      }
+                    }}
+                  >
+                    {p === 'all'
+                      ? 'All Dates'
+                      : p === 'tonight'
+                        ? 'Tonight'
+                        : p === 'this_week'
+                          ? 'This Week'
+                          : customDateFrom
+                            ? customDateTo && customDateTo !== customDateFrom
+                              ? `${customDateFrom} → ${customDateTo}`
+                              : customDateFrom
+                            : 'Custom'}
+                  </button>
+                ))}
+                {calendarOpen && datePreset === 'custom' && (
+                  <div className="res-mgmt__calendar-popup">
+                    <DateRangePicker
+                      from={customDateFrom}
+                      to={customDateTo}
+                      onChange={(f, t) => { setCustomDateFrom(f); setCustomDateTo(t) }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
-            {filter === 'tables' ? (
+            {/* ── Event filter ─────────────────────────────────────────────── */}
+            <div className="res-mgmt__event-bar">
+              <EventSelect
+                value={eventFilter}
+                onChange={setEventFilter}
+                events={clubEvents}
+              />
+            </div>
+
+            {/* ── Pink section divider ─────────────────────────────────────── */}
+            <div className="res-mgmt__section-divider" aria-hidden />
+
+            {false ? (
               <>
                 {floorConfigs.length === 0 ? (
                   <div className="res-mgmt__empty-tables">
@@ -1811,18 +2207,10 @@ export default function ReservationManagement() {
                     </aside>
                   </div>
                 )}
-
-                <details className="res-mgmt__bookings-fold">
-                  <summary className="res-mgmt__bookings-fold-sum">Table reservations (bookings list)</summary>
-                  <p className="res-mgmt__bookings-fold-hint">
-                    Approve or decline table-related reservations from your guests — same as before.
-                  </p>
-                  {renderReservationsTable()}
-                </details>
               </>
-            ) : (
-              renderReservationsTable()
-            )}
+            ) : null}
+
+            {renderReservationsTable()}
           </div>
         </div>
       </div>
@@ -1868,6 +2256,110 @@ export default function ReservationManagement() {
                 onClick={() => void executeCancelReservation(cancelDialogReservationId)}
               >
                 {cancelDialogBusy ? 'Cancelling…' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteDialogReservationId ? (
+        <div
+          className="res-mgmt__confirm-backdrop"
+          role="presentation"
+          onClick={() => !deleteDialogBusy && setDeleteDialogReservationId(null)}
+        >
+          <div
+            className="res-mgmt__confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-res-title"
+            aria-describedby="delete-res-desc"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="res-mgmt__confirm-icon-circle res-mgmt__confirm-icon-circle--delete" aria-hidden>
+              <Trash2 className="res-mgmt__confirm-trash-icon" size={28} strokeWidth={2} />
+            </div>
+            <h2 id="delete-res-title" className="res-mgmt__confirm-title">Delete Reservation</h2>
+            <p id="delete-res-desc" className="res-mgmt__confirm-message">
+              This will permanently remove the reservation record. This cannot be undone.
+            </p>
+            <div className="res-mgmt__confirm-actions">
+              <button
+                type="button"
+                className="res-mgmt__confirm-btn res-mgmt__confirm-btn--keep"
+                disabled={deleteDialogBusy}
+                onClick={() => setDeleteDialogReservationId(null)}
+              >
+                Keep It
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__confirm-btn res-mgmt__confirm-btn--yes"
+                disabled={deleteDialogBusy}
+                onClick={() => void executeDeleteReservation(deleteDialogReservationId)}
+              >
+                {deleteDialogBusy ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {noShowActionRow ? (
+        <div
+          className="res-mgmt__sheet-backdrop"
+          role="presentation"
+          onClick={() => !noShowActionBusy && setNoShowActionReservationId(null)}
+        >
+          <div
+            className="res-mgmt__sheet res-mgmt__sheet--compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="noshow-actions-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="res-mgmt__sheet-head">
+              <div>
+                <h2 id="noshow-actions-title" className="res-mgmt__sheet-title">
+                  No-Show Reservation
+                </h2>
+                <p className="res-mgmt__sheet-sub">
+                  {reservationGuestLabel(noShowActionRow)} · {noShowActionRow.events?.event_name ?? 'Event'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="res-mgmt__sheet-close"
+                onClick={() => !noShowActionBusy && setNoShowActionReservationId(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="res-mgmt__sheet-actions res-mgmt__sheet-actions--stack">
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--warn"
+                disabled={noShowActionBusy}
+                onClick={() => void freeNoShowTable(noShowActionRow)}
+              >
+                Free the Table
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--ghost"
+                disabled={noShowActionBusy}
+                onClick={() => void markArrivedLate(noShowActionRow)}
+              >
+                Mark as Arrived (Late)
+              </button>
+              <button
+                type="button"
+                className="res-mgmt__btn res-mgmt__btn--danger"
+                disabled={noShowActionBusy}
+                onClick={() => void removeNoShowReservation(noShowActionRow)}
+              >
+                Remove Reservation
               </button>
             </div>
           </div>
@@ -1926,7 +2418,7 @@ export default function ReservationManagement() {
               </div>
               <div>
                 <dt>Guests</dt>
-                <dd>{detailRow.nr_of_people ?? 1}</dd>
+                <dd>{reservationGuestCount(detailRow)}</dd>
               </div>
               <div>
                 <dt>Amount</dt>
@@ -1938,13 +2430,7 @@ export default function ReservationManagement() {
               </div>
               <div>
                 <dt>Status</dt>
-                <dd>
-                  {detailRow.status === 'confirmed'
-                    ? 'Confirmed'
-                    : reservationIsCancelled(detailRow.status)
-                      ? 'Cancelled'
-                      : 'Pending'}
-                </dd>
+                <dd>{reservationStatusLabel(detailRow.status)}</dd>
               </div>
               <div>
                 <dt>Payment</dt>

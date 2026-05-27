@@ -105,6 +105,13 @@ export class Events {
   })
   updatedAt: Date | null;
 
+  @Column("text", {
+    name: "featured_request_status",
+    nullable: true,
+    default: () => "'none'",
+  })
+  featuredRequestStatus: string | null;
+
   @Column("boolean", { name: "reservation_only", default: () => "false" })
   reservationOnly: boolean;
 

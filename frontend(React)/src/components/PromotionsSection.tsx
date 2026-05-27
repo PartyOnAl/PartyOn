@@ -42,9 +42,10 @@ function PromoImage({ src, alt }: { src: string; alt: string }) {
 
 type PromotionsSectionProps = {
   promotions: Promotion[]
+  loading?: boolean
 }
 
-export function PromotionsSection({ promotions }: PromotionsSectionProps) {
+export function PromotionsSection({ promotions, loading = false }: PromotionsSectionProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: false,
@@ -53,32 +54,26 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
     /** Custom touch + wheel + keyboard match Events carousel; avoids drag/click conflicts on cards. */
     watchDrag: false,
   })
-  const [canScrollPrev, setCanScrollPrev] = useState(false)
-  const [canScrollNext, setCanScrollNext] = useState(false)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const wheelLockUntilRef = useRef(0)
 
   const scrollPrev = useCallback(() => {
-    emblaApi?.scrollPrev()
+    if (!emblaApi) return
+    if (emblaApi.canScrollPrev()) {
+      emblaApi.scrollPrev()
+      return
+    }
+    const snapCount = emblaApi.scrollSnapList().length
+    if (snapCount > 1) emblaApi.scrollTo(snapCount - 1)
   }, [emblaApi])
 
   const scrollNext = useCallback(() => {
-    emblaApi?.scrollNext()
-  }, [emblaApi])
-
-  useEffect(() => {
     if (!emblaApi) return
-    const onSelect = () => {
-      setCanScrollPrev(emblaApi.canScrollPrev())
-      setCanScrollNext(emblaApi.canScrollNext())
+    if (emblaApi.canScrollNext()) {
+      emblaApi.scrollNext()
+      return
     }
-    onSelect()
-    emblaApi.on('select', onSelect)
-    emblaApi.on('reInit', onSelect)
-    return () => {
-      emblaApi.off('select', onSelect)
-      emblaApi.off('reInit', onSelect)
-    }
+    if (emblaApi.scrollSnapList().length > 1) emblaApi.scrollTo(0)
   }, [emblaApi])
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
@@ -122,35 +117,60 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
   }
 
   return (
-    <section id="promotions" className="py-20 border-t border-border/30">
-      <div className="po-container space-y-10">
-        <div className="flex items-end justify-between">
+    <section id="promotions" className="py-12 md:py-20 border-t border-border/30">
+      <div className="po-container space-y-5 md:space-y-10">
+        <div className="flex flex-wrap items-end justify-between gap-y-2">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="font-display text-3xl md:text-4xl font-bold">
+            <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-bold">
               Exclusive offers
             </h2>
           </motion.div>
           <Link
             to="/promotions"
-            className="hidden md:inline-flex h-10 items-center justify-center rounded-full border border-border/50 px-6 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 hover:border-foreground/30"
+            className="section-more-link"
           >
             More offers
           </Link>
         </div>
 
-        {promotions.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-8 rounded-xl border border-border/30 bg-card/40">
-            No active promotions right now. Add rows in{' '}
-            <code className="rounded bg-muted px-1 text-xs">promotions</code> with{' '}
-            <code className="rounded bg-muted px-1 text-xs">status = active</code> and a future{' '}
-            <code className="rounded bg-muted px-1 text-xs">valid_until</code>.
+        {loading ? (
+          <div className="flex gap-4 overflow-hidden">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="min-w-0 shrink-0 grow-0 basis-[80%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] min-h-[22rem] sm:min-h-[28rem] md:min-h-[30rem] rounded-xl bg-card border border-border/30 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : promotions.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-10 rounded-xl border border-border/30 bg-card/40">
+            Exclusive offers coming soon. Check back for deals and special access.
           </p>
         ) : (
           <>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={scrollPrev}
+                disabled={promotions.length <= 1}
+                aria-label="Previous promotion"
+                className="absolute -left-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={scrollNext}
+                disabled={promotions.length <= 1}
+                aria-label="Next promotion"
+                className="absolute -right-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
             <div
               ref={emblaRef}
               className="overflow-hidden rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
@@ -170,11 +190,11 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     transition={{ delay: i * 0.1 }}
-                    className="min-w-0 shrink-0 grow-0 basis-[75%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] flex h-auto"
+                    className="min-w-0 shrink-0 grow-0 basis-[80%] sm:basis-[45%] md:basis-[30%] lg:basis-[24%] flex h-auto"
                   >
                     <Link
                       to={`/promotions/offer/${encodeURIComponent(promo.id)}`}
-                      className="group flex h-full min-h-[28rem] sm:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 text-inherit no-underline transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group flex h-full min-h-[22rem] sm:min-h-[26rem] md:min-h-[30rem] w-full flex-col rounded-xl overflow-hidden bg-card border border-border/30 text-inherit no-underline transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden">
                         <PromoImage src={promo.image} alt={promo.title} />
@@ -219,24 +239,6 @@ export function PromotionsSection({ promotions }: PromotionsSectionProps) {
                 ))}
               </div>
             </div>
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={scrollPrev}
-                disabled={!canScrollPrev}
-                className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 transition-all"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={scrollNext}
-                disabled={!canScrollNext}
-                className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 transition-all"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
             </div>
           </>
         )}

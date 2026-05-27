@@ -30,12 +30,12 @@ type SearchHeroProps = {
   onChange: (next: SearchFilters) => void
 }
 
-type DropdownOption = {
+export type DropdownOption = {
   value: string
   label: string
 }
 
-type FilterDropdownProps = {
+export type FilterDropdownProps = {
   value: string
   options: DropdownOption[]
   onChange: (nextValue: string) => void
@@ -45,7 +45,7 @@ type TypeaheadRow =
   | { kind: 'item'; item: SuggestionItem }
   | { kind: 'search' }
 
-function FilterDropdown({ value, options, onChange }: FilterDropdownProps) {
+export function FilterDropdown({ value, options, onChange }: FilterDropdownProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const selectedLabel = useMemo(

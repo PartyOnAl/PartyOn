@@ -68,6 +68,9 @@ export class Promotions {
   @Column("text", { name: "image_url", nullable: true })
   imageUrl: string | null;
 
+  @Column("text", { name: "included_items", nullable: true })
+  includedItems: string | null;
+
   @Column("timestamp with time zone", {
     name: "created_at",
     nullable: true,

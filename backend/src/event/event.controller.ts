@@ -40,8 +40,8 @@ async createPayment(
     amount: number
     quantity: number
     events: any
-    stripe_success_url?: string
-    stripe_cancel_url?: string
+    success_url?: string
+    cancel_url?: string
   },
 ) {
   const result = await this.eventService.createPayment(
@@ -49,12 +49,18 @@ async createPayment(
     body.quantity,
     body.events,
     {
-      stripeSuccessUrl: body.stripe_success_url,
-      stripeCancelUrl: body.stripe_cancel_url,
+      stripeSuccessUrl: body.success_url,
+      stripeCancelUrl: body.cancel_url,
     },
   )
   return { url: result.url }
+  }
+@Post('feature-pay')
+async createFeaturePayment(@Body() body: { eventId: string; fee: number }) {
+  const result = await this.eventService.createFeaturePayment(body.eventId, body.fee);
+  return { url: result.url };
 }
+
 
 @Post('webhook')
 async handleWebhook(@Req() req: Request) {

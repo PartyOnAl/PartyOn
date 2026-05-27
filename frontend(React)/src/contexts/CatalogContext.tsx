@@ -13,6 +13,8 @@ type CatalogState = {
   events: Event[]
   clubs: Club[]
   promotions: Promotion[]
+  terms: string | null
+  termsUpdatedAt: string | null
   loading: boolean
   error: string | null
 }
@@ -23,12 +25,16 @@ type CatalogPayload = {
   events: Event[]
   clubs: Club[]
   promotions?: Promotion[]
+  terms?: string
+  termsUpdatedAt?: string
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<Event[]>([])
   const [clubs, setClubs] = useState<Club[]>([])
   const [promotions, setPromotions] = useState<Promotion[]>([])
+  const [terms, setTerms] = useState<string | null>(null)
+  const [termsUpdatedAt, setTermsUpdatedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,11 +48,15 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setEvents([])
         setClubs([])
         setPromotions([])
+        setTerms(null)
+        setTermsUpdatedAt(null)
       } else {
         setError(null)
         setEvents(Array.isArray(data?.events) ? data.events : [])
         setClubs(Array.isArray(data?.clubs) ? data.clubs : [])
         setPromotions(Array.isArray(data?.promotions) ? data.promotions : [])
+        setTerms(data?.terms ?? null)
+        setTermsUpdatedAt(data?.termsUpdatedAt ?? null)
       }
       setLoading(false)
     })()
@@ -56,8 +66,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ events, clubs, promotions, loading, error }),
-    [events, clubs, promotions, loading, error],
+    () => ({ events, clubs, promotions, terms, termsUpdatedAt, loading, error }),
+    [events, clubs, promotions, terms, termsUpdatedAt, loading, error],
   )
 
   return (

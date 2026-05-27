@@ -1,12 +1,11 @@
 const trimmedApiUrl = import.meta.env.VITE_API_URL?.trim() ?? ''
 
 /**
- * - If `VITE_API_URL` is set (non-empty), requests go there (must match `FRONTEND_ORIGIN` / CORS on the API).
+ * - If `VITE_API_URL` is set (non-empty), requests go there.
  * - In dev, if unset, use same-origin + Vite proxy → avoids CORS and bad empty-string URLs.
- * - Production builds should set `VITE_API_URL` to your deployed API.
+ * - Production deployments should set `VITE_API_URL` unless the API is reverse-proxied on the same domain.
  */
-export const API_BASE_URL =
-  trimmedApiUrl || (import.meta.env.DEV ? '' : 'http://localhost:3000')
+export const API_BASE_URL = trimmedApiUrl
 
 export type ApiResult<T> = {
   data: T | null;

@@ -24,6 +24,7 @@ import {
 } from './lib/staffRoles'
 
 import styles from './LoginPage.module.css'
+import { API_BASE_URL } from './api'
 
 /** Temporary client used only to identify the role during password login. */
 const supabase = loginSupabase
@@ -368,6 +369,18 @@ export default function LoginPage() {
       if (profileError) {
         setRequestError(profileError.message)
 
+        if (!profileData) {
+          // No profile row yet — create one via the backend so they can log in
+          await fetch(`${API_BASE_URL}/auth/create-profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: data.user.id,
+              email: normalizedEmail,
+            }),
+          })
+        }
+
         await supabase!.auth.signOut({
           scope: 'local',
         })
@@ -578,7 +591,7 @@ export default function LoginPage() {
       await userSupabase!.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/home`,
+          redirectTo: `${window.location.origin}`,
         },
       })
 

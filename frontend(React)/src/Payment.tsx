@@ -1,187 +1,189 @@
-import { useState , useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import './Payment.css'
-import { getJson, postJson } from '@/api'
+import { getJson, postJson, API_BASE_URL } from '@/api'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { ArrowLeft, Check, ChevronRight, Lock, Minus, Plus, Ticket } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
+import type { EventDetail } from '@/types'
 
+type Step = 'ticket' | 'payment'
+const MAX_TICKET_QUANTITY = 5
 
-function formatEventDate(dateString: string) {
-  const date = new Date(dateString)
+type LegacyEvent = {
+  event_id?: string
+  event_name?: string
+  event_starting_date?: string
+  event_image?: string
+  final_ticket_price?: number
+  currency?: string
+}
 
-  const formattedDate = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date)
+function formatEventDate(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return (
+    new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(d) +
+    ' • ' +
+    new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d)
+  )
+}
 
-  const time = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date)
-
-  return `${formattedDate} • ${time}`
+function StepCrumb({ label, active, done }: { label: string; active: boolean; done: boolean }) {
+  return (
+    <span
+      className={`text-sm font-semibold transition-colors ${
+        active ? 'text-white' : done ? 'text-primary/70' : 'text-white/30'
+      }`}
+    >
+      {label}
+    </span>
+  )
 }
 
 export default function Payment() {
+  const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const {id} = useParams()
-  const [quantity, setQuantity] = useState(1);
-  const [organizerUpdates, setOrganizerUpdates] = useState(true);
-  const [events, setEvents] = useState<any>(null);
+  const location = useLocation()
+
+  const stateEvent = (location.state as { event?: EventDetail } | null)?.event
+
+  const [step, setStep] = useState<Step>('ticket')
+  const [legacyEvent, setLegacyEvent] = useState<LegacyEvent | null>(null)
+  const [quantity, setQuantity] = useState(1)
+  const [organizerUpdates, setOrganizerUpdates] = useState(true)
+  const [paying, setPaying] = useState(false)
+
+  // fallback fetch
   useEffect(() => {
-    if (!id || id === 'undefined') return
+    if (stateEvent || !id || id === 'undefined') return
 
     getJson<any>(`/event/${id}`)
       .then(({ data, error }) => {
-        if (error) {
-          console.error(error)
-          return
-        }
-        setEvents(data)
+        if (error) return console.error(error)
+        setLegacyEvent(data)
       })
-  }, [id])  
-  const handleBuy= async () => {
-    if (!events?.event_id || events.event_id === 'undefined') {
-      return;
-    }
-    const { data, error } = await postJson<{ url?: string }>('/event/pay', {
-      amount: events?.final_ticket_price*100,
-      quantity: quantity,
-      events: events,
-    });
+      .catch(console.error)
+  }, [id, stateEvent])
 
-    if (error || !data?.url) {
-      console.error(error ?? 'Checkout did not return a Stripe URL')
+  const currency = stateEvent?.currency ?? legacyEvent?.currency ?? '€'
+  const unitPrice = stateEvent?.price ?? legacyEvent?.final_ticket_price ?? 0
+  const total = (unitPrice * quantity).toFixed(2)
+
+  const eventName = stateEvent?.title ?? legacyEvent?.event_name ?? ''
+  const eventDate =
+    stateEvent?.rawDate ?? stateEvent?.date ?? legacyEvent?.event_starting_date
+  const eventImage = stateEvent?.imageUrl ?? legacyEvent?.event_image ?? ''
+  const eventVenue = stateEvent?.club ?? ''
+  const legacyEventId = legacyEvent?.event_id
+
+  async function handlePay() {
+    if (paying) return
+    if (quantity > MAX_TICKET_QUANTITY) {
+      setQuantity(MAX_TICKET_QUANTITY)
       return
     }
 
-    window.location.href = data.url;
-  };
+    setPaying(true)
+
+    try {
+      const { data, error } = await postJson<{ url?: string }>('/event/pay', {
+        amount: unitPrice * 100,
+        quantity,
+        events: legacyEvent ?? {
+          event_id: id,
+          event_name: eventName,
+          event_starting_date: eventDate,
+          event_image: eventImage,
+          final_ticket_price: unitPrice,
+        },
+      })
+
+      if (error || !data?.url) {
+        console.error(error ?? 'Checkout did not return a Stripe URL')
+        setPaying(false)
+        return
+      }
+
+      window.location.href = data.url
+    } catch (e) {
+      console.error(e)
+      setPaying(false)
+    }
+  }
+
+  const EventHeader = (
+    <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/4 p-4">
+      {eventImage ? (
+        <img src={eventImage} className="h-14 w-14 rounded-xl object-cover" />
+      ) : (
+        <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white/8">
+          <Ticket className="h-6 w-6 text-white/40" />
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="truncate font-bold text-white">{eventName || 'Event'}</p>
+        <p className="mt-0.5 text-sm text-white/50">{formatEventDate(eventDate)}</p>
+        {eventVenue && (
+          <p className="mt-0.5 text-xs text-white/35">{eventVenue}</p>
+        )}
+      </div>
+    </div>
+  )
 
   return (
-    <div className="payment-page">
+    <div className="min-h-screen bg-background text-foreground">
       <Navbar />
-      <div className="payment-page__bg" aria-hidden={true} />
-      <div className="payment-page__shell" style={{ paddingTop: '88px' }}>
-        <header className="payment-page__top">
-          <button
-            type="button"
-            className="payment-page__back"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
-            <span aria-hidden={true}>←</span> Back
+
+      <div className="mx-auto max-w-lg px-4 pt-24 pb-20">
+        <div className="mb-6 flex justify-between">
+          <button onClick={() => (step === 'payment' ? setStep('ticket') : navigate(-1))}>
+            <ArrowLeft /> Back
           </button>
-          <nav className="payment-page__crumbs" aria-label="Checkout progress">
-            <span className="payment-page__crumb payment-page__crumb--current">
-              Ticket
-            </span>
-            <span className="payment-page__crumb-sep" aria-hidden={true}>
-              &gt;
-            </span>
-            <span className="payment-page__crumb">Payment</span>
-            <span className="payment-page__crumb-sep" aria-hidden={true}>
-              &gt;
-            </span>
-            <span className="payment-page__crumb">Confirmation</span>
+
+          <nav className="flex items-center gap-2">
+            <StepCrumb label="Ticket" active={step === 'ticket'} done={step === 'payment'} />
+            <ChevronRight />
+            <StepCrumb label="Payment" active={step === 'payment'} done={false} />
           </nav>
-          <span aria-hidden={true} />
-        </header>
 
-        <div className="payment-page__event">
-        <div
-  className="payment-page__event-thumb"
-  style={{
-    backgroundImage: `url(${events?.event_image})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-  }}
-/>
-          <div>
-            <h2 className="payment-page__event-title">{events?.event_name}</h2>
-            <p className="payment-page__event-meta">
-            {events?.event_starting_date
-    ? formatEventDate(events.event_starting_date)
-    : ''}
-            </p>
-          </div>
+          <span />
         </div>
 
-        <div className="payment-page__card">
-          <h3 className="payment-page__tier-title">General Admission</h3>
-          <p className="payment-page__tier-sub">
-            Access to main floor and all areas.
-          </p>
+        <AnimatePresence mode="wait">
+          {step === 'ticket' && (
+            <motion.div key="ticket" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              {EventHeader}
 
-          <div className="payment-page__price-row">
-            <span className="payment-page__price">€{events?.final_ticket_price}</span>
-            <span className="payment-page__price-unit">per ticket</span>
-          </div>
+              <button onClick={() => setStep('payment')}>Continue</button>
+            </motion.div>
+          )}
 
-          <label className="payment-page__qty-label" htmlFor="payment-qty">
-            Quantity
-          </label>
-          <div className="payment-page__qty">
-            <button
-              type="button"
-              className="payment-page__qty-btn"
-              aria-label="Decrease quantity"
-              disabled={quantity <= 1}
-              onClick={() => setQuantity((quantity) => Math.max(1, quantity - 1))}
-            >
-              −
-            </button>
-            <span className="payment-page__qty-value" id="payment-qty">
-              {quantity}
-            </span>
-            <button
-              type="button"
-              className="payment-page__qty-btn"
-              aria-label="Increase quantity"
-              onClick={() => setQuantity((quantity) => quantity + 1)}
-            >
-              +
-            </button>
-          </div>
+          {step === 'payment' && (
+            <motion.div key="payment" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              {EventHeader}
 
-          <hr className="payment-page__divider" />
+              <div>Total: {currency}{total}</div>
 
-          <div className="payment-page__total-row">
-            <span className="payment-page__total-label">Total</span>
-            <span className="payment-page__total-amount">€{quantity * (events?.final_ticket_price || 0)}</span>
-          </div>
-          <p className="payment-page__total-note">No booking fees • Final price</p>
-
-          <label className="payment-page__optin">
-            <input
-              type="checkbox"
-              checked={organizerUpdates}
-              onChange={(e) => setOrganizerUpdates(e.target.checked)}
-            />
-            <span>Get updates from this organizer about future events.</span>
-          </label>
-
-          <button
-            type="button"
-            onClick={handleBuy}
-            className="payment-page__cta"
-            disabled={!events?.event_id || events.event_id === 'undefined'}
-          >
-            Continue to Payment
-          </button>
-
-          <p className="payment-page__legal">
-            By continuing, you agree to our{' '}
-            <a href="#terms">Terms of Service</a> and{' '}
-            <a href="#privacy">Privacy Policy</a>.
-          </p>
-        </div>
-
-        <p className="payment-page__foot">Secure checkout powered by PartyOn</p>
+              <button onClick={() => void handlePay()} disabled={paying || (!legacyEventId && !stateEvent)}>
+                {paying ? 'Redirecting…' : `Pay ${currency}${total}`}
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
       <LovableFooter />
     </div>
   )

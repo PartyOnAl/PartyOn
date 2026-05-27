@@ -13,12 +13,7 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
 
   app.enableCors({
-    origin: [
-      /^http:\/\/localhost:\d+$/,
-      /^http:\/\/127\.0\.0\.1:\d+$/,
-      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
-      'http://localhost:5173',
-    ],
+    origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173',
     credentials: true,
   });
   

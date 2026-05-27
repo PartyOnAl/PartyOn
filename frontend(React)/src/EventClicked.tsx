@@ -21,15 +21,16 @@ import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCatalog } from '@/contexts/CatalogContext'
 import { useSavedEvents } from '@/contexts/SavedEventsContext'
-import type { Event } from '@/types'
+import { getJson } from '@/api'
+import type { Event, EventDetail } from '@/types'
 
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&q=80'
 
-function eventNeedsTicket(ev: any): boolean {
+function eventNeedsTicket(ev: EventDetail): boolean {
   if (ev.ticketRequired === false) return false
   if (ev.ticketRequired === true) return true
-  return Number(ev.price ?? ev.final_ticket_price ?? 0) > 0
+  return Number(ev.price ?? 0) > 0
 }
 
 function EventPageSkeleton() {
@@ -78,7 +79,6 @@ function ShareIcon() {
   )
 }
 
-
 function UsersIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden={true}>
@@ -92,15 +92,9 @@ function UsersIcon() {
   )
 }
 
-
 function ExternalIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg
-      {...props}
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden={true}
-    >
+    <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden={true}>
       <path
         d="M14 3h7v7M10 14L21 3M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"
         stroke="currentColor"
@@ -111,7 +105,6 @@ function ExternalIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
-
 
 function TicketSmallIcon() {
   return (
@@ -125,7 +118,6 @@ function TicketSmallIcon() {
     </svg>
   )
 }
-
 
 function AppleIcon() {
   return (
@@ -169,7 +161,7 @@ export default function EventClicked() {
   const { id, eventId } = useParams<{ id?: string; eventId?: string }>()
   const navigate = useNavigate()
 
-  const { events: catalogEvents = [], loading = false } = useCatalog() as {
+  const { events: catalogEvents = [], loading: catalogLoading = false } = useCatalog() as {
     events?: Event[]
     loading?: boolean
   }
@@ -177,7 +169,8 @@ export default function EventClicked() {
   const { user } = useAuth()
   const { isSaved, saveEvent, removeEvent } = useSavedEvents()
 
-  const [fetchedEvent, setFetchedEvent] = useState<any>(null)
+  const [detail, setDetail] = useState<EventDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(true)
   const [aboutExpanded, setAboutExpanded] = useState(false)
 
   const resolvedId = (id ?? eventId ?? '').trim()
@@ -188,49 +181,39 @@ export default function EventClicked() {
   )
 
   useEffect(() => {
-    if (!resolvedId || fromCatalog) return
+    if (!resolvedId) return
 
-    const controller = new AbortController()
-    setFetchedEvent(null)
-
-    fetch(`http://localhost:3000/event/${resolvedId}`, {
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load event ${resolvedId}`)
-        return res.json()
+    setDetailLoading(true)
+    getJson<EventDetail>(`/catalog/events/${resolvedId}`)
+      .then(({ data }) => {
+        if (data) setDetail(data)
       })
-      .then((data) => setFetchedEvent(data))
-      .catch((err) => {
-        if (err.name !== 'AbortError') {
-          setFetchedEvent(null)
-        }
-      })
+      .finally(() => setDetailLoading(false))
+  }, [resolvedId])
 
-    return () => controller.abort()
-  }, [resolvedId, fromCatalog])
+  const ev = (detail ?? fromCatalog) as EventDetail | undefined
+  const loading = detailLoading && !ev && catalogLoading
+  const ticketTypes = detail?.ticketTypes ?? []
 
-  const events = fromCatalog || fetchedEvent
-
-  const saved = user && events ? isSaved(String(events.id)) : false
+  const saved = user && ev ? isSaved(ev.id) : false
 
   async function toggleSave() {
-    if (!events) return
+    if (!ev) return
     if (!user) {
       navigate('/login')
       return
     }
-    if (saved) await removeEvent(String(events.id))
-    else await saveEvent(String(events.id))
+    if (saved) await removeEvent(ev.id)
+    else await saveEvent(ev.id)
   }
 
   async function share() {
-    if (!events) return
+    if (!ev) return
 
     const url = window.location.href
     try {
       if (navigator.share) {
-        await navigator.share({ title: events?.title ?? events?.event_name, url })
+        await navigator.share({ title: ev.title, url })
       } else {
         await navigator.clipboard.writeText(url)
       }
@@ -240,29 +223,26 @@ export default function EventClicked() {
   }
 
   function primaryAction() {
-    if (!events) return
+    if (!ev) return
 
-    const eventKey = String(events.id ?? events.event_id ?? resolvedId).trim()
+    const eid = String(ev.id ?? '').trim()
+    if (!eid || eid === 'undefined') return
 
-    if (eventNeedsTicket(events)) {
-      if (!eventKey || eventKey === 'undefined') return
-
-      navigate(`/payment/${encodeURIComponent(eventKey)}`, {
-        state: { event: events },
-      })
+    if (!user) {
+      navigate(`/login?from=${encodeURIComponent(`/event/${eid}`)}`)
       return
     }
 
-    if (!eventKey || eventKey === 'undefined') {
-      if (events.clubId) {
-        navigate(`/clubs/${encodeURIComponent(events.clubId)}`)
-      } else {
-        navigate({ pathname: '/', hash: 'events' })
-      }
+    const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+
+    if (isReservation) {
+      navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
       return
     }
 
-    navigate(`/reserve/${encodeURIComponent(eventKey)}`)
+    navigate(`/payment/${encodeURIComponent(eid)}`, {
+      state: { event: ev, ticketTypes },
+    })
   }
 
   function openMaps(address: string) {
@@ -282,7 +262,7 @@ export default function EventClicked() {
     )
   }
 
-  if (loading && !events) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
@@ -292,7 +272,7 @@ export default function EventClicked() {
     )
   }
 
-  if (!events) {
+  if (!ev) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
@@ -310,7 +290,6 @@ export default function EventClicked() {
     )
   }
 
-  const ev = events
   const needsTicket = eventNeedsTicket(ev)
 
   const venueLine = [ev.club && ev.club !== '—' ? ev.club : '', ev.city]
@@ -318,15 +297,18 @@ export default function EventClicked() {
     .join(' · ')
 
   const venueAddress =
+    detail?.clubFullAddress?.trim() ||
     ev.address?.trim() ||
     [ev.city, ev.club && ev.club !== '—' ? ev.club : ''].filter(Boolean).join(', ')
 
   const musicLine = ev.musicType && ev.musicType !== '—' ? ev.musicType : 'Live event'
 
   const priceLabel =
-    Number(ev.price ?? ev.final_ticket_price ?? 0) > 0
-      ? `From ${ev.currency ?? '€'}${ev.price ?? ev.final_ticket_price}`
-      : 'Free entry'
+    needsTicket && ev.price > 0
+      ? `From ${ev.currency ?? '€'}${ev.price.toFixed(2)}`
+      : needsTicket
+        ? 'Free entry'
+        : 'Free reservation'
 
   const chipAge = ev.ageRestriction?.trim() || '—'
   const chipHost = ev.organizer?.trim() || 'PartyOn'
@@ -338,12 +320,12 @@ export default function EventClicked() {
 
   const about =
     ev.description?.trim() ||
-    ev.event_description?.trim() ||
     'Details for this night will appear here when the organizer adds a full description.'
 
   const aboutLong = about.length > 220
 
-  const imgSrc = ev.imageUrl?.trim() || ev.event_image?.trim() || FALLBACK_IMG
+  const imgSrc = ev.imageUrl?.trim() || FALLBACK_IMG
+  const dateLine = formatEventDate(ev.rawDate ?? ev.date)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -411,17 +393,15 @@ export default function EventClicked() {
             <div className="flex min-w-0 flex-col gap-8">
               <div>
                 <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-                  {ev.title ?? ev.event_name}
+                  {ev.title}
                 </h1>
                 <ul className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground md:text-base">
-                  <li className="flex gap-3">
-                    <Calendar className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
-                    <span className="text-foreground/90">
-                      {ev.date ?? ev.event_starting_date
-                        ? formatEventDate(ev.date ?? ev.event_starting_date)
-                        : ''}
-                    </span>
-                  </li>
+                  {dateLine ? (
+                    <li className="flex gap-3">
+                      <Calendar className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
+                      <span className="text-foreground/90">{dateLine}</span>
+                    </li>
+                  ) : null}
                   {venueLine ? (
                     <li className="flex gap-3">
                       <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-primary/80" />
@@ -497,7 +477,7 @@ export default function EventClicked() {
                 <h2 className="text-lg font-semibold text-foreground">Venue</h2>
                 <div className="mt-4 rounded-2xl border border-border/50 bg-card/30 p-5 md:p-6">
                   <h3 className="text-base font-bold text-foreground">
-                    {ev.club && ev.club !== '—' ? ev.club : ev.venue ?? 'Venue'}
+                    {ev.club && ev.club !== '—' ? ev.club : 'Venue'}
                   </h3>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {venueAddress || 'Address coming soon.'}
@@ -530,12 +510,10 @@ export default function EventClicked() {
         </div>
       </main>
 
-      {/* ── App promo banner ── */}
       <section
         className="relative overflow-hidden border-t border-border/30 bg-[#07070f] py-20 md:py-28"
         aria-labelledby="app-heading"
       >
-        {/* ambient glow blobs */}
         <div
           className="pointer-events-none absolute -left-60 top-1/4 h-[600px] w-[600px] rounded-full bg-primary/10 blur-[140px]"
           aria-hidden
@@ -546,12 +524,10 @@ export default function EventClicked() {
         />
 
         <div className="po-container relative z-10 flex flex-col items-center text-center">
-          {/* eyebrow */}
           <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
             PartyOn App
           </span>
 
-          {/* headline */}
           <h2
             id="app-heading"
             className="mx-auto max-w-2xl font-display text-4xl font-bold tracking-tight text-white md:text-5xl lg:text-[3.25rem]"
@@ -560,12 +536,10 @@ export default function EventClicked() {
             <span className="gradient-text">always in your pocket</span>
           </h2>
 
-          {/* sub */}
           <p className="mx-auto mt-5 max-w-[440px] text-base leading-relaxed text-muted-foreground">
             Discover the best nights, manage your tickets, and reserve tables — all in one place.
           </p>
 
-          {/* download CTAs */}
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <button
               type="button"
@@ -583,7 +557,6 @@ export default function EventClicked() {
             </button>
           </div>
 
-          {/* feature cards */}
           <div className="mt-14 grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 text-center backdrop-blur-sm">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-black/50 text-white [&_svg]:h-5 [&_svg]:w-5">

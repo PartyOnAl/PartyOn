@@ -46,14 +46,6 @@ function defaultRedemptionSteps(promo: Promotion): string[] {
   ]
 }
 
-function defaultIncluded(promo: Promotion): string[] {
-  return [
-    `Offer as described: ${promo.description}`,
-    'PartyOn booking reference and redemption instructions',
-    `Valid only at ${promo.venue}${promo.city ? ` (${promo.city})` : ''} for the published window`,
-  ]
-}
-
 function defaultExcluded(): string[] {
   return [
     'Transport, accommodation, and personal expenses',
@@ -105,6 +97,12 @@ function splitPipeDelimitedParts(parts: string[] | null | undefined): string[] {
     )
 }
 
+function promotionIncludedItems(promo: Promotion): string[] {
+  const raw = promo.included ?? promo.included_items ?? promo.includedItems
+  if (raw == null) return []
+  return splitPipeDelimitedParts(Array.isArray(raw) ? raw : [raw])
+}
+
 function taglineFromPromo(promo: Promotion): string {
   const d = promo.description.trim()
   if (d.length <= 120) return d
@@ -129,6 +127,10 @@ function currencyDisplay(promo: Promotion): string {
   if (c === 'GBP') return '£'
   if (c === 'ALL') return 'L'
   return '€'
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
 export function buildPromotionOfferDetail(
@@ -193,7 +195,7 @@ export function buildPromotionOfferDetail(
         ? promo.listPrice
         : 0)
     savingsAmount =
-      patch.savingsAmount ?? Math.max(0, originalPrice - checkoutPrice)
+      patch.savingsAmount ?? roundMoney(Math.max(0, originalPrice - checkoutPrice))
     savingsPercentLabel =
       patch.savingsPercentLabel !== undefined
         ? patch.savingsPercentLabel
@@ -288,11 +290,7 @@ export function buildPromotionOfferDetail(
       (promo.redemptionSteps && promo.redemptionSteps.length > 0
         ? promo.redemptionSteps
         : defaultRedemptionSteps(promo)),
-    included:
-      patch.included ??
-      (promo.included && promo.included.length > 0
-        ? promo.included
-        : defaultIncluded(promo)),
+    included: promotionIncludedItems(promo),
     excluded:
       patch.excluded ??
       (promo.excluded && promo.excluded.length > 0

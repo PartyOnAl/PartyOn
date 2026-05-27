@@ -26,12 +26,36 @@ export type Event = {
   /** false = no ticket checkout (e.g. table reservation). If omitted, `price > 0` implies a ticket. */
   ticketRequired?: boolean
   clubId?: string
+  /** True when the manager paid for featuring and admin approved it */
+  isFeatured?: boolean
+  /** ISO date string from event_starting_date — used for date filtering */
+  rawDate?: string
+  /** True when the event is table-reservation only */
+  reservationOnly?: boolean
+}
+
+export type TicketType = {
+  id: string
+  name: string
+  description?: string
+  price: number
+  totalQuantity: number
+  soldQuantity: number
+  available: number
+}
+
+export type EventDetail = Event & {
+  ticketTypes: TicketType[]
+  clubPhone?: string
+  clubFullAddress?: string
+  reservationOnly: boolean
 }
 
 export type Club = {
   id: string
   name: string
   imageUrl: string
+  coverImages?: string[]
   city?: string
   address?: string
   club_lat?: number
@@ -80,6 +104,10 @@ export type Promotion = {
   showNumericPricing?: boolean
   /** ISO end date from `valid_until` when present */
   validUntil?: string
+  /** ISO start date from `valid_from` when present */
+  validFrom?: string
+  /** ISO create timestamp, used for newest-first sorting in promotion lists */
+  createdAt?: string
   subtitle?: string
   longDescription?: string
   eventDate?: string
@@ -90,6 +118,8 @@ export type Promotion = {
   termsBullets?: string[]
   redemptionSteps?: string[]
   included?: string[]
+  included_items?: string[] | string
+  includedItems?: string[] | string
   excluded?: string[]
   termsAndConditions?: string
 }

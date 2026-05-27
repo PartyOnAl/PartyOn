@@ -43,7 +43,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  perspective: 800px;
 }
 
 .partyon-logo__ball-glow {
@@ -55,8 +54,6 @@
   height: 100%;
   display: grid;
   place-items: center;
-  transform-style: preserve-3d;
-  animation: partyon-axis-rotate 4.2s ease-in-out infinite;
 }
 
 .partyon-logo__ball-image {
@@ -65,12 +62,13 @@
   height: 100%;
   border-radius: 50%;
   box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.55),
-    0 0 20px rgba(167, 85, 247, 0.42),
-    0 0 36px rgba(59, 130, 246, 0.16);
+    0 2px 14px rgba(0, 0, 0, 0.6),
+    0 0 22px rgba(167, 85, 247, 0.45),
+    0 0 40px rgba(59, 130, 246, 0.18);
   object-fit: cover;
   object-position: center;
-  filter: saturate(1.18) contrast(1.04);
+  filter: saturate(1.2) contrast(1.05) brightness(1.04);
+  z-index: 0;
 }
 
 .partyon-logo__text {
@@ -99,27 +97,4 @@
   color: transparent;
 }
 
-@keyframes partyon-axis-rotate {
-  0% {
-    transform: rotateX(11deg) rotateY(-20deg);
-  }
-  50% {
-    transform: rotateX(11deg) rotateY(20deg);
-  }
-  100% {
-    transform: rotateX(11deg) rotateY(-20deg);
-  }
-}
-
-@keyframes partyon-pulse {
-  0%,
-  100% {
-    transform: scale(0.96);
-    opacity: 0.74;
-  }
-  50% {
-    transform: scale(1.04);
-    opacity: 0.95;
-  }
-}
 

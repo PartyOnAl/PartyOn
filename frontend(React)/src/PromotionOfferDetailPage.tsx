@@ -1,17 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Bookmark,
   Check,
-  CheckCircle,
+  CheckCircle2,
+  Gift,
   MapPin,
   Share2,
   Shield,
   Star,
   Tag,
 } from 'lucide-react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { API_BASE_URL } from '@/api'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import { OfferVenueMap } from '@/components/OfferVenueMap'
@@ -22,10 +24,14 @@ import {
   buildPromotionOfferDetail,
   relatedOfferCards,
 } from '@/lib/promotionOfferDetail'
+import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=1200&q=80'
+
+const FALLBACK_TERMS =
+  'Offer subject to availability, venue rules, and age restrictions. Non-transferable unless stated.\n\nPartyOn acts as a marketing and booking platform only. The venue is solely responsible for fulfilment, service quality, and compliance with local laws.\n\nCancellations follow the venue\'s policy. Abuse, resale, or fraudulent redemption may void the offer without refund.'
 
 /** Clears fixed `Navbar` (h-16). */
 const MAIN_TOP = 'pt-16'
@@ -41,6 +47,10 @@ function promoDiscountPillLabel(badge: string) {
   return s
 }
 
+function stripLeadingEmoji(text: string) {
+  return text.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim()
+}
+
 const heroGlassBtn =
   'rounded-full border border-white/15 bg-background/35 text-foreground shadow-sm backdrop-blur-md hover:border-primary hover:bg-primary hover:text-primary-foreground'
 
@@ -48,13 +58,32 @@ const heroGlassBtn =
 const saveShareOutlineHoverGlow =
   'group h-11 flex-1 gap-2 rounded-full border border-border/50 bg-background/95 text-sm font-semibold text-foreground shadow-sm transition-[border-color,box-shadow,background-color,color] duration-200 hover:border-primary/35 hover:!bg-background hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12),0_0_22px_hsl(var(--primary)/0.06)]'
 
+function formatPriceValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function canonicalPromotionUrl(offerId: string): string {
+  const configured =
+    import.meta.env.VITE_PUBLIC_SITE_URL?.trim() ||
+    import.meta.env.VITE_SITE_URL?.trim() ||
+    window.location.origin
+  const base = configured.replace(/\/$/, '')
+  return `${base}/promotions/offer/${encodeURIComponent(offerId)}`
+}
+
 export default function PromotionOfferDetailPage() {
   const { offerId } = useParams<{ offerId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-  const { promotions, loading } = useCatalog()
+  const { promotions, terms: globalTerms, loading } = useCatalog()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [saved, setSaved] = useState(false)
+  const [savedLoading, setSavedLoading] = useState(false)
+  const [claimedCode, setClaimedCode] = useState<string | null>(null)
+  const [claiming, setClaiming] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
 
   const resolvedId = (offerId ?? '').trim()
 
@@ -68,40 +97,164 @@ export default function PromotionOfferDetailPage() {
     [offer, promotions],
   )
 
-  function requireAuthThen(go: () => void) {
+  // After Stripe payment for a paid promotion, auto-insert into claimed_promotions
+  useEffect(() => {
+    if (searchParams.get('claimed') !== 'true') return
+    if (!user || !resolvedId || !supabase || !isSupabaseConfigured) return
+    void (async () => {
+      const { data, error } = await supabase
+        .from('claimed_promotions')
+        .insert({ user_id: user.id, promotion_id: resolvedId })
+        .select('redemption_code')
+        .single()
+      if (data) setClaimedCode((data as { redemption_code: string }).redemption_code)
+      if (error?.code === '23505') {
+        const { data: existing } = await supabase
+          .from('claimed_promotions')
+          .select('redemption_code, status')
+          .eq('user_id', user.id)
+          .eq('promotion_id', resolvedId)
+          .maybeSingle()
+        const row = existing as { redemption_code: string | null; status: string | null } | null
+        if (row && String(row.status ?? 'claimed').toLowerCase() !== 'cancelled') {
+          setClaimedCode(row.redemption_code ?? '')
+        }
+      }
+      // Clean ?claimed=true from the URL without triggering a re-render loop
+      setSearchParams((prev) => { prev.delete('claimed'); return prev }, { replace: true })
+    })()
+  }, [user, resolvedId, searchParams, setSearchParams])
+
+  // Load saved + claimed state from Supabase on mount / user change
+  useEffect(() => {
+    if (!user || !resolvedId || !supabase || !isSupabaseConfigured) return
+    void supabase
+      .from('saved_promotions')
+      .select('promotion_id')
+      .eq('user_id', user.id)
+      .eq('promotion_id', resolvedId)
+      .maybeSingle()
+      .then(({ data }) => setSaved(!!data))
+    void supabase
+      .from('claimed_promotions')
+      .select('redemption_code, status')
+      .eq('user_id', user.id)
+      .eq('promotion_id', resolvedId)
+      .maybeSingle()
+      .then(({ data }) => {
+        const row = data as { redemption_code: string | null; status: string | null } | null
+        const status = String(row?.status ?? 'claimed').toLowerCase()
+        setClaimedCode(row && status !== 'cancelled' ? row.redemption_code ?? '' : null)
+      })
+  }, [user, resolvedId])
+
+  async function handleToggleSave() {
     if (!user) {
       const from = encodeURIComponent(location.pathname + location.search)
       navigate(`/login?from=${from}`, { state: { from: location.pathname + location.search } })
       return
     }
-    go()
+    if (!supabase || !isSupabaseConfigured || !resolvedId) return
+    setSavedLoading(true)
+    if (saved) {
+      await supabase.from('saved_promotions').delete()
+        .eq('user_id', user.id).eq('promotion_id', resolvedId)
+      setSaved(false)
+    } else {
+      await supabase.from('saved_promotions').insert({ user_id: user.id, promotion_id: resolvedId })
+      setSaved(true)
+    }
+    setSavedLoading(false)
   }
 
-  function handleToggleSave() {
-    requireAuthThen(() => setSaved((s) => !s))
-  }
-
-  function handleClaimOffer() {
+  async function handleClaimOffer() {
     if (!offer) return
-    requireAuthThen(() =>
-      navigate('/payment', {
-        state: {
-          offer: {
-            id: offer.id,
-            title: offer.title,
-            venue: offer.venue,
-            city: offer.city,
-            image: offer.image,
-            price: offer.checkoutPrice,
-            currency: offer.currency,
-          },
-        },
-      }),
-    )
+    if (!user) {
+      const from = encodeURIComponent(location.pathname + location.search)
+      navigate(`/login?from=${from}`, { state: { from: location.pathname + location.search } })
+      return
+    }
+    // Already claimed — navigate to the offers tab in bookings
+    if (claimedCode) {
+      navigate('/my-bookings?tab=offers')
+      return
+    }
+
+    // Paid promotion — go through Stripe
+    if (offer.checkoutPrice > 0) {
+      setPaying(true)
+      setPayError(null)
+      try {
+        const successUrl = `${window.location.origin}${window.location.pathname}?claimed=true`
+        const cancelUrl = window.location.href
+        const res = await fetch(`${API_BASE_URL}/event/pay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Math.round(offer.checkoutPrice * 100),
+            quantity: 1,
+            events: {
+              event_id: offer.id,
+              event_name: offer.title,
+              event_image: offer.image,
+              final_ticket_price: offer.checkoutPrice,
+            },
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+          }),
+        })
+        const text = await res.text()
+        let data: { url?: string; message?: string | string[] } | null = null
+        if (text) {
+          try {
+            data = JSON.parse(text) as { url?: string; message?: string | string[] }
+          } catch {
+            data = null
+          }
+        }
+        const message = Array.isArray(data?.message) ? data.message.join(', ') : data?.message
+        if (!res.ok) {
+          setPayError(message ?? `Payment server returned ${res.status}. Please try again.`)
+          setPaying(false)
+          return
+        }
+        if (data?.url) { window.location.href = data.url; return }
+        setPayError(message ?? 'Payment server did not return a Stripe checkout link. Please try again.')
+      } catch {
+        const backend = API_BASE_URL || 'the local Vite proxy'
+        setPayError(`Could not reach the payment API through ${backend}. Make sure the backend is running and VITE_API_URL or VITE_API_PROXY_TARGET points to it.`)
+      }
+      setPaying(false)
+      return
+    }
+
+    if (!supabase || !isSupabaseConfigured) return
+    setClaiming(true)
+    const { data, error } = await supabase
+      .from('claimed_promotions')
+      .insert({ user_id: user.id, promotion_id: resolvedId })
+      .select('redemption_code')
+      .single()
+    setClaiming(false)
+    if (error) {
+      // Unique violation = already claimed by this user; reload the existing code
+      if (error.code === '23505') {
+        const { data: existing } = await supabase
+          .from('claimed_promotions')
+          .select('redemption_code')
+          .eq('user_id', user.id)
+          .eq('promotion_id', resolvedId)
+          .neq('status', 'cancelled')
+          .maybeSingle()
+        if (existing) setClaimedCode((existing as { redemption_code: string }).redemption_code)
+      }
+      return
+    }
+    if (data) setClaimedCode((data as { redemption_code: string }).redemption_code)
   }
 
   async function shareOffer() {
-    const url = window.location.href
+    const url = canonicalPromotionUrl(resolvedId)
     if (navigator.share) {
       try {
         await navigator.share({ title: offer?.title, url })
@@ -172,7 +325,7 @@ export default function PromotionOfferDetailPage() {
       ? 'Free Entry'
       : offer.checkoutPrice === 0
         ? 'FREE'
-        : `${offer.currency}${offer.checkoutPrice}`
+        : `${offer.currency}${formatPriceValue(offer.checkoutPrice)}`
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -214,7 +367,7 @@ export default function PromotionOfferDetailPage() {
                   size="icon"
                   className={heroGlassBtn}
                   aria-label={saved ? 'Saved' : 'Save offer'}
-                  onClick={handleToggleSave}
+                  onClick={() => void handleToggleSave()}
                 >
                   <Bookmark
                     className={cn(
@@ -285,72 +438,62 @@ export default function PromotionOfferDetailPage() {
                   </p>
                 </motion.div>
 
-                {offer.whyWorthItBulletLines.length > 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 }}
-                    className="space-y-4 rounded-2xl border border-border/30 bg-card p-6"
-                  >
-                    <h2 className="flex items-center gap-2 font-display text-xl font-bold text-foreground">
-                      <CheckCircle className="h-5 w-5 text-primary" aria-hidden />
-                      Why This Offer Is Worth It
-                    </h2>
-                    <ul className="space-y-3">
-                      {offer.whyWorthItBulletLines.map((item, i) => (
-                        <li key={i} className="flex items-start gap-3 text-muted-foreground">
-                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                    {offer.worthCardIncludedItems != null ? (
-                      <div className="border-t border-border/30 pt-5">
-                        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          What&apos;s Included
-                        </p>
-                        <ul className="space-y-2.5">
-                          {offer.worthCardIncludedItems.map((item, i) => (
-                            <li
-                              key={i}
-                              className="flex items-start gap-2.5 text-sm leading-snug text-muted-foreground"
-                            >
-                              <Check
-                                className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500"
-                                strokeWidth={2.5}
-                                aria-hidden
-                              />
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </motion.div>
-                ) : null}
-
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+                  className="flex flex-col gap-4 sm:flex-row sm:items-stretch"
                 >
-                  <div className="flex items-center gap-4 rounded-2xl border border-border/30 bg-card p-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                      <Tag className="h-5 w-5 text-primary" aria-hidden />
+                  {/* What's Included */}
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <Gift className="h-4 w-4" aria-hidden />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">What&apos;s Included</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Valid Until</p>
-                      <p className="font-semibold text-foreground">{offer.validUntilShort}</p>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="min-w-0 pt-4">
+                      <ul className="flex flex-col gap-2">
+                        {offer.included.map((item, i) => (
+                          <li key={i}>
+                            <div className="flex items-center gap-2">
+                              <Check className="h-3.5 w-3.5 shrink-0 text-[#ec4899]" aria-hidden />
+                              <span className="whitespace-nowrap text-sm font-normal leading-5 text-white">
+                                {stripLeadingEmoji(item)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 rounded-2xl border border-border/30 bg-card p-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
-                      <MapPin className="h-5 w-5 text-accent" aria-hidden />
+
+                  {/* Valid Until */}
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <Tag className="h-4 w-4" aria-hidden />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">Valid Until</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Location</p>
-                      <p className="font-semibold text-foreground">{offer.address}</p>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="flex min-w-0 flex-1 items-center pt-4">
+                      <p className="text-sm font-semibold leading-6 text-foreground">{offer.validUntilShort}</p>
+                    </div>
+                  </div>
+
+                  {/* Location */}
+                  <div className="flex flex-1 flex-col rounded-2xl border border-border/30 bg-card p-5">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                        <MapPin className="h-4 w-4" aria-hidden />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">Location</p>
+                    </div>
+                    <div className="mt-4 h-px bg-[#ec4899]/20" aria-hidden />
+                    <div className="flex min-w-0 flex-1 items-center pt-4">
+                      <p className="text-sm font-semibold leading-6 text-foreground">{offer.address}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -366,15 +509,19 @@ export default function PromotionOfferDetailPage() {
                     Terms &amp; Conditions
                   </h2>
                   <ul className="space-y-2">
-                    {offer.termsBullets.map((term, i) => (
-                      <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span
-                          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50"
-                          aria-hidden
-                        />
-                        {term}
-                      </li>
-                    ))}
+                    {(globalTerms ?? FALLBACK_TERMS)
+                      .split(/\n+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .map((term, i) => (
+                        <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
+                          <span
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+                            aria-hidden
+                          />
+                          {term}
+                        </li>
+                      ))}
                   </ul>
                 </motion.div>
               </div>
@@ -394,7 +541,7 @@ export default function PromotionOfferDetailPage() {
                           {offer.checkoutPrice < offer.originalPrice ? (
                             <p className="text-lg text-muted-foreground line-through">
                               {offer.currency}
-                              {offer.originalPrice}
+                              {formatPriceValue(offer.originalPrice)}
                             </p>
                           ) : null}
                           <p className="text-4xl font-bold text-primary">
@@ -403,7 +550,7 @@ export default function PromotionOfferDetailPage() {
                           {savings > 0 ? (
                             <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
                               You save {offer.currency}
-                              {savings} ({discountPct}% off)
+                              {formatPriceValue(savings)} ({discountPct}% off)
                             </span>
                           ) : null}
                         </div>
@@ -412,21 +559,46 @@ export default function PromotionOfferDetailPage() {
                       </>
                     ) : null}
 
+                    {claimedCode && (
+                      <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-emerald-400">Promotion claimed</p>
+                          <p className="text-sm font-semibold text-white">
+                            Open My Bookings to show the QR code.
+                          </p>
+                          <p className="mt-1 font-mono text-xs font-bold tracking-widest text-white/70">
+                            {claimedCode.toUpperCase()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     <Button
                       type="button"
-                      variant="gradient"
-                      className="h-12 w-full rounded-full text-base font-semibold"
-                      onClick={handleClaimOffer}
+                      variant={claimedCode ? 'outline' : 'gradient'}
+                      className={cn(
+                        'h-12 w-full rounded-full text-base font-semibold',
+                        claimedCode && 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10',
+                      )}
+                      onClick={() => { setPayError(null); void handleClaimOffer() }}
+                      disabled={claiming || paying}
                     >
-                      Claim Offer
+                      {paying ? 'Redirecting to payment…' : claiming ? 'Claiming…' : claimedCode ? 'Check My Bookings' : offer.ctaLabel}
                     </Button>
+                    {payError && (
+                      <p className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-xs font-medium text-red-300">
+                        {payError}
+                      </p>
+                    )}
 
                     <div className="flex gap-3">
                       <Button
                         type="button"
                         variant="outline"
                         className={saveShareOutlineHoverGlow}
-                        onClick={handleToggleSave}
+                        onClick={() => void handleToggleSave()}
+                        disabled={savedLoading}
                       >
                         <Bookmark
                           className={cn(
@@ -435,7 +607,7 @@ export default function PromotionOfferDetailPage() {
                             'group-hover:fill-primary/70 group-hover:text-primary/80',
                           )}
                         />
-                        Save
+                        {saved ? 'Saved' : 'Save'}
                       </Button>
                       <Button
                         type="button"

@@ -116,6 +116,10 @@ async createPayment(
 ) {
   console.log('amount:', amount);
   console.log('quantity:', quantity);
+  const base = (
+    process.env.FRONTEND_ORIGIN ??
+    'http://localhost:5173'
+  ).replace(/\/$/, '');
   const batch_id = uuidv4();
   const payment = Array.from({ length: quantity }, () => ({
     amount: (amount * 0.01).toString(),
@@ -127,13 +131,13 @@ async createPayment(
 
   await this.paymentRepository.save(payment);
 
-  const defaultSuccess = `http://localhost:5173/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`;
+  const defaultSuccess = `${base}/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`;
   const rawSuccess = opts?.stripeSuccessUrl?.trim();
   const success_url = rawSuccess
     ? rawSuccess.split('__BATCH_ID__').join(batch_id)
     : defaultSuccess;
   const cancel_url =
-    opts?.stripeCancelUrl?.trim() || 'http://localhost:5173/cancel';
+    opts?.stripeCancelUrl?.trim() || `${base}/cancel`;
 
   const session = await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
@@ -143,7 +147,7 @@ async createPayment(
         price_data: {
           currency: 'eur',
           product_data: {
-            name: 'Event Ticket',
+            name: events?.event_name ?? 'Ticket',
           },
           unit_amount: amount,
         },
@@ -157,9 +161,26 @@ async createPayment(
       event_id: String(events.event_id),
       payment_id: batch_id,
     },
+  })
+  return { url: session.url }
+}
+
+async createFeaturePayment(eventId: string, fee: number) {
+  const session = await this.getStripe().checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'payment',
+    line_items: [{
+      price_data: {
+        currency: 'eur',
+        product_data: { name: 'Featured Event Slot' },
+        unit_amount: Math.round(fee * 100),
+      },
+      quantity: 1,
+    }],
+    metadata: { event_id: eventId, payment_type: 'featured_event', amount: String(fee) },
+    success_url: `${(process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')}/manager/events?featured_paid=${eventId}`,
+    cancel_url: `${(process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')}/manager/events`,
   });
-  console.log('PRICE:', amount);
-  console.log('QUANTITY:', quantity);
   return { url: session.url };
 }
 

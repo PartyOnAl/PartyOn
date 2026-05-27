@@ -32,6 +32,7 @@ type UserProfile = {
   birth_date: string | null
   phone_number: string | null
   club_id: string | null
+  avatar_url: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -47,7 +48,7 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 const PROFILE_COLUMNS =
-  'id, role, name, surname, username, email, birth_date, phone_number, club_id, created_at, updated_at'
+  'id, role, name, surname, username, email, birth_date, phone_number, club_id, created_at, updated_at, avatar_url'
 
 function profileFromUserMetadata(user: User): UserProfile | null {
   const role = roleFromUser(user)
@@ -65,6 +66,7 @@ function profileFromUserMetadata(user: User): UserProfile | null {
     club_id: null,
     created_at: null,
     updated_at: null,
+    avatar_url: null,
   }
 }
 

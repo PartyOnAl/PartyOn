@@ -4,7 +4,7 @@
 
 .staff-approval__bound {
   width: 100%;
-  max-width: 1180px;
+  max-width: 1280px;
   margin-inline: auto;
 }
 
@@ -17,14 +17,18 @@
 }
 
 .staff-approval__invite {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   border: none;
   border-radius: 8px;
-  padding: 10px 14px;
+  padding: 11px 16px;
   color: #0a0a0a;
   background: #f5f5f5;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .staff-approval__invite:hover {
@@ -331,11 +335,77 @@
 }
 
 .staff-approval__field input:focus,
-.staff-approval__field select:focus,
 .staff-approval__field textarea:focus {
   outline: none;
-  border-color: #f5f5f5;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.staff-approval__role-select {
+  position: relative;
+}
+
+.staff-approval__role-trigger {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #ffffff;
+  background: #1a1a1a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.staff-approval__role-trigger:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.staff-approval__role-chevron {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #a3a3a3;
+}
+
+.staff-approval__role-list {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: #171717;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.staff-approval__role-option {
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: #f5f5f5;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.staff-approval__role-option:hover,
+.staff-approval__role-option--selected {
+  color: #ec4899;
+  background: rgba(236, 72, 153, 0.16);
 }
 
 .staff-approval__permission-preview {
@@ -450,60 +520,75 @@
 
 .staff-approval__stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 .staff-approval__stat {
-  min-height: 76px;
+  min-height: 94px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
   border-radius: 12px;
   background: #111111;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.18);
 }
 
-.staff-approval__stat-dot {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  border: 1px solid currentColor;
-  background: currentColor;
-  opacity: 0.28;
+.staff-approval__stat-body {
+  min-width: 0;
 }
 
-.staff-approval__stat--approved {
-  color: #22c55e;
-}
-
-.staff-approval__stat--pending {
-  color: #f59e0b;
-}
-
-.staff-approval__stat--rejected {
-  color: #ef4444;
-}
-
-.staff-approval__stat--total {
-  color: #94a3b8;
-}
-
-.staff-approval__stat strong {
-  display: block;
+.staff-approval__stat-value {
+  margin: 0;
   color: #ffffff;
-  font-size: 1.3rem;
-  font-weight: 800;
+  font-size: 1.8rem;
+  font-weight: 850;
   line-height: 1;
+  letter-spacing: 0;
 }
 
-.staff-approval__stat p {
-  margin: 5px 0 0;
+.staff-approval__stat-label {
+  margin: 7px 0 0;
   color: #8a8a8a;
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.staff-approval__stat-icon {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.staff-approval__stat-icon--green {
+  color: #34d399;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.staff-approval__stat-icon--red {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.staff-approval__stat-icon--purple {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.staff-approval__stat-ic {
+  width: 20px;
+  height: 20px;
 }
 
 .staff-approval__tabs {
@@ -522,6 +607,16 @@
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.staff-approval__tab:hover:not(.staff-approval__tab--active) {
+  color: #e5e5e5;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #171717;
 }
 
 .staff-approval__tab--active {
@@ -535,20 +630,31 @@
   gap: 12px;
 }
 
-.staff-approval__row {
+.staff-approval__card {
   display: grid;
-  grid-template-columns: 44px 1fr auto;
-  align-items: start;
-  gap: 16px;
-  padding: 18px;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
   border-radius: 12px;
   background: #111111;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.staff-approval__card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(236, 72, 153, 0.18);
+  background: #141414;
 }
 
 .staff-approval__avatar {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -558,6 +664,30 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.staff-approval__avatar--pink {
+  color: #f9a8d4;
+  background: rgba(236, 72, 153, 0.12);
+  border-color: rgba(236, 72, 153, 0.22);
+}
+
+.staff-approval__avatar--blue {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.staff-approval__avatar--purple {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.22);
+}
+
+.staff-approval__avatar--gray {
+  color: #d4d4d4;
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.2);
 }
 
 .staff-approval__content {
@@ -579,8 +709,8 @@
   font-weight: 800;
 }
 
-.staff-approval__role-pill,
-.staff-approval__status {
+.staff-approval__role-badge,
+.staff-approval__status-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 6px;
@@ -590,22 +720,37 @@
   text-transform: capitalize;
 }
 
-.staff-approval__role-pill {
+.staff-approval__role-badge--pink {
+  color: #f472b6;
+  background: rgba(236, 72, 153, 0.14);
+}
+
+.staff-approval__role-badge--blue {
   color: #60a5fa;
   background: rgba(59, 130, 246, 0.14);
 }
 
-.staff-approval__status--approved {
+.staff-approval__role-badge--purple {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.14);
+}
+
+.staff-approval__role-badge--gray {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.staff-approval__status-badge--approved {
   color: #34d399;
   background: rgba(34, 197, 94, 0.14);
 }
 
-.staff-approval__status--pending {
+.staff-approval__status-badge--pending {
   color: #fbbf24;
   background: rgba(245, 158, 11, 0.14);
 }
 
-.staff-approval__status--rejected {
+.staff-approval__status-badge--rejected {
   color: #f87171;
   background: rgba(239, 68, 68, 0.14);
 }
@@ -698,6 +843,16 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+.staff-approval__btn--restore {
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.5);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.staff-approval__btn--restore:hover {
+  background: rgba(22, 163, 74, 0.68);
+}
+
 .staff-approval__btn--danger {
   color: #fecaca;
   background: rgba(127, 29, 29, 0.55);
@@ -724,8 +879,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .staff-approval__row {
+  .staff-approval__card {
     grid-template-columns: 44px 1fr;
+    align-items: start;
   }
 
   .staff-approval__actions {
@@ -743,7 +899,7 @@
     grid-template-columns: 1fr;
   }
 
-  .staff-approval__row {
+  .staff-approval__card {
     grid-template-columns: 1fr;
   }
 

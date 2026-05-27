@@ -17,6 +17,7 @@ import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import { ClubDetailVenueMap } from '@/components/ClubDetailVenueMap'
 import { ClubCoverImage } from '@/components/ClubCoverImage'
+import { PhotoCarousel } from '@/components/PhotoCarousel'
 import { cn } from '@/lib/utils'
 import type { Club, ClubPagePayload, Event, Promotion } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -224,7 +225,6 @@ export default function ClubDetail() {
   const [page, setPage] = useState<ClubPagePayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [heroSrc, setHeroSrc] = useState(FALLBACK_CLUB_HERO)
   const [savedClubIds, setSavedClubIds] = useState<Set<string>>(readSavedClubIds)
 
   const load = useCallback(async () => {
@@ -239,7 +239,6 @@ export default function ClubDetail() {
       setError(err)
     } else if (data) {
       setPage(data)
-      setHeroSrc(data.club.imageUrl?.trim() || FALLBACK_CLUB_HERO)
     }
     setLoading(false)
   }, [clubId])
@@ -249,6 +248,16 @@ export default function ClubDetail() {
   }, [load])
 
   const club: Club | undefined = page?.club
+
+  const heroImages = useMemo(() => {
+    if (!club) return []
+    const coverImages = Array.isArray(club.coverImages)
+      ? club.coverImages.map((image) => image.trim()).filter(Boolean)
+      : []
+    return coverImages.length > 0
+      ? coverImages
+      : [club.imageUrl?.trim() || FALLBACK_CLUB_HERO]
+  }, [club])
 
   const similarClubs = useMemo((): Club[] => {
     if (!club) return []
@@ -396,11 +405,12 @@ export default function ClubDetail() {
         <main>
           {/* Hero */}
           <section className="relative h-[500px] w-full overflow-hidden bg-black">
-            <img
-              src={heroSrc}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover object-center"
-              onError={() => setHeroSrc(FALLBACK_CLUB_HERO)}
+            <PhotoCarousel
+              images={heroImages}
+              alt={`${club.name} cover photos`}
+              variant="public"
+              fallbackImage={FALLBACK_CLUB_HERO}
+              imageClassName="object-center"
             />
             <div
               className="pointer-events-none absolute inset-0 z-[0] bg-gradient-to-t from-black via-black/55 to-transparent"

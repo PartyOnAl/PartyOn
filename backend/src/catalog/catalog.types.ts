@@ -27,12 +27,19 @@ export type CatalogEventDto = {
   ticketRequired?: boolean;
   /** Linked club id for venue / reserve navigation */
   clubId?: string;
+  /** True when is_featured = true AND featured_request_status = 'approved' */
+  isFeatured?: boolean;
+  /** Raw ISO date string from event_starting_date — used for client-side date filtering */
+  rawDate?: string;
+  /** True when the event is table-reservation only (no ticket purchase) */
+  reservationOnly?: boolean;
 };
 
 export type CatalogClubDto = {
   id: string;
   name: string;
   imageUrl: string;
+  coverImages?: string[];
   city?: string;
   address?: string;
   /** From `clubs.club_lat` / legacy `lat` columns */
@@ -82,6 +89,10 @@ export type CatalogPromotionDto = {
   showNumericPricing?: boolean;
   /** ISO date string when `valid_until` is set */
   validUntil?: string;
+  /** ISO start date from `valid_from` when present */
+  validFrom?: string;
+  /** ISO create timestamp, used for newest-first sorting in promotion lists */
+  createdAt?: string;
   /** Short line for cards / hero tagline */
   subtitle?: string;
   /** Long “About” body when stored separately from `description` */
@@ -107,4 +118,30 @@ export type CatalogBundleDto = {
   events: CatalogEventDto[];
   clubs: CatalogClubDto[];
   promotions: CatalogPromotionDto[];
+  /** Global Terms & Conditions text from global_settings table */
+  terms?: string;
+  /** ISO timestamp of last T&C update */
+  termsUpdatedAt?: string;
+};
+
+export type CatalogFiltersDto = {
+  cities: string[];
+  musicTypes: string[];
+};
+
+export type CatalogTicketTypeDto = {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  totalQuantity: number;
+  soldQuantity: number;
+  available: number;
+};
+
+export type CatalogEventDetailDto = CatalogEventDto & {
+  ticketTypes: CatalogTicketTypeDto[];
+  clubPhone?: string;
+  clubFullAddress?: string;
+  reservationOnly: boolean;
 };

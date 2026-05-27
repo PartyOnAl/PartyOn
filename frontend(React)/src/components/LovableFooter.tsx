@@ -1,12 +1,36 @@
 import { Link } from 'react-router-dom'
-import { Instagram, Facebook, Twitter, Youtube, Mail, Send } from 'lucide-react'
+import { Instagram, Facebook, Twitter, Youtube, Mail, Send, CheckCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { PartyOnLogo } from '@/components/PartyOnLogo'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+type SubscribeStatus = 'success' | 'error' | null
 
 /** Lovable-style footer (renamed to avoid clash with existing `Footer.tsx`) */
 export function LovableFooter() {
   const [email, setEmail] = useState('')
+  const [subscribeStatus, setSubscribeStatus] = useState<SubscribeStatus>(null)
+  const [subscribeMsg, setSubscribeMsg] = useState('')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function showFeedback(status: SubscribeStatus, msg: string) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setSubscribeStatus(status)
+    setSubscribeMsg(msg)
+    timerRef.current = setTimeout(() => setSubscribeStatus(null), 4000)
+  }
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  function handleSubscribe() {
+    const trimmed = email.trim()
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      showFeedback('error', 'Please enter a valid email address.')
+      return
+    }
+    showFeedback('success', "You're subscribed! Hottest events coming your way.")
+    setEmail('')
+  }
 
   return (
     <footer className="border-t border-border/30 bg-card/30">
@@ -21,10 +45,18 @@ export function LovableFooter() {
               tickets, reserve tables — all in one place. Your night starts here.
             </p>
             <div className="flex items-center gap-2 pt-0.5">
-              {[Instagram, Facebook, Twitter, Youtube].map((Icon, i) => (
+              {[
+                { Icon: Instagram, href: 'https://www.instagram.com/partyon.al', label: 'Instagram' },
+                { Icon: Facebook, href: 'https://www.facebook.com/partyon.al', label: 'Facebook' },
+                { Icon: Twitter, href: 'https://twitter.com/partyonal', label: 'Twitter / X' },
+                { Icon: Youtube, href: 'https://www.youtube.com/@partyon', label: 'YouTube' },
+              ].map(({ Icon, href, label }) => (
                 <a
-                  key={i}
-                  href="#"
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
                   className="w-8 h-8 rounded-full bg-secondary/60 border border-border/40 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/10 transition-all"
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -60,30 +92,30 @@ export function LovableFooter() {
               Support
             </h4>
             <nav className="flex flex-col gap-2">
-              <a
-                href="#"
+              <Link
+                to="/help"
                 className="text-sm text-muted-foreground hover:text-primary transition-colors"
               >
                 Help Center
-              </a>
-              <a
-                href="#"
+              </Link>
+              <Link
+                to="/terms"
                 className="text-sm text-muted-foreground hover:text-primary transition-colors"
               >
                 Terms of Service
-              </a>
-              <a
-                href="#"
+              </Link>
+              <Link
+                to="/privacy"
                 className="text-sm text-muted-foreground hover:text-primary transition-colors"
               >
                 Privacy Policy
-              </a>
+              </Link>
               <a
                 href="mailto:partyonspm@gmail.com"
                 className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
               >
                 <Mail className="h-3.5 w-3.5" />
-                hello@partyon.al
+                partyonspm@gmail.com
               </a>
             </nav>
           </div>
@@ -101,12 +133,31 @@ export function LovableFooter() {
                 placeholder="your@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSubscribe()}
                 className="flex-1 h-9 px-3 rounded-lg bg-secondary/60 border border-border/40 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all"
               />
-              <Button size="icon" className="h-9 w-9 gradient-primary shrink-0">
+              <Button
+                size="icon"
+                className="h-9 w-9 gradient-primary shrink-0"
+                onClick={handleSubscribe}
+              >
                 <Send className="h-3.5 w-3.5" />
               </Button>
             </div>
+            {subscribeStatus && (
+              <div
+                className={`flex items-center gap-1.5 text-xs ${
+                  subscribeStatus === 'success' ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {subscribeStatus === 'success' ? (
+                  <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {subscribeMsg}
+              </div>
+            )}
           </div>
         </div>
       </div>

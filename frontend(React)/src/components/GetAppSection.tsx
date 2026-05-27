@@ -350,7 +350,7 @@ export function GetAppSection() {
 
   return (
     <section
-      className="relative overflow-hidden border-t border-white/[0.06] bg-[#06060a] py-16 md:py-24 lg:py-28"
+      className="relative overflow-hidden border-t border-white/[0.06] bg-[#06060a] py-10 md:py-24 lg:py-28"
       aria-labelledby="get-app-unified-heading"
     >
       <div
@@ -378,11 +378,11 @@ export function GetAppSection() {
             >
               Your <span className="gradient-text">Night</span> Starts Here
             </h2>
-            <p className="mt-3 max-w-lg text-base text-muted-foreground md:text-lg">
+            <p className="mt-2 sm:mt-3 max-w-lg text-sm sm:text-base text-muted-foreground md:text-lg">
               Find events, book tickets, and reserve tables in seconds
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <div className="mt-5 sm:mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button
                 type="button"
                 variant="outline"
@@ -402,7 +402,7 @@ export function GetAppSection() {
             </div>
           </motion.div>
 
-          <div className="mt-8 md:mt-10">
+          <div className="mt-5 md:mt-10">
             <StatsTrustRow />
             <TrustChipsRow />
           </div>
@@ -435,15 +435,13 @@ export function GetAppSection() {
             </div>
           </div>
 
-          <div className="mt-10 flex justify-center lg:hidden">
-            <PhoneMockup />
-          </div>
-
-          {/* Mobile / tablet: 2×2 review grid (flank layout hidden below lg) */}
-          <div className="mx-auto mt-10 grid max-w-xl grid-cols-2 gap-3 sm:gap-4 lg:hidden">
-            {REVIEWS.map((item, i) => (
-              <MobileReviewCard key={item.id} item={item} motionIndex={i} />
-            ))}
+          {/* Mobile / tablet layout: 2×2 review grid, no phone */}
+          <div className="mt-6 lg:hidden">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              {REVIEWS.map((item, i) => (
+                <MobileReviewCard key={item.id} item={item} motionIndex={i} />
+              ))}
+            </div>
           </div>
         </div>
       </div>

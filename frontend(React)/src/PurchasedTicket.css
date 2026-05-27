@@ -86,6 +86,14 @@ body {
   color: #a3a3a3;
 }
 
+.purchased-ticket__share-hint {
+  max-width: 360px;
+  margin: 12px auto 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #d8b4fe;
+}
+
 /* Summary strip */
 .purchased-ticket__summary {
   display: flex;
@@ -687,4 +695,140 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+/* QR panel — wraps image + navigation controls */
+.purchased-ticket__qr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 200px;
+  max-width: 100%;
+}
+
+/* QR navigation (prev/next + dots) */
+.purchased-ticket__qr-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.purchased-ticket__qr-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.purchased-ticket__qr-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d4d4d4;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.purchased-ticket__qr-arrow:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.purchased-ticket__qr-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.purchased-ticket__qr-counter {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a3a3a3;
+  min-width: 36px;
+  text-align: center;
+}
+
+.purchased-ticket__qr-dots {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.purchased-ticket__qr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.purchased-ticket__qr-dot--active {
+  background: #c084fc;
+  transform: scale(1.25);
+}
+
+/* Modal: grid of all QR codes */
+.purchased-ticket__preview-qrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+  margin: 4px 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(60, 60, 68, 0.95) rgba(255, 255, 255, 0.06);
+}
+
+.purchased-ticket__preview-qrs::-webkit-scrollbar {
+  width: 12px;
+}
+
+.purchased-ticket__preview-qrs::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.purchased-ticket__preview-qrs::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid rgba(15, 15, 20, 0.96);
+  border-radius: 999px;
+  background: rgba(60, 60, 68, 0.95);
+}
+
+.purchased-ticket__preview-qrs::-webkit-scrollbar-thumb:hover {
+  background: rgba(78, 78, 88, 0.98);
+}
+
+.purchased-ticket__preview-qrs::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.purchased-ticket__preview-qr-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.purchased-ticket__preview-qr-label {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #c084fc;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

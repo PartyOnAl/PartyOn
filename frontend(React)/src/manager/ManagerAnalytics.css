@@ -53,19 +53,6 @@
   height: 18px;
 }
 
-.manager-analytics__trend {
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.manager-analytics__trend--up {
-  color: #34d399;
-}
-
-.manager-analytics__trend--down {
-  color: #f87171;
-}
-
 .manager-analytics__metric-value {
   margin: 0 0 4px;
   color: #ffffff;
@@ -81,6 +68,11 @@
   font-size: 0.78rem;
   font-weight: 500;
 }
+
+.manager-analytics__metric-icon-wrap--pink  { background: rgba(236, 72, 153, 0.12); color: #ec4899; border-color: rgba(236, 72, 153, 0.2); }
+.manager-analytics__metric-icon-wrap--green { background: rgba(52, 211, 153, 0.12);  color: #34d399; border-color: rgba(52, 211, 153, 0.2);  }
+.manager-analytics__metric-icon-wrap--blue  { background: rgba(96, 165, 250, 0.12);  color: #60a5fa; border-color: rgba(96, 165, 250, 0.2);  }
+.manager-analytics__metric-icon-wrap--amber { background: rgba(251, 191, 36, 0.12);  color: #fbbf24; border-color: rgba(251, 191, 36, 0.2);  }
 
 .manager-analytics__charts {
   display: grid;
@@ -194,8 +186,8 @@
 
 .manager-analytics__line-plot polyline {
   fill: none;
-  stroke: #e9e9e9;
-  stroke-width: 1.8;
+  stroke: #ec4899;
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -205,9 +197,9 @@
 }
 
 .manager-analytics__line-plot circle.manager-analytics__line-dot {
-  fill: #ffffff;
-  stroke: #d5d5d5;
-  stroke-width: 0.8;
+  fill: #ec4899;
+  stroke: rgba(255, 128, 181, 0.55);
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -259,13 +251,12 @@
   width: 100%;
   max-width: 58px;
   border-radius: 4px 4px 0 0;
-  background: #f4f4f4;
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(to top, rgba(236, 72, 153, 0.35), rgba(236, 72, 153, 0.65));
 }
 
 .manager-analytics__bar--hover {
-  background: #ffffff;
-  box-shadow: 0 0 22px rgba(236, 72, 153, 0.15);
+  background: linear-gradient(to top, rgba(236, 72, 153, 0.6), #ec4899);
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.25);
 }
 
 .manager-analytics__bar-col span {
@@ -308,6 +299,24 @@
   background: #202020;
   font-size: 0.83rem;
   font-weight: 800;
+}
+
+.manager-analytics__event-rank--1 {
+  background: rgba(234, 179, 8, 0.14);
+  color: #d4a017;
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+
+.manager-analytics__event-rank--2 {
+  background: rgba(148, 163, 184, 0.14);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.manager-analytics__event-rank--3 {
+  background: rgba(180, 120, 80, 0.14);
+  color: #c09070;
+  border: 1px solid rgba(180, 120, 80, 0.25);
 }
 
 .manager-analytics__event-info p,

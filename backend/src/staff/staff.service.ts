@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { randomBytes } from 'crypto';
 import { getSupabaseClient } from '../supabase/supabase.client';
 
-const INVITE_ROLES = ['hostess', 'security', 'staff_manager'] as const;
+const INVITE_ROLES = ['hostess', 'security'] as const;
 type InviteRole = (typeof INVITE_ROLES)[number];
 const STAFF_STATUSES = ['pending', 'approved', 'rejected'] as const;
 type StaffStatus = (typeof STAFF_STATUSES)[number];
@@ -11,7 +11,6 @@ export type StaffInviteDto = {
   fullName?: string;
   email?: string;
   role?: InviteRole;
-  message?: string;
 };
 
 export type StaffInviteResult = {
@@ -186,7 +185,6 @@ export class StaffService {
       staff_status: 'approved',
       club_id: clubId,
       must_change_password: true,
-      ...(dto.message?.trim() ? { invite_message: dto.message.trim() } : {}),
     };
 
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({

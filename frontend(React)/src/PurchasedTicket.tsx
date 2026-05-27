@@ -19,15 +19,6 @@ import {
   X,
 } from 'lucide-react'
 
-/*type PaymentItem = {
-  payment_id: string | null
-  reservation_id: string | null
-  user_id: string | null
-  amount: number | null
-  payment_date: string | null
-  status: string | null
-}*/
-
 type BookingDetail = {
   reservationId: string
   reservationReference: string
@@ -42,6 +33,7 @@ type BookingDetail = {
   bookingType: 'ticket' | 'reservation'
   status: string
   qrValue: string
+  ticketTypeName: string | null
 }
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -79,6 +71,10 @@ function formatEventDate(dateString: string | null) {
   return `${formattedDate} • ${time}`
 }
 
+function makeQrUrl(data: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(data)}`
+}
+
 function buildCalendarUrl(booking: BookingDetail): string {
   const title = encodeURIComponent(booking.eventName)
   const location = encodeURIComponent(
@@ -93,19 +89,36 @@ function buildCalendarUrl(booking: BookingDetail): string {
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${start}&location=${location}`
 }
 
+async function imageUrlToDataUrl(url: string): Promise<string> {
+  const response = await fetch(url)
+  const blob = await response.blob()
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(String(reader.result ?? ''))
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
 export default function PurchasedTicket() {
   const navigate = useNavigate()
   const { bookingId, id, quantity, payment_id } = useParams<{
-    bookingId: string;
-    id: string;
-    quantity: string;
-    payment_id: string;
-  }>();
+    bookingId?: string
+    id?: string
+    quantity?: string
+    payment_id?: string
+  }>()
+
+  const checkoutSessionId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('checkout_session_id')
+      : null
+
   const [paymentIds, setPaymentIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [booking, setBooking] = useState<BookingDetail | null>(null)
-  const [event, setEvent] = useState<any>(null)
+  const [event, setEvent] = useState<Record<string, unknown> | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
 
   const [qrIndexMain, setQrIndexMain] = useState(0)
@@ -114,57 +127,47 @@ export default function PurchasedTicket() {
   const [modalSlideWidth, setModalSlideWidth] = useState(178)
 
   useEffect(() => {
-    const fetchPaymentIds = async () => {
-      const { data, error } = await getJson<string[]>(
-        `/payment/ids?batch_id=${encodeURIComponent(payment_id ?? '')}`
-      )
+    if (!payment_id) return
 
-      if (error || !data) {
-        console.error(error ?? 'Failed to fetch payment ids')
-        setPaymentIds([])
-        setError('Failed to load payment IDs')
-        return
-      }
-
-      setPaymentIds(data);
-    };
-  
-    if (payment_id) {
-      fetchPaymentIds();
-    }
-  }, [payment_id]);
-
+    getJson<string[]>(`/payment/ids?batch_id=${encodeURIComponent(payment_id)}`).then(
+      ({ data, error: fetchError }) => {
+        if (fetchError || !data) {
+          console.error(fetchError ?? 'Failed to fetch payment ids')
+          setPaymentIds([])
+          return
+        }
+        setPaymentIds(data)
+      },
+    )
+  }, [payment_id])
 
   const qrSrcs = useMemo(() => {
-    if (Array.isArray(paymentIds) && paymentIds.length > 0) {
+    if (paymentIds.length > 0) {
       return paymentIds
-        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map(
-          (id) =>
-            `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-              `tickets:${id}`,
-            )}`,
-        )
+        .filter((pid): pid is string => typeof pid === 'string' && pid.trim().length > 0)
+        .map((pid) => makeQrUrl(`tickets:${pid}`))
     }
 
     if (booking) {
       if (booking.bookingType === 'ticket' && !booking.qrValue?.startsWith('tickets:')) {
-        return [
-          `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent('PartyOn')}`,
-        ]
+        if (booking.quantity > 1) {
+          const base = booking.qrValue || booking.reservationId
+          return Array.from({ length: booking.quantity }, (_, i) => makeQrUrl(`${base}-T${i + 1}`))
+        }
+        return [makeQrUrl('PartyOn')]
       }
+
       const raw =
         booking.bookingType === 'reservation'
           ? `reservation:${booking.reservationId}`
           : booking.qrValue?.startsWith('tickets:') || booking.qrValue?.startsWith('reservation:')
             ? booking.qrValue
             : `tickets:${booking.qrValue || booking.reservationId}`
-      return [
-        `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(raw)}`,
-      ]
+
+      return [makeQrUrl(raw)]
     }
 
-    return [`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=PartyOn`]
+    return [makeQrUrl('PartyOn')]
   }, [paymentIds, booking])
 
   const orderId = booking
@@ -177,47 +180,187 @@ export default function PurchasedTicket() {
     ? `${booking.quantity} ${booking.bookingType}${booking.quantity > 1 ? 's' : ''}`
     : ''
 
-  /* ── EVENT FETCH (simple mode) ── */
+  const isSharedReservation = booking?.bookingType === 'reservation' && booking.quantity > 1
+
+  const tierLabel =
+    booking?.ticketTypeName ||
+    (booking?.bookingType === 'reservation' ? 'Table Reservation' : quantityLabel)
+
+  async function persistTicketBookingIfNeeded(payload: {
+    eventId: string
+    quantity: number
+    qrValueSeed: string
+  }) {
+    if (!supabase || !isSupabaseConfigured) return
+    const {
+      data: { user },
+    } = await getAuthUser('user')
+    if (!user?.id) return
+
+    const key = `ticket-booking:${user.id}:${payload.eventId}:${payload.quantity}:${payload.qrValueSeed}`
+    if (sessionStorage.getItem(key) === '1') return
+
+    const nowIso = new Date().toISOString()
+    const random = Math.floor(1000 + Math.random() * 9000)
+    const qrUnique = `TKT-${payload.eventId}-${Date.now()}-${random}`
+
+    const modernInsert = await supabase.from('reservations').insert({
+      user_id: user.id,
+      event_id: payload.eventId,
+      number_of_people: payload.quantity,
+      time_slot: null,
+      special_requests: null,
+      status: 'confirmed',
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+
+    if (modernInsert.error) {
+      await supabase.from('reservations').insert({
+        user_id: user.id,
+        event_id: payload.eventId,
+        nr_of_people: payload.quantity,
+        expected_arrival_time: null,
+        notes: `Stripe checkout${checkoutSessionId ? ` (${checkoutSessionId})` : ''}`,
+        status: 'confirmed',
+        type: 'ticket',
+        qr_code: qrUnique,
+        reservation_date: nowIso,
+        created_at: nowIso,
+      })
+    }
+
+    sessionStorage.setItem(key, '1')
+  }
+
+  async function buildPdfBlob(): Promise<{ blob: Blob; filename: string }> {
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+
+    for (let i = 0; i < qrSrcs.length; i++) {
+      if (i > 0) doc.addPage()
+
+      const qrDataUrl = await imageUrlToDataUrl(qrSrcs[i]).catch(() => null)
+
+      doc.setFillColor(255, 255, 255)
+      doc.rect(0, 0, 210, 297, 'F')
+
+      doc.setTextColor(236, 72, 153)
+      doc.setFontSize(22)
+      doc.setFont('helvetica', 'bold')
+      doc.text('PartyOn', 14, 22)
+
+      doc.setTextColor(20, 20, 20)
+      doc.setFontSize(15)
+      doc.text(booking!.eventName, 14, 34)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(90, 90, 90)
+      doc.setFontSize(10)
+      doc.text(`Date: ${formatEventDate(booking!.eventStartingDate)}`, 14, 44)
+      doc.text(`Venue: ${booking!.clubName || 'Venue not set'}`, 14, 52)
+      if (booking!.clubAddress) doc.text(booking!.clubAddress, 14, 59)
+      doc.text(`Order: #${orderId}`, 14, 67)
+
+      if (booking!.bookingType === 'reservation' && booking!.quantity > 1) {
+        doc.setTextColor(147, 51, 234)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text(`Shared reservation QR for ${booking!.quantity} guests`, 14, 76)
+      } else if (qrSrcs.length > 1) {
+        doc.setTextColor(147, 51, 234)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text(`Ticket ${i + 1} of ${qrSrcs.length}`, 14, 76)
+      }
+
+      if (qrDataUrl) {
+        doc.setFillColor(245, 245, 245)
+        doc.roundedRect(55, 84, 100, 100, 6, 6, 'F')
+        doc.addImage(qrDataUrl, 'PNG', 60, 89, 90, 90)
+      }
+
+      doc.setTextColor(160, 160, 160)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text('Generated by PartyOn', 14, 288)
+    }
+
+    const blob = doc.output('blob')
+    return { blob, filename: `${orderId}.pdf` }
+  }
+
+  async function handleDownloadPdf() {
+    if (!booking) return
+    const { blob, filename } = await buildPdfBlob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleShare() {
+    if (!booking) return
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: booking.eventName,
+          url: window.location.href,
+        })
+        return
+      }
+      await navigator.clipboard.writeText(window.location.href)
+    } catch {
+      try {
+        const { blob, filename } = await buildPdfBlob()
+        const file = new File([blob], filename, { type: 'application/pdf' })
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            title: booking.eventName,
+            text: `Booking confirmation · #${orderId}`,
+            files: [file],
+          })
+        }
+      } catch {
+        // dismissed or unavailable
+      }
+    }
+  }
+
   useEffect(() => {
-    if (!id || id === 'undefined') return
+    if (!id || id === 'undefined' || bookingId) return
 
     let active = true
 
     async function loadEvent() {
-      const { data, error } = await getJson<any>(`/event/${id}`)
+      const { data, error: fetchError } = await getJson<Record<string, unknown>>(`/event/${id}`)
       if (!active) return
 
-      if (error || !data) {
-        console.error(error ?? 'Failed to fetch event')
+      if (fetchError || !data) {
+        console.error(fetchError ?? 'Failed to fetch event')
         setEvent(null)
-        // In simple mode (no bookingId) the event IS the only data source
-        if (!bookingId) {
-          setLoading(false)
-          setError('Could not load event details')
-        }
+        setLoading(false)
+        setError('Could not load event details')
         return
       }
 
       setEvent(data)
     }
 
-    loadEvent()
-
+    void loadEvent()
     return () => {
       active = false
     }
   }, [id, bookingId])
 
-  /* ── PAYMENT FETCH (GET /payment/:id) — runs in parallel with event fetch ── */
-
-  /* ── BOOKING FETCH (Supabase logic) ── */
   useEffect(() => {
     if (!bookingId) {
       if (!id || id === 'undefined') {
         setLoading(false)
         setError('Missing booking ID')
       }
-      // else: id present — synthetic booking built once event loads below
       return
     }
 
@@ -228,66 +371,102 @@ export default function PurchasedTicket() {
       setError(null)
 
       if (!supabase || !isSupabaseConfigured) {
-        setError('Supabase not configured')
+        setError('Supabase is not configured.')
         setLoading(false)
         return
       }
 
       const {
         data: { user },
+        error: userError,
       } = await getAuthUser('user')
 
       if (!active) return
 
-      if (!user) {
+      if (userError || !user) {
         navigate('/login', { replace: true })
         return
       }
 
-      // ---------------- LEGACY ----------------
       const firstLegacy = await supabase
         .from('reservations')
         .select(
           `reservation_id,nr_of_people,type,status,qr_code,expected_arrival_time,reservation_reference,
-           event:events(event_id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address))`,
+           event:events(event_id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address)),
+           ticket_type:ticket_types(name)`,
         )
         .eq('reservation_id', bookingId)
         .eq('user_id', user.id)
         .single()
 
-      let data: any = firstLegacy.data
-      let err = firstLegacy.error
+      let data: unknown = firstLegacy.data
+      let detailError: { message?: string } | null = firstLegacy.error as { message?: string } | null
+
+      const missingReferenceColumn =
+        detailError?.message?.toLowerCase().includes('reservation_reference') &&
+        detailError?.message?.toLowerCase().includes('does not exist')
+
+      if (missingReferenceColumn) {
+        const retry = await supabase
+          .from('reservations')
+          .select(
+            `reservation_id,nr_of_people,type,status,qr_code,expected_arrival_time,
+             event:events(event_id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address)),
+             ticket_type:ticket_types(name)`,
+          )
+          .eq('reservation_id', bookingId)
+          .eq('user_id', user.id)
+          .single()
+        data = retry.data
+        detailError = retry.error as { message?: string } | null
+      }
 
       if (!active) return
 
-      if (!err && data) {
-        const row = data
-        const event = one(row.event)
-        const club = one(event?.club)
+      if (!detailError && data) {
+        const row = data as {
+          reservation_id: string
+          nr_of_people: number | null
+          type: string | null
+          status: string | null
+          qr_code: string | null
+          expected_arrival_time: string | null
+          reservation_reference?: string | null
+          event: {
+            event_id: string
+            event_name: string
+            event_starting_date: string | null
+            event_hours: string | null
+            event_image: string | null
+            club: { club_name: string | null; club_address: string | null } | null
+          } | null
+          ticket_type: { name: string | null } | null
+        }
+        const ev = one(row.event)
+        const club = one(ev?.club ?? null)
+        const ticketType = one(row.ticket_type)
 
         setBooking({
           reservationId: row.reservation_id,
-          reservationReference:
-            row.reservation_reference || row.qr_code || row.reservation_id,
-          eventId: event?.event_id ?? '',
-          eventName: event?.event_name ?? 'Event',
-          eventImage: event?.event_image ?? null,
-          eventStartingDate: event?.event_starting_date ?? null,
-          eventHours: event?.event_hours ?? row.expected_arrival_time ?? null,
+          reservationReference: row.reservation_reference || row.qr_code || row.reservation_id,
+          eventId: ev?.event_id ?? '',
+          eventName: ev?.event_name ?? 'Event',
+          eventImage: ev?.event_image ?? null,
+          eventStartingDate: ev?.event_starting_date ?? null,
+          eventHours: ev?.event_hours ?? row.expected_arrival_time ?? null,
           clubName: club?.club_name ?? null,
           clubAddress: club?.club_address ?? null,
           quantity: Math.max(1, Number(row.nr_of_people || 1)),
           bookingType: normalizeType(row.type),
           status: String(row.status ?? 'pending'),
-          qrValue: `reservation:${row.reservation_id}`,
+          qrValue: row.qr_code || row.reservation_reference || row.reservation_id,
+          ticketTypeName: ticketType?.name ?? null,
         })
-
         setLoading(false)
         return
       }
 
-      // ---------------- MODERN ----------------
-      const modern = await supabase
+      const firstModern = await supabase
         .from('reservations')
         .select(
           `id,number_of_people,time_slot,status,reservation_reference,
@@ -297,69 +476,168 @@ export default function PurchasedTicket() {
         .eq('user_id', user.id)
         .single()
 
+      let modernData: unknown = firstModern.data
+      let modernError: { message?: string } | null = firstModern.error as { message?: string } | null
+
+      const modernMissingReference =
+        modernError?.message?.toLowerCase().includes('reservation_reference') &&
+        modernError?.message?.toLowerCase().includes('does not exist')
+
+      if (modernMissingReference) {
+        const retryModern = await supabase
+          .from('reservations')
+          .select(
+            `id,number_of_people,time_slot,status,
+             event:events(id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address))`,
+          )
+          .eq('id', bookingId)
+          .eq('user_id', user.id)
+          .single()
+        modernData = retryModern.data
+        modernError = retryModern.error as { message?: string } | null
+      }
+
       if (!active) return
 
-      if (modern.data) {
-        const row = modern.data
-        const event = one(row.event)
-        const club = one(event?.club)
+      if (!modernError && modernData) {
+        const row = modernData as {
+          id: string
+          number_of_people: number | null
+          time_slot: string | null
+          status: string | null
+          reservation_reference?: string | null
+          event: {
+            id: string
+            event_name: string
+            event_starting_date: string | null
+            event_hours: string | null
+            event_image: string | null
+            club: { club_name: string | null; club_address: string | null } | null
+          } | null
+        }
+        const ev = one(row.event)
+        const club = one(ev?.club ?? null)
 
         setBooking({
           reservationId: row.id,
           reservationReference: row.reservation_reference || row.id,
-          eventId: event?.id ?? '',
-          eventName: event?.event_name ?? 'Event',
-          eventImage: event?.event_image ?? null,
-          eventStartingDate: event?.event_starting_date ?? null,
-          eventHours: event?.event_hours ?? row.time_slot ?? null,
+          eventId: ev?.id ?? '',
+          eventName: ev?.event_name ?? 'Event',
+          eventImage: ev?.event_image ?? null,
+          eventStartingDate: ev?.event_starting_date ?? null,
+          eventHours: ev?.event_hours ?? row.time_slot ?? null,
           clubName: club?.club_name ?? null,
           clubAddress: club?.club_address ?? null,
           quantity: Math.max(1, Number(row.number_of_people || 1)),
           bookingType: 'reservation',
           status: String(row.status ?? 'pending'),
-          qrValue: `reservation:${row.id}`,
+          qrValue: row.reservation_reference || row.id,
+          ticketTypeName: null,
         })
-
         setLoading(false)
         return
       }
 
-      setError(err?.message ?? 'Could not load booking')
+      const { data: ticketData, error: ticketError } = await supabase
+        .from('tickets')
+        .select(
+          `id,quantity,status,
+           event:events(id,event_name,event_starting_date,event_hours,event_image,club:clubs(club_name,club_address)),
+           ticket_type:ticket_types(name)`,
+        )
+        .eq('id', bookingId)
+        .eq('user_id', user.id)
+        .single()
+
+      if (!active) return
+
+      if (!ticketError && ticketData) {
+        const row = ticketData as unknown as {
+          id: string
+          quantity: number | null
+          status: string | null
+          event: {
+            id: string
+            event_name: string
+            event_starting_date: string | null
+            event_hours: string | null
+            event_image: string | null
+            club: { club_name: string | null; club_address: string | null } | null
+          } | null
+          ticket_type: { name: string | null } | null
+        }
+        const ev = one(row.event)
+        const club = one(ev?.club ?? null)
+        const ticketType = one(row.ticket_type)
+
+        setBooking({
+          reservationId: row.id,
+          reservationReference: orderIdFrom(row.id),
+          eventId: ev?.id ?? '',
+          eventName: ev?.event_name ?? 'Event',
+          eventImage: ev?.event_image ?? null,
+          eventStartingDate: ev?.event_starting_date ?? null,
+          eventHours: ev?.event_hours ?? null,
+          clubName: club?.club_name ?? null,
+          clubAddress: club?.club_address ?? null,
+          quantity: Math.max(1, Number(row.quantity || 1)),
+          bookingType: 'ticket',
+          status: String(row.status ?? 'confirmed'),
+          qrValue: row.id,
+          ticketTypeName: ticketType?.name ?? null,
+        })
+        setLoading(false)
+        return
+      }
+
+      setError(
+        detailError?.message ??
+          modernError?.message ??
+          ticketError?.message ??
+          'Could not load booking details.',
+      )
       setLoading(false)
     }
 
-    loadDetail()
-
+    void loadDetail()
     return () => {
       active = false
     }
   }, [bookingId, id, navigate])
 
-  /* ── SYNTHETIC BOOKING (no bookingId → build from id + quantity + event data) ── */
   useEffect(() => {
     if (bookingId || !id || id === 'undefined' || !event) return
 
     const qty = Math.max(1, Number(quantity ?? 1))
     const syntheticRef = `PO-${id.slice(0, 8).toUpperCase()}`
+    const eventId = String(event.event_id ?? event.id ?? id)
 
     setBooking({
       reservationId: id,
       reservationReference: syntheticRef,
-      eventId: String(event.id ?? event.event_id ?? id),
-      eventName: event.event_name ?? event.title ?? 'Event',
-      eventImage: event.event_image ?? event.imageUrl ?? null,
-      eventStartingDate: event.event_starting_date ?? event.date ?? null,
-      eventHours: event.event_hours ?? null,
-      clubName: event.club && event.club !== '—' ? event.club : null,
-      clubAddress: event.address ?? null,
+      eventId,
+      eventName: String(event.event_name ?? event.title ?? 'Event'),
+      eventImage: (event.event_image ?? event.imageUrl ?? null) as string | null,
+      eventStartingDate: (event.event_starting_date ?? event.date ?? null) as string | null,
+      eventHours: (event.event_hours ?? null) as string | null,
+      clubName:
+        event.club && event.club !== '—' ? String(event.club) : null,
+      clubAddress: (event.address ?? event.club_address ?? null) as string | null,
       quantity: qty,
       bookingType: 'ticket',
       status: 'confirmed',
       qrValue: '',
+      ticketTypeName: null,
     })
     setLoading(false)
     setError(null)
-  }, [bookingId, id, quantity, event])
+
+    void persistTicketBookingIfNeeded({
+      eventId,
+      quantity: qty,
+      qrValueSeed: checkoutSessionId || payment_id || 'legacy',
+    })
+  }, [bookingId, id, quantity, event, checkoutSessionId, payment_id])
 
   useEffect(() => {
     setQrIndexMain(0)
@@ -384,7 +662,6 @@ export default function PurchasedTicket() {
   const maxModalIndex = Math.max(0, qrSrcs.length - MODAL_VISIBLE)
   const showModalNav = qrSrcs.length > MODAL_VISIBLE
 
-  /* ── RENDER ── */
   return (
     <div className="purchased-ticket">
       <div className="purchased-ticket__glow" aria-hidden />
@@ -396,7 +673,6 @@ export default function PurchasedTicket() {
           Back to bookings
         </Link>
 
-        {/* ── Loading skeleton ── */}
         {loading ? (
           <div className="animate-pulse" style={{ paddingTop: 32 }}>
             {[80, 260, 100].map((h, i) => (
@@ -412,7 +688,6 @@ export default function PurchasedTicket() {
             ))}
           </div>
         ) : error || !booking ? (
-          /* ── Error / not found ── */
           <div style={{ textAlign: 'center', paddingTop: 56 }}>
             <p style={{ color: '#a3a3a3', marginBottom: 24, fontSize: '0.9375rem' }}>
               {error ?? 'Booking not found'}
@@ -423,7 +698,6 @@ export default function PurchasedTicket() {
           </div>
         ) : (
           <>
-            {/* ── Success header ── */}
             <div className="purchased-ticket__success">
               <div className="purchased-ticket__check">
                 <Check strokeWidth={2.5} />
@@ -432,9 +706,13 @@ export default function PurchasedTicket() {
               <p className="purchased-ticket__sub">
                 Your {booking.bookingType} is confirmed
               </p>
+              {isSharedReservation ? (
+                <p className="purchased-ticket__share-hint">
+                  Share the group QR with your friends so everyone has the reservation code.
+                </p>
+              ) : null}
             </div>
 
-            {/* ── Event summary strip ── */}
             <div className="purchased-ticket__summary">
               <div
                 className="purchased-ticket__summary-thumb"
@@ -459,10 +737,8 @@ export default function PurchasedTicket() {
               </div>
             </div>
 
-            {/* ── Main ticket card ── */}
             <div className="purchased-ticket__card">
               <div className="purchased-ticket__card-grid">
-                {/* QR code slider */}
                 <div className="purchased-ticket__qr-slider">
                   <div className="purchased-ticket__qr-viewport">
                     <div
@@ -486,7 +762,7 @@ export default function PurchasedTicket() {
                         <button
                           type="button"
                           className="purchased-ticket__qr-arrow"
-                          onClick={() => setQrIndexMain(p => Math.max(0, p - 1))}
+                          onClick={() => setQrIndexMain((p) => Math.max(0, p - 1))}
                           disabled={qrIndexMain === 0}
                           aria-label="Previous QR"
                         >
@@ -498,7 +774,9 @@ export default function PurchasedTicket() {
                         <button
                           type="button"
                           className="purchased-ticket__qr-arrow"
-                          onClick={() => setQrIndexMain(p => Math.min(qrSrcs.length - 1, p + 1))}
+                          onClick={() =>
+                            setQrIndexMain((p) => Math.min(qrSrcs.length - 1, p + 1))
+                          }
                           disabled={qrIndexMain === qrSrcs.length - 1}
                           aria-label="Next QR"
                         >
@@ -520,10 +798,9 @@ export default function PurchasedTicket() {
                   )}
                 </div>
 
-                {/* Detail panel */}
                 <div className="purchased-ticket__details">
                   <p className="purchased-ticket__event-title">{booking.eventName}</p>
-                  <p className="purchased-ticket__tier">{quantityLabel}</p>
+                  <p className="purchased-ticket__tier">{tierLabel}</p>
 
                   {booking.eventStartingDate && (
                     <div className="purchased-ticket__detail-line">
@@ -563,7 +840,6 @@ export default function PurchasedTicket() {
                 </div>
               </div>
 
-              {/* Utility row */}
               <div className="purchased-ticket__util-row">
                 <button
                   type="button"
@@ -571,47 +847,41 @@ export default function PurchasedTicket() {
                   onClick={() => setPreviewOpen(true)}
                 >
                   <QrCode />
-                  Full QR
+                  {isSharedReservation ? 'Group QR' : 'Full QR'}
                 </button>
-                <button
-  type="button"
-  className="purchased-ticket__util-btn"
-  onClick={() => {
-    qrSrcs.forEach((src, index) => {
-      const a = document.createElement('a');
-      a.href = src;
-      a.download = `ticket-${orderId}-${index + 1}.png`;
-      a.click();
-    });
-  }}
->
-  <Download />
-  Save all
-</button>
                 <button
                   type="button"
                   className="purchased-ticket__util-btn"
-                  onClick={async () => {
-                    try {
-                      if (navigator.share) {
-                        await navigator.share({
-                          title: booking.eventName,
-                          url: window.location.href,
-                        })
-                      } else {
-                        await navigator.clipboard.writeText(window.location.href)
-                      }
-                    } catch {
-                      // dismissed or unavailable
-                    }
+                  onClick={() => void handleDownloadPdf()}
+                >
+                  <Download />
+                  Download
+                </button>
+                <button
+                  type="button"
+                  className="purchased-ticket__util-btn"
+                  onClick={() => {
+                    qrSrcs.forEach((src, index) => {
+                      const a = document.createElement('a')
+                      a.href = src
+                      a.download = `ticket-${orderId}-${index + 1}.png`
+                      a.click()
+                    })
                   }}
+                >
+                  <Download />
+                  Save all
+                </button>
+                <button
+                  type="button"
+                  className="purchased-ticket__util-btn"
+                  onClick={() => void handleShare()}
                 >
                   <Share2 />
                   Share
                 </button>
               </div>
 
-              {/* Add to calendar */}
               <a
                 href={buildCalendarUrl(booking)}
                 target="_blank"
@@ -649,7 +919,6 @@ export default function PurchasedTicket() {
         )}
       </div>
 
-      {/* ── QR full-screen preview modal ── */}
       {previewOpen && booking && (
         <div
           className="purchased-ticket__preview-overlay"
@@ -667,13 +936,12 @@ export default function PurchasedTicket() {
               {quantityLabel} · #{orderId}
             </p>
 
-            {/* Modal QR slider — 2 visible at a time */}
             <div className="purchased-ticket__modal-qr-container">
               {showModalNav && (
                 <button
                   type="button"
                   className="purchased-ticket__modal-qr-arrow purchased-ticket__modal-qr-arrow--prev"
-                  onClick={() => setQrIndexModal(p => Math.max(0, p - 1))}
+                  onClick={() => setQrIndexModal((p) => Math.max(0, p - 1))}
                   disabled={qrIndexModal === 0}
                   aria-label="Previous"
                 >
@@ -707,7 +975,7 @@ export default function PurchasedTicket() {
                 <button
                   type="button"
                   className="purchased-ticket__modal-qr-arrow purchased-ticket__modal-qr-arrow--next"
-                  onClick={() => setQrIndexModal(p => Math.min(maxModalIndex, p + 1))}
+                  onClick={() => setQrIndexModal((p) => Math.min(maxModalIndex, p + 1))}
                   disabled={qrIndexModal === maxModalIndex}
                   aria-label="Next"
                 >
@@ -730,9 +998,7 @@ export default function PurchasedTicket() {
               </div>
             )}
 
-            <p className="purchased-ticket__preview-ref">
-              Present this code at the door
-            </p>
+            <p className="purchased-ticket__preview-ref">Present this code at the door</p>
             <div className="purchased-ticket__preview-actions">
               <button
                 type="button"
@@ -747,23 +1013,10 @@ export default function PurchasedTicket() {
                 type="button"
                 className="purchased-ticket__nav-btn purchased-ticket__nav-btn--primary"
                 style={{ fontSize: '0.875rem', padding: '10px 16px' }}
-                onClick={async () => {
-                  try {
-                    if (navigator.share) {
-                      await navigator.share({
-                        title: booking.eventName,
-                        url: window.location.href,
-                      })
-                    } else {
-                      await navigator.clipboard.writeText(window.location.href)
-                    }
-                  } catch {
-                    // dismissed or unavailable
-                  }
-                }}
+                onClick={() => void handleDownloadPdf()}
               >
-                <Share2 size={16} />
-                Share
+                <Download size={16} />
+                Download PDF
               </button>
             </div>
           </div>
