@@ -17,6 +17,7 @@ type ClaimedOffer = {
     image_url: string | null
     description: string | null
     valid_until: string | null
+    club_id: string | null
     clubs: { club_name: string | null; club_address: string | null } | null
   } | null
 }
@@ -38,6 +39,7 @@ type BookingItem = {
 }
 
 type FilterKind = 'upcoming' | 'past'
+type OfferFilter = 'active' | 'used'
 
 type ReservationRowLegacy = {
   reservation_id: string
@@ -181,6 +183,15 @@ export default function MyBookings() {
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [qrModalOffer, setQrModalOffer] = useState<ClaimedOffer | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
+  const [offerFilter, setOfferFilter] = useState<OfferFilter>('active')
+  const [cancelTarget, setCancelTarget] = useState<{ type: 'promotion'; id: string } | { type: 'reservation'; booking: BookingItem } | null>(null)
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const [promoReviewModal, setPromoReviewModal] = useState<{ offerId: string; promoTitle: string } | null>(null)
+  const [promoDisputeTarget, setPromoDisputeTarget] = useState<ClaimedOffer | null>(null)
+  const [promoDisputeSubject, setPromoDisputeSubject] = useState('')
+  const [promoDisputeDescription, setPromoDisputeDescription] = useState('')
+  const [promoDisputePriority, setPromoDisputePriority] = useState<'low' | 'medium' | 'high'>('medium')
+  const [promoDisputeBusy, setPromoDisputeBusy] = useState(false)
 
   async function deleteBookingFromDb(booking: BookingItem) {
     if (!supabase || !isSupabaseConfigured) return
@@ -397,6 +408,21 @@ export default function MyBookings() {
     })
   }, [bookings, filter])
 
+  const filteredOffers = useMemo(() => {
+    return claimedOffers.filter((offer) => {
+      const s = (offer.status ?? '').toLowerCase()
+      if (offerFilter === 'active') return s !== 'redeemed' && s !== 'used' && s !== 'expired'
+      return s === 'redeemed' || s === 'used'
+    })
+  }, [claimedOffers, offerFilter])
+
+  const activeOfferCount = useMemo(() => {
+    return claimedOffers.filter((o) => {
+      const s = (o.status ?? '').toLowerCase()
+      return s !== 'redeemed' && s !== 'used' && s !== 'expired' && s !== 'cancelled'
+    }).length
+  }, [claimedOffers])
+
   useEffect(() => {
     if (filter !== 'past' || !userId || !supabase || !isSupabaseConfigured) return
     const now = new Date()
@@ -432,7 +458,7 @@ export default function MyBookings() {
       if (!user) return
       const { data } = await sb
         .from('claimed_promotions')
-        .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, clubs(club_name, club_address))')
+        .select('id, redemption_code, status, claimed_at, promotion:promotions(promotion_id, title, image_url, description, valid_until, club_id, clubs(club_name, club_address))')
         .eq('user_id', user.id)
         .neq('status', 'cancelled')
         .order('claimed_at', { ascending: false })
@@ -508,15 +534,78 @@ export default function MyBookings() {
     setActionMsg('Dispute submitted — the venue manager will review it.')
   }
 
+  async function cancelPromotion(offerId: string) {
+    if (!supabase || !isSupabaseConfigured) return
+    setCancelBusy(true)
+    await supabase.from('claimed_promotions').update({ status: 'cancelled' }).eq('id', offerId)
+    setClaimedOffers((prev) => prev.filter((o) => o.id !== offerId))
+    setCancelBusy(false)
+    setCancelTarget(null)
+    setActionMsg('Promotion claim cancelled.')
+  }
+
+  async function cancelFreeReservation(booking: BookingItem) {
+    if (!supabase || !isSupabaseConfigured || !booking.reservationKey) return
+    setCancelBusy(true)
+    const { error } = await supabase.from('reservations').update({ status: 'cancelled' }).eq('id', booking.reservationKey)
+    if (error) {
+      await supabase.from('reservations').update({ status: 'cancelled' }).eq('reservation_id', booking.reservationKey)
+    }
+    setBookings((prev) => prev.map((b) => b.bookingId === booking.bookingId ? { ...b, status: 'cancelled' } : b))
+    setCancelBusy(false)
+    setCancelTarget(null)
+    setActionMsg('Reservation cancelled.')
+  }
+
+  async function handlePromoReviewSubmit() {
+    if (!promoReviewModal || !userId || !supabase || !isSupabaseConfigured || reviewDraft.rating === 0) return
+    setReviewBusy(true)
+    const { error } = await supabase
+      .from('claimed_promotions')
+      .update({ rating: reviewDraft.rating, review_comment: reviewDraft.comment.trim() || null })
+      .eq('id', promoReviewModal.offerId)
+    setReviewBusy(false)
+    setActionMsg(error ? 'Thank you for your feedback!' : 'Review saved — thank you!')
+    setPromoReviewModal(null)
+  }
+
+  async function submitPromoDispute() {
+    if (!supabase || !isSupabaseConfigured) return
+    if (!promoDisputeSubject.trim() || !promoDisputeDescription.trim()) {
+      setActionMsg('Please add subject and description.')
+      return
+    }
+    setPromoDisputeBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setPromoDisputeBusy(false); return }
+    const clubId = promoDisputeTarget?.promotion?.club_id ?? null
+    const { error } = await supabase.from('disputes').insert({
+      user_id: user.id,
+      club_id: clubId,
+      reservation_id: null,
+      event_id: null,
+      subject: promoDisputeSubject.trim(),
+      description: promoDisputeDescription.trim(),
+      priority: promoDisputePriority,
+    })
+    setPromoDisputeBusy(false)
+    if (error) { setActionMsg(error.message); return }
+    setPromoDisputeTarget(null)
+    setPromoDisputeSubject('')
+    setPromoDisputeDescription('')
+    setPromoDisputePriority('medium')
+    setActionMsg('Dispute submitted — the venue manager will review it.')
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
       <main className="po-container px-4 pb-16 pt-24 md:px-0">
         <div className="mx-auto w-full max-w-5xl">
           <header className="mb-6">
-            <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">My Bookings</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">My Activity</h1>
             <p className="mt-2 text-sm text-muted-foreground md:text-base">
-              Your tickets and reservations in one place
+              Your tickets, reservations, and offers in one place
             </p>
             {actionMsg ? (
               <p className="mt-2 text-sm font-semibold text-emerald-300">{actionMsg}</p>
@@ -539,11 +628,16 @@ export default function MyBookings() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('offers')}
-                  className={`relative pb-3 text-sm font-semibold transition-colors ${
+                  className={`relative pb-3 text-sm font-semibold transition-colors inline-flex items-center gap-2 ${
                     activeTab === 'offers' ? 'text-white' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  Offers
+                  Claimed Promotions
+                  {activeOfferCount > 0 && (
+                    <span className="rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                      {activeOfferCount}
+                    </span>
+                  )}
                   {activeTab === 'offers' ? (
                     <span className="absolute inset-x-0 -bottom-px h-[2px] bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500" />
                   ) : null}
@@ -561,6 +655,27 @@ export default function MyBookings() {
                 </button>
               )}
             </div>
+
+            {/* Active / Used sub-tabs for Claimed Promotions */}
+            {activeTab === 'offers' && (
+              <div className="mt-4 flex gap-5 border-b border-white/8 pb-0">
+                {(['active', 'used'] as OfferFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setOfferFilter(f)}
+                    className={`relative pb-3 text-xs font-medium capitalize transition-colors ${
+                      offerFilter === f ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {f}
+                    {offerFilter === f && (
+                      <span className="absolute inset-x-0 -bottom-px h-px bg-white/40" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Upcoming / Past sub-tabs only for Bookings */}
             {activeTab === 'bookings' && (
@@ -585,44 +700,49 @@ export default function MyBookings() {
           </header>
 
           {activeTab === 'offers' ? (
-            /* ── Claimed Offers ─────────────────────────────────────────── */
+            /* ── Claimed Promotions ─────────────────────────────────────── */
             offersLoading ? (
               <section className="space-y-3">
                 {Array.from({ length: 3 }).map((_, idx) => (
                   <div key={idx} className="h-28 animate-pulse rounded-2xl border border-white/10 bg-[#111118]/80" />
                 ))}
               </section>
-            ) : claimedOffers.length === 0 ? (
+            ) : filteredOffers.length === 0 ? (
               <section className="rounded-2xl border border-white/10 bg-[#101016]/80 px-6 py-12 text-center">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-primary/10">
                   <Gift className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="text-xl font-bold text-white">No claimed offers yet</h2>
-                <p className="mt-2 text-sm text-muted-foreground">Browse promotions and claim an offer to see it here</p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  className="mt-5 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-95"
-                >
-                  Explore Offers
-                </button>
+                <h2 className="text-xl font-bold text-white">
+                  {offerFilter === 'active' ? 'No active promotions' : 'No used promotions'}
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {offerFilter === 'active'
+                    ? 'Browse promotions and claim one to see it here'
+                    : 'Promotions you redeem will appear here'}
+                </p>
+                {offerFilter === 'active' && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/promotions')}
+                    className="mt-5 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-95"
+                  >
+                    Explore Promotions
+                  </button>
+                )}
               </section>
             ) : (
               <section className="space-y-3">
-                {claimedOffers.map((offer) => {
+                {filteredOffers.map((offer) => {
                   const promo = offer.promotion
-                  const isRedeemed = offer.status === 'redeemed'
-                  const isExpired = offer.status === 'expired'
-                  const statusColor = isRedeemed
+                  const isUsed = offer.status === 'redeemed' || offer.status === 'used'
+                  const statusColor = isUsed
                     ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300'
-                    : isExpired
-                      ? 'border-white/20 bg-white/5 text-white/40'
-                      : 'border-primary/30 bg-primary/10 text-primary'
+                    : 'border-primary/30 bg-primary/10 text-primary'
                   return (
                     <article
                       key={offer.id}
-                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center"
-                      onClick={() => setQrModalOffer(offer)}
+                      className={`grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:grid-cols-[88px_1fr_auto] md:items-center ${!isUsed ? 'cursor-pointer' : ''}`}
+                      onClick={!isUsed ? () => setQrModalOffer(offer) : undefined}
                     >
                       {/* Thumbnail */}
                       <div className="h-[88px] w-[88px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
@@ -646,9 +766,9 @@ export default function MyBookings() {
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                           <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize ${statusColor}`}>
-                            {offer.status}
+                            {isUsed ? 'Redeemed' : 'Active'}
                           </span>
-                          {promo?.valid_until && (
+                          {promo?.valid_until && !isUsed && (
                             <span className="text-xs text-muted-foreground">
                               Valid until {new Date(promo.valid_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </span>
@@ -665,22 +785,58 @@ export default function MyBookings() {
                         )}
                       </div>
 
-                      {/* QR code preview */}
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className="rounded-xl border border-white/15 bg-white p-2 shadow-sm">
-                          <QRCode
-                            value={offer.redemption_code.toUpperCase()}
-                            size={72}
-                            bgColor="#ffffff"
-                            fgColor="#0a0a0f"
-                            level="M"
-                          />
+                      {/* Right actions */}
+                      {isUsed ? (
+                        /* Used: rate & dispute */
+                        <div className="flex flex-col items-end gap-2 self-stretch py-0.5">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setReviewDraft({ rating: 0, comment: '' }); setPromoReviewModal({ offerId: offer.id, promoTitle: promo?.title ?? 'Promotion' }) }}
+                            className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/40 transition-all duration-150 hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                          >
+                            <Star className="h-3 w-3" />
+                            Rate
+                          </button>
+                          {promo?.club_id && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setActionMsg(null); setPromoDisputeTarget(offer) }}
+                              className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/8 px-2.5 py-1 text-[11px] font-semibold text-red-400 transition hover:border-red-500/50 hover:bg-red-500/18"
+                            >
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              File dispute
+                            </button>
+                          )}
                         </div>
-                        <span className="flex items-center gap-1 text-[10px] font-medium text-white/40">
-                          <ScanLine className="h-2.5 w-2.5" />
-                          Tap to scan
-                        </span>
-                      </div>
+                      ) : (
+                        /* Active: QR preview + cancel */
+                        <div className="flex flex-col items-center gap-1.5">
+                          <div
+                            className="rounded-xl border border-white/15 bg-white p-2 shadow-sm"
+                            onClick={() => setQrModalOffer(offer)}
+                          >
+                            <QRCode
+                              value={offer.redemption_code.toUpperCase()}
+                              size={72}
+                              bgColor="#ffffff"
+                              fgColor="#0a0a0f"
+                              level="M"
+                            />
+                          </div>
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-white/40">
+                            <ScanLine className="h-2.5 w-2.5" />
+                            Tap to scan
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setCancelTarget({ type: 'promotion', id: offer.id }) }}
+                            className="mt-1 inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/35 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                            Cancel claim
+                          </button>
+                        </div>
+                      )}
                     </article>
                   )
                 })}
@@ -824,7 +980,19 @@ export default function MyBookings() {
                           </button>
                         </div>
                       ) : (
-                        <ChevronRight className="h-4 w-4 text-white/25" />
+                        <div className="flex flex-col items-end gap-2">
+                          <ChevronRight className="h-4 w-4 text-white/25" />
+                          {booking.kind === 'reservation' && normalizeStatus(booking.status) !== 'cancelled' && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setCancelTarget({ type: 'reservation', booking }) }}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/35 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </article>
@@ -853,7 +1021,7 @@ export default function MyBookings() {
             {/* Header */}
             <div className="flex items-start justify-between px-5 pb-3 pt-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-primary/70">My Offer</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-primary/70">Claimed Promotion</p>
                 <h2 className="mt-0.5 truncate text-base font-bold text-white">
                   {qrModalOffer.promotion?.title ?? 'Promotion'}
                 </h2>
@@ -1057,6 +1225,183 @@ export default function MyBookings() {
               <button
                 type="button"
                 onClick={() => setDisputeTarget(null)}
+                className="rounded-lg border border-white/15 px-4 py-2.5 text-sm text-muted-foreground"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Cancel confirmation modal ──────────────────────────────────── */}
+      {cancelTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          onClick={() => setCancelTarget(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0e0e14] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-white">
+              {cancelTarget.type === 'promotion' ? 'Cancel this claim?' : 'Cancel this reservation?'}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {cancelTarget.type === 'promotion'
+                ? 'This will remove the claimed promotion from your account. This action cannot be undone.'
+                : 'Your reservation will be cancelled. This action cannot be undone.'}
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelTarget(null)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/10"
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                disabled={cancelBusy}
+                onClick={() => {
+                  if (cancelTarget.type === 'promotion') {
+                    void cancelPromotion(cancelTarget.id)
+                  } else {
+                    void cancelFreeReservation(cancelTarget.booking)
+                  }
+                }}
+                className="flex-1 rounded-xl border border-red-500/40 bg-red-500/15 py-2.5 text-sm font-bold text-red-400 transition hover:bg-red-500/25 disabled:opacity-40"
+              >
+                {cancelBusy ? 'Cancelling…' : 'Yes, cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Promo review modal ─────────────────────────────────────────── */}
+      {promoReviewModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          onClick={() => setPromoReviewModal(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0e0e14] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-primary/70">Rate your experience</p>
+                <h2 className="mt-0.5 text-lg font-bold text-white leading-snug">{promoReviewModal.promoTitle}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPromoReviewModal(null)}
+                className="shrink-0 rounded-full border border-white/10 p-1.5 text-white/40 hover:text-white/70"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mb-5">
+              <p className="mb-2 text-sm text-muted-foreground">Your rating</p>
+              <StarPicker value={reviewDraft.rating} onChange={(n) => setReviewDraft((d) => ({ ...d, rating: n }))} />
+              {reviewDraft.rating > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {['', 'Poor', 'Below average', 'Average', 'Good', 'Excellent'][reviewDraft.rating]}
+                </p>
+              )}
+            </div>
+            <div className="mb-6">
+              <label htmlFor="promo-review-comment" className="mb-1.5 block text-sm text-muted-foreground">
+                Share more (optional)
+              </label>
+              <textarea
+                id="promo-review-comment"
+                rows={3}
+                placeholder="How was your experience with this offer?"
+                value={reviewDraft.comment}
+                onChange={(e) => setReviewDraft((d) => ({ ...d, comment: e.target.value }))}
+                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPromoReviewModal(null)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reviewDraft.rating === 0 || reviewBusy}
+                onClick={() => void handlePromoReviewSubmit()}
+                className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
+              >
+                {reviewBusy ? 'Saving…' : 'Submit review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Promo dispute modal ────────────────────────────────────────── */}
+      {promoDisputeTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center"
+          role="presentation"
+          onClick={() => setPromoDisputeTarget(null)}
+        >
+          <div
+            role="dialog"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-white">File a dispute</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{promoDisputeTarget.promotion?.title ?? 'Promotion'}</p>
+            <p className="mt-3 text-xs font-semibold text-muted-foreground">Priority</p>
+            <div className="mt-1 flex gap-2">
+              {(['low', 'medium', 'high'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPromoDisputePriority(p)}
+                  className={`flex-1 rounded-lg border py-2 text-xs font-bold capitalize ${
+                    promoDisputePriority === p ? 'border-primary/50 bg-primary/20 text-white' : 'border-white/10 text-muted-foreground'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <label className="mt-3 block text-xs font-semibold text-muted-foreground">Subject</label>
+            <input
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              value={promoDisputeSubject}
+              onChange={(e) => setPromoDisputeSubject(e.target.value)}
+              placeholder="e.g. Offer was not honoured"
+            />
+            <label className="mt-3 block text-xs font-semibold text-muted-foreground">Description</label>
+            <textarea
+              className="mt-1 min-h-[100px] w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              value={promoDisputeDescription}
+              onChange={(e) => setPromoDisputeDescription(e.target.value)}
+              placeholder="Describe the issue in detail…"
+            />
+            {actionMsg ? <p className="mt-2 text-xs text-red-300">{actionMsg}</p> : null}
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={promoDisputeBusy}
+                onClick={() => void submitPromoDispute()}
+                className="flex-1 rounded-lg bg-gradient-to-r from-pink-500 via-fuchsia-500 to-purple-500 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+              >
+                {promoDisputeBusy ? 'Submitting…' : 'Submit dispute'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPromoDisputeTarget(null)}
                 className="rounded-lg border border-white/15 px-4 py-2.5 text-sm text-muted-foreground"
               >
                 Cancel
