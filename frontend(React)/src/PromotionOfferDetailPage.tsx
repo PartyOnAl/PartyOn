@@ -70,6 +70,7 @@ export default function PromotionOfferDetailPage() {
   const [claimedCode, setClaimedCode] = useState<string | null>(null)
   const [claiming, setClaiming] = useState(false)
   const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
 
   const resolvedId = (offerId ?? '').trim()
 
@@ -154,6 +155,7 @@ export default function PromotionOfferDetailPage() {
     // Paid promotion — go through Stripe
     if (offer.checkoutPrice > 0) {
       setPaying(true)
+      setPayError(null)
       try {
         const successUrl = `${window.location.origin}${window.location.pathname}?claimed=true`
         const cancelUrl = window.location.href
@@ -173,9 +175,12 @@ export default function PromotionOfferDetailPage() {
             cancel_url: cancelUrl,
           }),
         })
-        const data = (await res.json()) as { url?: string }
+        const data = (await res.json()) as { url?: string; message?: string }
         if (data.url) { window.location.href = data.url; return }
-      } catch { /* fall through */ }
+        setPayError(data.message ?? 'Payment could not be started. Please try again.')
+      } catch {
+        setPayError('Could not connect to the payment server. Please check your connection and try again.')
+      }
       setPaying(false)
       return
     }
@@ -530,11 +535,16 @@ export default function PromotionOfferDetailPage() {
                         'h-12 w-full rounded-full text-base font-semibold',
                         claimedCode && 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10',
                       )}
-                      onClick={() => void handleClaimOffer()}
+                      onClick={() => { setPayError(null); void handleClaimOffer() }}
                       disabled={claiming || paying}
                     >
                       {paying ? 'Redirecting to payment…' : claiming ? 'Claiming…' : claimedCode ? 'View in Your Offers' : offer.ctaLabel}
                     </Button>
+                    {payError && (
+                      <p className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-xs font-medium text-red-300">
+                        {payError}
+                      </p>
+                    )}
 
                     <div className="flex gap-3">
                       <Button
