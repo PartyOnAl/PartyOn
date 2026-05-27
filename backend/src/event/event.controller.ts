@@ -34,14 +34,14 @@ getById(@Param('id') id: string): Promise<EventListItem> {
 }
 
 @Post('pay')
-async createPayment(@Body() body: {amount : number , quantity : number ,events : any}){
-  const result= await this.eventService.createPayment(
-  body.amount , 
-  body.quantity,
-  body.events,
-
+async createPayment(@Body() body: { amount: number; quantity: number; events: any; success_url?: string; cancel_url?: string }) {
+  const result = await this.eventService.createPayment(
+    body.amount,
+    body.quantity,
+    body.events,
+    body.success_url,
+    body.cancel_url,
   );
-  console.log('BODY:', body);
   return { url: result.url };
 }
 

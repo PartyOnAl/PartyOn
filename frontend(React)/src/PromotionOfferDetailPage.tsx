@@ -12,7 +12,8 @@ import {
   Star,
   Tag,
 } from 'lucide-react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { API_BASE_URL } from '@/api'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
 import { OfferVenueMap } from '@/components/OfferVenueMap'
@@ -63,10 +64,12 @@ export default function PromotionOfferDetailPage() {
   const location = useLocation()
   const { user } = useAuth()
   const { promotions, terms: globalTerms, loading } = useCatalog()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [saved, setSaved] = useState(false)
   const [savedLoading, setSavedLoading] = useState(false)
   const [claimedCode, setClaimedCode] = useState<string | null>(null)
   const [claiming, setClaiming] = useState(false)
+  const [paying, setPaying] = useState(false)
 
   const resolvedId = (offerId ?? '').trim()
 
@@ -79,6 +82,22 @@ export default function PromotionOfferDetailPage() {
     () => (offer ? relatedOfferCards(offer.id, promotions, 3) : []),
     [offer, promotions],
   )
+
+  // After Stripe payment for a paid promotion, auto-insert into claimed_promotions
+  useEffect(() => {
+    if (searchParams.get('claimed') !== 'true') return
+    if (!user || !resolvedId || !supabase || !isSupabaseConfigured) return
+    void (async () => {
+      const { data } = await supabase
+        .from('claimed_promotions')
+        .insert({ user_id: user.id, promotion_id: resolvedId })
+        .select('redemption_code')
+        .single()
+      if (data) setClaimedCode((data as { redemption_code: string }).redemption_code)
+      // Clean ?claimed=true from the URL without triggering a re-render loop
+      setSearchParams((prev) => { prev.delete('claimed'); return prev }, { replace: true })
+    })()
+  }, [user, resolvedId, searchParams, setSearchParams])
 
   // Load saved + claimed state from Supabase on mount / user change
   useEffect(() => {
@@ -131,6 +150,36 @@ export default function PromotionOfferDetailPage() {
       navigate('/my-bookings?tab=offers')
       return
     }
+
+    // Paid promotion — go through Stripe
+    if (offer.checkoutPrice > 0) {
+      setPaying(true)
+      try {
+        const successUrl = `${window.location.origin}${window.location.pathname}?claimed=true`
+        const cancelUrl = window.location.href
+        const res = await fetch(`${API_BASE_URL}/event/pay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Math.round(offer.checkoutPrice * 100),
+            quantity: 1,
+            events: {
+              event_id: offer.id,
+              event_name: offer.title,
+              event_image: offer.image,
+              final_ticket_price: offer.checkoutPrice,
+            },
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+          }),
+        })
+        const data = (await res.json()) as { url?: string }
+        if (data.url) { window.location.href = data.url; return }
+      } catch { /* fall through */ }
+      setPaying(false)
+      return
+    }
+
     if (!supabase || !isSupabaseConfigured) return
     setClaiming(true)
     const { data, error } = await supabase
@@ -482,9 +531,9 @@ export default function PromotionOfferDetailPage() {
                         claimedCode && 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10',
                       )}
                       onClick={() => void handleClaimOffer()}
-                      disabled={claiming}
+                      disabled={claiming || paying}
                     >
-                      {claiming ? 'Claiming…' : claimedCode ? 'View in Your Offers' : offer.ctaLabel}
+                      {paying ? 'Redirecting to payment…' : claiming ? 'Claiming…' : claimedCode ? 'View in Your Offers' : offer.ctaLabel}
                     </Button>
 
                     <div className="flex gap-3">
