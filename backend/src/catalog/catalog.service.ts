@@ -509,7 +509,6 @@ export class CatalogService {
         undefined,
       doorsOpen:
         pickString(row, [
-          'event_hours',
           'doors_open',
           'doors_time',
           'door_time',

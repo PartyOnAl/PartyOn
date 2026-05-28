@@ -53,6 +53,7 @@ export default function Payment() {
   const [quantity, setQuantity] = useState(1)
   const [organizerUpdates, setOrganizerUpdates] = useState(true)
   const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
 
   // Fallback: fetch from legacy API if no state
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function Payment() {
       return
     }
     setPaying(true)
+    setPayError(null)
     try {
       const res = await fetch(`${API_BASE_URL}/event/pay`, {
         method: 'POST',
@@ -87,18 +89,29 @@ export default function Payment() {
         body: JSON.stringify({
           amount: unitPrice * 100,
           quantity,
-          events: legacyEvent ?? {
-            event_id: id,
-            event_name: eventName,
-            event_starting_date: eventDate,
-            event_image: eventImage,
-            final_ticket_price: unitPrice,
+          events: {
+            event_id: legacyEvent?.event_id ?? id,
+            event_name: legacyEvent?.event_name ?? eventName,
+            event_starting_date: legacyEvent?.event_starting_date ?? eventDate,
+            final_ticket_price: legacyEvent?.final_ticket_price ?? unitPrice,
           },
         }),
       })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setPayError(err?.message ?? 'Payment could not be started. Please try again.')
+        setPaying(false)
+        return
+      }
       const data = await res.json()
-      if (data.url) window.location.href = data.url
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        setPayError('No checkout URL returned. Please try again.')
+        setPaying(false)
+      }
     } catch {
+      setPayError('Network error. Please check your connection and try again.')
       setPaying(false)
     }
   }
@@ -296,6 +309,12 @@ export default function Payment() {
                   </p>
                 </div>
               </div>
+
+              {payError && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  {payError}
+                </div>
+              )}
 
               <button
                 type="button"

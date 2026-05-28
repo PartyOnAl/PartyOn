@@ -75,7 +75,10 @@ function eventNeedsTicket(ev: Event): boolean {
 }
 
 function extractBaseTime(ev: Event): string {
-  if (ev.doorsOpen?.trim()) return ev.doorsOpen.trim()
+  if (ev.doorsOpen?.trim()) {
+    const m = ev.doorsOpen.trim().match(/^(\d{1,2}):(\d{2})$/)
+    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`
+  }
   const m = ev.date.match(/(\d{1,2}:\d{2})/)
   if (m?.[1]) return m[1]
   return '22:00'
