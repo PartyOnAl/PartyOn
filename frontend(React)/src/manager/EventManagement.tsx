@@ -99,7 +99,6 @@ const MONTH_NAMES = [
   'December',
 ] as const
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
-const HOUR_SELECT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const
 const MINUTE_SELECT_OPTIONS = ['00', '30'] as const
 const EVENT_TYPE_OPTIONS = ['Club Night', 'Live Music', 'Special Event', 'Private Party', 'Other'] as const
 const EVENT_FILTERS: Array<{ id: EventFilter; label: string }> = [
