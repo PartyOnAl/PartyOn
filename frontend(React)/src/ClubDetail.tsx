@@ -29,14 +29,6 @@ const SAVED_CLUBS_KEY = 'partyon_saved_club_ids_v1'
 const FALLBACK_CLUB_HERO =
   'https://images.unsplash.com/photo-1566417713940-fe7c737a9ef8?w=1600&q=80'
 
-function promotionEndTimestamp(value?: string) {
-  if (!value) return Number.POSITIVE_INFINITY
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY
-  if (!/[tT]/.test(value)) date.setHours(23, 59, 59, 999)
-  return date.getTime()
-}
-
 const FALLBACK_PROMO_IMAGE =
   'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=800&q=80'
 
@@ -353,9 +345,7 @@ export default function ClubDetail() {
   }
 
   const events: Event[] = page?.events ?? []
-  const promotions: Promotion[] = (page?.promotions ?? []).filter(
-    (promo) => promotionEndTimestamp(promo.validUntil) >= Date.now(),
-  )
+  const promotions: Promotion[] = page?.promotions ?? []
 
   const venueLine = [club?.city, club?.address].filter((s) => s?.trim()).join(' · ')
 

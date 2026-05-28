@@ -29,18 +29,6 @@ function timestamp(value?: string, fallback = Number.POSITIVE_INFINITY) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function promotionEndTimestamp(value?: string) {
-  if (!value) return Number.POSITIVE_INFINITY
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY
-  if (!/[tT]/.test(value)) date.setHours(23, 59, 59, 999)
-  return date.getTime()
-}
-
-function isPromotionActive(promo: Promotion) {
-  return promotionEndTimestamp(promo.validUntil) >= Date.now()
-}
-
 function startOfDay(date: Date) {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)
@@ -182,7 +170,7 @@ function dateRangeLabelFromInputs(start: string, end: string) {
 
 function promotionOverlapsRange(promo: Promotion, rangeStart: Date, rangeEnd: Date) {
   const promoStart = timestamp(promo.validFrom, Number.NEGATIVE_INFINITY)
-  const promoEnd = promotionEndTimestamp(promo.validUntil)
+  const promoEnd = timestamp(promo.validUntil, Number.POSITIVE_INFINITY)
   return promoStart <= rangeEnd.getTime() && promoEnd >= rangeStart.getTime()
 }
 
@@ -260,12 +248,10 @@ export default function Promotions() {
       if (start && end) range = start <= end ? { start, end } : { start: end, end: start }
     }
 
-    const activePromotions = promotions.filter(isPromotionActive)
-
     const filteredByType =
       filter === 'all'
-        ? activePromotions
-        : activePromotions.filter((promo) => promotionDiscountType(promo) === filter)
+        ? promotions
+        : promotions.filter((promo) => promotionDiscountType(promo) === filter)
 
     const filteredByDate = range
       ? filteredByType.filter((promo) => promotionOverlapsRange(promo, range.start, range.end))

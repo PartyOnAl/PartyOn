@@ -5,7 +5,6 @@ import useEmblaCarousel from 'embla-carousel-react'
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -41,24 +40,12 @@ function PromoImage({ src, alt }: { src: string; alt: string }) {
   )
 }
 
-function promotionEndTimestamp(value?: string) {
-  if (!value) return Number.POSITIVE_INFINITY
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY
-  if (!/[tT]/.test(value)) date.setHours(23, 59, 59, 999)
-  return date.getTime()
-}
-
 type PromotionsSectionProps = {
   promotions: Promotion[]
   loading?: boolean
 }
 
 export function PromotionsSection({ promotions, loading = false }: PromotionsSectionProps) {
-  const activePromotions = useMemo(
-    () => promotions.filter((promo) => promotionEndTimestamp(promo.validUntil) >= Date.now()),
-    [promotions],
-  )
   const [emblaRef, emblaApi] = useEmblaCarousel({
     align: 'start',
     loop: false,
@@ -159,7 +146,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
               />
             ))}
           </div>
-        ) : activePromotions.length === 0 ? (
+        ) : promotions.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-10 rounded-xl border border-border/30 bg-card/40">
             Exclusive offers coming soon. Check back for deals and special access.
           </p>
@@ -169,7 +156,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
               <button
                 type="button"
                 onClick={scrollPrev}
-                disabled={activePromotions.length <= 1}
+                disabled={promotions.length <= 1}
                 aria-label="Previous promotion"
                 className="absolute -left-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
               >
@@ -178,7 +165,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
               <button
                 type="button"
                 onClick={scrollNext}
-                disabled={activePromotions.length <= 1}
+                disabled={promotions.length <= 1}
                 aria-label="Next promotion"
                 className="absolute -right-5 top-1/2 z-20 hidden sm:flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white shadow-lg backdrop-blur-sm transition-all hover:border-[#E91E8C] hover:bg-[#E91E8C] disabled:opacity-30 disabled:hover:border-white/15 disabled:hover:bg-black/70"
               >
@@ -196,7 +183,7 @@ export function PromotionsSection({ promotions, loading = false }: PromotionsSec
               onKeyDown={handleKeyDown}
             >
               <div className="flex gap-4 items-stretch">
-                {activePromotions.map((promo, i) => (
+                {promotions.map((promo, i) => (
                   <motion.div
                     key={promo.id}
                     initial={{ opacity: 0, y: 20 }}
