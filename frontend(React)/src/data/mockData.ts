@@ -1,4 +1,4 @@
-import type { Club, Event } from '@/types'
+import type { Club, Event, Promotion } from '@/types'
 
 export const mockEvents: Event[] = [
   {
@@ -12,6 +12,7 @@ export const mockEvents: Event[] = [
     club: 'Folie Terrace',
     imageUrl:
       'https://images.unsplash.com/photo-1574391884720-bbc3740c59d8?w=600&q=80',
+    isFeatured: true,
   },
   {
     id: '2',
@@ -24,6 +25,7 @@ export const mockEvents: Event[] = [
     club: 'Dua Club',
     imageUrl:
       'https://images.unsplash.com/photo-1566737236500-c8ac43014a8b?w=600&q=80',
+    isFeatured: true,
   },
   {
     id: '3',
@@ -36,6 +38,7 @@ export const mockEvents: Event[] = [
     club: 'Radio Bar',
     imageUrl:
       'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80',
+    isFeatured: true,
   },
   {
     id: '4',
@@ -48,6 +51,7 @@ export const mockEvents: Event[] = [
     club: 'Blok Tirana',
     imageUrl:
       'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80',
+    isFeatured: true,
   },
   {
     id: '5',
@@ -60,6 +64,7 @@ export const mockEvents: Event[] = [
     club: 'Sky Lounge',
     imageUrl:
       'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=600&q=80',
+    isFeatured: true,
   },
   {
     id: '6',
@@ -72,6 +77,7 @@ export const mockEvents: Event[] = [
     club: 'Vault Club',
     imageUrl:
       'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&q=80',
+    isFeatured: true,
   },
 ]
 
@@ -125,5 +131,61 @@ export const mockClubs: Club[] = [
     club_lng: 20.0054,
     imageUrl:
       'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=1200&q=80',
+  },
+]
+
+export const mockPromotions: Promotion[] = [
+  {
+    id: 'demo-free-entry',
+    badge: 'Free Entry',
+    badgeColor: 'bg-primary',
+    image:
+      'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=900&q=80',
+    title: 'Free entry before midnight',
+    description: 'Claim guest-list access and start the night without the door fee.',
+    venue: 'Folie Terrace',
+    city: 'Tirana',
+    rating: 4.8,
+    clubId: '1',
+    validUntil: '2026-12-31',
+    validFrom: '2026-05-28',
+    promoPrice: 0,
+    offerType: 'free',
+  },
+  {
+    id: 'demo-vip-table',
+    badge: 'VIP',
+    badgeColor: 'bg-accent',
+    image:
+      'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=900&q=80',
+    title: 'VIP table upgrade',
+    description: 'Reserve a table package with priority entry and premium placement.',
+    venue: 'Dua Club',
+    city: 'Durres',
+    rating: 4.7,
+    clubId: '2',
+    validUntil: '2026-12-31',
+    validFrom: '2026-05-28',
+    listPrice: 120,
+    promoPrice: 89,
+    offerType: 'vip',
+  },
+  {
+    id: 'demo-student-night',
+    badge: '30% Off',
+    badgeColor: 'bg-primary',
+    image:
+      'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=900&q=80',
+    title: 'Student night special',
+    description: 'A limited discount on selected tickets and bottle-service packages.',
+    venue: 'Radio Bar',
+    city: 'Tirana',
+    rating: 4.6,
+    clubId: '3',
+    validUntil: '2026-12-31',
+    validFrom: '2026-05-28',
+    listPrice: 35,
+    promoPrice: 24.5,
+    offerType: 'discount',
   },
 ]

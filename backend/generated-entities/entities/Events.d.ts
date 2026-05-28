@@ -1,0 +1,31 @@
+import { Bookmarks } from "./Bookmarks";
+import { Clubs } from "./Clubs";
+import { Profiles } from "./Profiles";
+import { Reservations } from "./Reservations";
+import { TicketTypes } from "./TicketTypes";
+export declare class Events {
+    eventId: string;
+    eventName: string;
+    eventDescription: string | null;
+    eventType: string | null;
+    eventHours: string | null;
+    eventStartingDate: Date;
+    eventEndingDate: Date | null;
+    eventCapacity: number | null;
+    eventImage: string | null;
+    eventStatus: string | null;
+    isFeatured: boolean | null;
+    finalTicketPrice: string | null;
+    ticketPrice: string | null;
+    ticketDiscount: string | null;
+    specialGuests: string | null;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+    featuredRequestStatus: string | null;
+    reservationOnly: boolean;
+    bookmarks: Bookmarks[];
+    club: Clubs;
+    createdBy: Profiles;
+    reservations: Reservations[];
+    ticketTypes: TicketTypes[];
+}

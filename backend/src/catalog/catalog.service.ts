@@ -33,6 +33,7 @@ function promotionBadgeColor(category: string): string {
   return 'bg-primary';
 }
 
+
 function pickString(row: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
     const v = row[k];
@@ -347,8 +348,12 @@ function hasClubImageInRow(row: Record<string, unknown>): boolean {
   return rawClubImageFromRow(row).length > 0;
 }
 
+const CATALOG_CACHE_TTL_MS = 60_000; // 60 seconds
+
 @Injectable()
 export class CatalogService {
+  private catalogCache: { data: CatalogBundleDto; expiresAt: number } | null = null;
+
   constructor(
     @InjectRepository(Events)
     private readonly eventsRepo: Repository<Events>,
@@ -1183,7 +1188,17 @@ export class CatalogService {
   }
 
   async getCatalog(): Promise<CatalogBundleDto> {
-    return this.getCatalogFromPostgres();
+    const now = Date.now();
+    if (this.catalogCache && this.catalogCache.expiresAt > now) {
+      return this.catalogCache.data;
+    }
+    const data = await this.getCatalogFromPostgres();
+    this.catalogCache = { data, expiresAt: now + CATALOG_CACHE_TTL_MS };
+    return data;
+  }
+
+  invalidateCatalogCache(): void {
+    this.catalogCache = null;
   }
 
   /**
