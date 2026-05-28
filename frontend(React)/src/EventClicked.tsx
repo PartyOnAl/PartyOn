@@ -9,6 +9,7 @@ import {
   MapPin,
   Music,
   Share2,
+  Star,
   User,
   Users,
 } from 'lucide-react'
@@ -22,21 +23,31 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCatalog } from '@/contexts/CatalogContext'
 import { useSavedEvents } from '@/contexts/SavedEventsContext'
 import { getJson } from '@/api'
+import { eventNeedsTicket, isReservationFlow } from '@/lib/eventCheckout'
 import type { Event, EventDetail } from '@/types'
 
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&q=80'
 
-function eventNeedsTicket(ev: EventDetail): boolean {
-  if (ev.ticketRequired === false) return false
-  if (ev.ticketRequired === true) return true
-  return Number(ev.price ?? 0) > 0
+function EventBackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group -ml-1 mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-0 py-1 text-sm font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-label="Go back"
+    >
+      <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2} />
+      <span>Back</span>
+    </button>
+  )
 }
 
 function EventPageSkeleton() {
   return (
-    <div className="po-container animate-pulse py-8 md:py-12">
-      <div className="mb-8 h-10 w-10 rounded-full bg-muted" />
+    <main className="pb-16 pt-20">
+      <div className="po-container animate-pulse">
+      <div className="mb-4 h-5 w-14 rounded bg-muted" />
       <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start">
         <div className="aspect-[4/3] rounded-2xl bg-muted lg:aspect-square" />
         <div className="space-y-4">
@@ -46,7 +57,8 @@ function EventPageSkeleton() {
           <div className="mt-8 h-40 rounded-2xl bg-muted" />
         </div>
       </div>
-    </div>
+      </div>
+    </main>
   )
 }
 
@@ -233,9 +245,7 @@ export default function EventClicked() {
       return
     }
 
-    const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
-
-    if (isReservation) {
+    if (isReservationFlow(ev)) {
       navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
       return
     }
@@ -254,9 +264,9 @@ export default function EventClicked() {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
-        <div className="po-container py-20 text-center text-muted-foreground">
+        <main className="po-container py-20 pt-20 text-center text-muted-foreground">
           Redirecting…
-        </div>
+        </main>
         <LovableFooter />
       </div>
     )
@@ -276,7 +286,7 @@ export default function EventClicked() {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
-        <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-20 text-center">
+        <main className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-20 pt-20 text-center">
           <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
           <Button variant="outline" onClick={() => navigate(-1)}>
             Go back
@@ -284,7 +294,7 @@ export default function EventClicked() {
           <Button variant="ghost" onClick={() => navigate('/')}>
             Home
           </Button>
-        </div>
+        </main>
         <LovableFooter />
       </div>
     )
@@ -331,18 +341,9 @@ export default function EventClicked() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      <main className="pb-16 pt-4 md:pt-8">
+      <main className="pb-16 pt-20">
         <div className="po-container">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="mb-6 h-10 w-10 rounded-full border border-border/50 text-muted-foreground hover:text-foreground"
-            aria-label="Go back"
-            onClick={() => navigate(-1)}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+          <EventBackButton onClick={() => navigate(-1)} />
 
           <div className="grid gap-10 lg:grid-cols-[minmax(0,400px)_1fr] lg:items-start lg:gap-12">
             <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-muted/20 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
@@ -360,6 +361,12 @@ export default function EventClicked() {
                 className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
                 aria-hidden
               />
+              {ev.isFeatured ? (
+                <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-primary/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground shadow-md backdrop-blur-sm">
+                  <Star className="h-2.5 w-2.5 fill-current" />
+                  Featured
+                </div>
+              ) : null}
               <div className="absolute right-3 top-3 flex gap-2">
                 <Button
                   type="button"
@@ -392,9 +399,17 @@ export default function EventClicked() {
 
             <div className="flex min-w-0 flex-col gap-8">
               <div>
-                <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-                  {ev.title}
-                </h1>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+                    {ev.title}
+                  </h1>
+                  {ev.isFeatured ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary">
+                      <Star className="h-3 w-3 fill-current" />
+                      Featured
+                    </span>
+                  ) : null}
+                </div>
                 <ul className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground md:text-base">
                   {dateLine ? (
                     <li className="flex gap-3">

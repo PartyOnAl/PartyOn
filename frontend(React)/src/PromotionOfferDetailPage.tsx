@@ -196,8 +196,6 @@ export default function PromotionOfferDetailPage() {
             events: {
               event_id: offer.id,
               event_name: offer.title,
-              event_image: offer.image,
-              final_ticket_price: offer.checkoutPrice,
             },
             success_url: successUrl,
             cancel_url: cancelUrl,

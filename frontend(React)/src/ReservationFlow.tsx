@@ -20,7 +20,15 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { getJson } from '@/api'
+import {
+  eventNeedsTicket,
+  isReservationFlow,
+  pickEventForFlow,
+} from '@/lib/eventCheckout'
+import { arrivalTimeFromEvent } from '@/lib/eventDates'
+import type { EventDetail } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -70,19 +78,6 @@ type ReservationSaved = {
 
 const ACCENT = '#FF00AA'
 const MAX_RESERVATION_GUESTS = 8
-
-function eventNeedsTicket(ev: Event): boolean {
-  if (ev.ticketRequired === false) return false
-  if (ev.ticketRequired === true) return true
-  return ev.price > 0
-}
-
-function extractBaseTime(ev: Event): string {
-  if (ev.doorsOpen?.trim()) return ev.doorsOpen.trim()
-  const m = ev.date.match(/(\d{1,2}:\d{2})/)
-  if (m?.[1]) return m[1]
-  return '22:00'
-}
 
 function toDisplayDate(value: string): string {
   const d = new Date(value + 'T12:00:00')
@@ -236,9 +231,16 @@ async function remoteQrPngToDataUrl(url: string): Promise<string> {
 export default function ReservationFlow() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const stateEvent = (location.state as { event?: Event } | null)?.event
 
   const { user, profile, isLoading: authLoading } = useAuth()
   const { clubs, events } = useCatalog()
+
+  const [eventDetail, setEventDetail] = useState<EventDetail | null>(null)
+  const [eventDetailLoading, setEventDetailLoading] = useState(
+    Boolean((id ?? '').trim()) && !stateEvent,
+  )
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [people, setPeople] = useState(2)
@@ -256,11 +258,34 @@ export default function ReservationFlow() {
   const [clubTablesQueried, setClubTablesQueried] = useState(false)
   const [tablesLoadError, setTablesLoadError] = useState(false)
 
-  const event = useMemo(() => {
+  const fromCatalogList = useMemo(() => {
     const eventId = (id ?? '').trim()
-    if (!eventId) return null
-    return events.find((e) => e.id === eventId) ?? null
+    if (!eventId) return undefined
+    return events.find((e) => e.id === eventId)
   }, [events, id])
+
+  useEffect(() => {
+    const eventId = (id ?? '').trim()
+    if (!eventId) {
+      setEventDetailLoading(false)
+      return
+    }
+    if (stateEvent) {
+      setEventDetailLoading(false)
+      return
+    }
+    setEventDetailLoading(true)
+    getJson<EventDetail>(`/catalog/events/${eventId}`)
+      .then(({ data }) => {
+        if (data) setEventDetail(data)
+      })
+      .finally(() => setEventDetailLoading(false))
+  }, [id, stateEvent])
+
+  const event = useMemo(
+    () => pickEventForFlow(eventDetail, stateEvent, fromCatalogList),
+    [eventDetail, stateEvent, fromCatalogList],
+  )
 
   const clubId = (event?.clubId ?? '').trim()
   const currencySymbol = event?.currency === 'USD' ? '$' : '€'
@@ -301,20 +326,30 @@ export default function ReservationFlow() {
     if (first) setTableType(first.type)
   }, [tableGroups, tableType])
 
-  // ── Init event-specific defaults ──
+  // ── Route guard + init event-specific defaults ──
   useEffect(() => {
-    if (!event) return
-    if (eventNeedsTicket(event)) {
-      navigate(`/payment/${encodeURIComponent(event.id)}`, { replace: true })
+    if (eventDetailLoading || !event) return
+    if (eventNeedsTicket(event) && !isReservationFlow(event)) {
+      navigate(`/payment/${encodeURIComponent(event.id)}`, {
+        replace: true,
+        state: { event },
+      })
       return
     }
-    // Pre-fill date from event
+    const raw = event.rawDate ?? event.date
+    if (raw) {
+      const parsed = new Date(raw)
+      if (!Number.isNaN(parsed.getTime())) {
+        setSelectedDate(parsed.toISOString().slice(0, 10))
+        return
+      }
+    }
     const m = event.date.match(/[A-Za-z]{3},\s([A-Za-z]{3}\s\d{1,2})/)
     if (m?.[1]) {
       const parsed = new Date(`${m[1]}, ${new Date().getFullYear()}`)
       if (!Number.isNaN(parsed.getTime())) setSelectedDate(parsed.toISOString().slice(0, 10))
     }
-  }, [event, navigate])
+  }, [event, eventDetailLoading, navigate])
 
   // ── Pre-fill contact from profile ──
   useEffect(() => {
@@ -418,7 +453,7 @@ export default function ReservationFlow() {
 
     const reference = generateReservationReference()
     const nowIso = new Date().toISOString()
-    const arrivalTime = extractBaseTime(event)
+    const arrivalTime = arrivalTimeFromEvent(event)
     const mergedNotes = [
       `Table type: ${formatTableTypeName(tableType)}`,
       specialRequests.trim() ? `Special requests: ${specialRequests.trim()}` : null,
@@ -516,19 +551,12 @@ export default function ReservationFlow() {
           created_at?: string | null
         }
       }
-      let { data: legacyData, error: legacyError } = await supabase
-        .from('reservations').insert(modernPayload).select('reservation_id,created_at').single()
-      if (legacyError) {
-        delete (modernPayload as Record<string, unknown>).table_type
-        const r = await supabase.from('reservations').insert(modernPayload).select('reservation_id,created_at').single()
-        legacyData = r.data; legacyError = r.error
-      }
-      if (legacyError || !legacyData) {
-        setSubmitting(false)
-        setError(legacyError?.message || modernError?.message || 'Could not save reservation.')
-        return
-      }
-      inserted = legacyData as { id?: string; reservation_id?: string; created_at?: string | null }
+    }
+
+    if (!inserted) {
+      setSubmitting(false)
+      setError('Could not save reservation.')
+      return
     }
 
     const reservationUuid = (inserted?.reservation_id || inserted?.id || '').trim()
@@ -590,8 +618,8 @@ export default function ReservationFlow() {
 
   function downloadIcs() {
     if (!event || !saved) return
-    const arrivalTime = extractBaseTime(event)
-    const iso = `${selectedDate}T${arrivalTime}:00`
+    const arrivalTime = arrivalTimeFromEvent(event)
+    const iso = `${selectedDate}T${arrivalTime}`
     const ics = buildIcs({
       title: `${event.title} - Reservation`,
       startIso: iso,
@@ -605,10 +633,26 @@ export default function ReservationFlow() {
     URL.revokeObjectURL(url)
   }
 
+  if (eventDetailLoading || (!event && (id ?? '').trim())) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <div className="po-container py-24 pt-20 text-center text-muted-foreground">Loading…</div>
+      </div>
+    )
+  }
+
   if (!event) {
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <div className="po-container py-24 text-center text-muted-foreground">Loading…</div>
+        <Navbar />
+        <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-24 pt-20 text-center">
+          <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
+          <Button variant="outline" onClick={() => navigate(-1)}>
+            Go back
+          </Button>
+        </div>
+        <LovableFooter />
       </div>
     )
   }

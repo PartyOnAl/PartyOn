@@ -56,3 +56,69 @@ export function isEventPast(event: EventLike, now = new Date()): boolean {
   const end = eventEndDateTime(event)
   return !!end && end < now
 }
+
+/** `time without time zone` for reservations (`expected_arrival_time`). */
+export function formatPostgresTime(hour: number, minute: number): string {
+  const h = Math.max(0, Math.min(23, hour))
+  const m = Math.max(0, Math.min(59, minute))
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
+}
+
+function parseClockToken(token: string): [number, number] | null {
+  const s = token.trim().replace(/\s+/g, ' ')
+  const m12 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i)
+  if (m12) {
+    let h = Number(m12[1])
+    const min = Number(m12[2])
+    const ap = m12[3].toUpperCase()
+    if (h < 1 || h > 12 || min < 0 || min > 59) return null
+    if (ap === 'PM' && h !== 12) h += 12
+    if (ap === 'AM' && h === 12) h = 0
+    return [h, min]
+  }
+  const m24 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+  if (m24) {
+    const h = Number(m24[1])
+    const min = Number(m24[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return [h, min]
+  }
+  return null
+}
+
+function collectClockTokens(text: string): string[] {
+  const tokens: string[] = []
+  const re = /\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AP]M)?/gi
+  for (const m of text.matchAll(re)) {
+    tokens.push(m[0].trim())
+  }
+  return tokens
+}
+
+/** First doors-open time as PostgreSQL `time` (24h `HH:MM:SS`). */
+export function arrivalTimeFromEvent(ev: {
+  doorsOpen?: string | null
+  date?: string
+  rawDate?: string | null
+}): string {
+  const hoursText = ev.doorsOpen?.trim()
+  if (hoursText) {
+    for (const token of collectClockTokens(hoursText)) {
+      const parts = parseClockToken(token)
+      if (parts) return formatPostgresTime(parts[0], parts[1])
+    }
+  }
+  const iso = ev.rawDate?.trim()
+  if (iso) {
+    const d = new Date(iso)
+    if (!Number.isNaN(d.getTime())) {
+      return formatPostgresTime(d.getHours(), d.getMinutes())
+    }
+  }
+  const fromDate = ev.date?.match(/(\d{1,2}):(\d{2})/)
+  if (fromDate) {
+    const h = Number(fromDate[1])
+    const m = Number(fromDate[2])
+    if (h >= 0 && h <= 23) return formatPostgresTime(h, m)
+  }
+  return '22:00:00'
+}

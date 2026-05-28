@@ -5,6 +5,20 @@ import react from '@vitejs/plugin-react'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/** Dev-only: reloads on SPA routes like /payment/:id must not hit the Nest API (JSON). */
+function apiProxy(target: string) {
+  return {
+    target,
+    changeOrigin: true,
+    bypass(req: { method?: string; headers?: { accept?: string } }, _res: unknown, _options: unknown) {
+      const accept = req.headers?.accept ?? ''
+      if (req.method === 'GET' && accept.includes('text/html')) {
+        return '/index.html'
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
@@ -37,11 +51,10 @@ export default defineConfig(({ mode }) => {
         '/catalog': { target: apiTarget, changeOrigin: true },
         '/suggestions': { target: apiTarget, changeOrigin: true },
         '/auth': { target: apiTarget, changeOrigin: true },
-        '/event': { target: apiTarget, changeOrigin: true },
+        '/event': apiProxy(apiTarget),
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },
-        '/event': { target: apiTarget, changeOrigin: true },
-        '/payment': { target: apiTarget, changeOrigin: true },
+        '/payment': apiProxy(apiTarget),
         '/dashboard': { target: apiTarget, changeOrigin: true },
         '/api': {
           target: apiTarget,

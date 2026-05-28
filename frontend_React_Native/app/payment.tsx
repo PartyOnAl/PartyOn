@@ -114,8 +114,8 @@ export default function PaymentScreen() {
         amount: unitCents,
         quantity,
         events: { event_id: params.eventId },
-        stripe_success_url: successUrl,
-        stripe_cancel_url: cancelUrl,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
       })
       if (error || !data?.url) {
         Alert.alert('Checkout', error ?? 'Could not start payment.')
