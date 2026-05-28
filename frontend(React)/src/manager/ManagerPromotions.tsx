@@ -1,4 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Pencil } from 'lucide-react'
 import './ManagerDashboard.css'
 import './EventManagement.css'
@@ -897,11 +898,15 @@ function PromotionCard({
   onEdit,
   onDelete,
   onView,
+  onRepeat,
+  claimCount,
 }: {
   promo: PromotionRow
   onEdit: (promo: PromotionRow) => void
   onDelete: (promo: PromotionRow) => void
   onView: (promo: PromotionRow) => void
+  onRepeat?: (promo: PromotionRow) => void
+  claimCount?: { claimed: number; redeemed: number }
 }) {
   const isPassed = promoIsPassed(promo)
   const isDraft  = !isPassed && (promo.status === 'draft' || promo.status === 'pending')
@@ -966,24 +971,41 @@ function PromotionCard({
           )}
         </ul>
 
-        {promo.description && (
-          <p className="promo-mgmt__card-desc">{promo.description}</p>
-        )}
+        <div className="promo-mgmt__claim-row">
+          <span className="promo-mgmt__claim-badge promo-mgmt__claim-badge--claimed">
+            {claimCount?.claimed ?? 0} claimed
+          </span>
+          <span className="promo-mgmt__claim-badge promo-mgmt__claim-badge--redeemed">
+            {claimCount?.redeemed ?? 0} used
+          </span>
+        </div>
 
         {/* Stop propagation so action buttons don't open view modal */}
         <div
           className="promo-mgmt__card-actions"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="promo-mgmt__action--edit"
-            aria-label={`Edit ${promo.title}`}
-            onClick={() => onEdit(promo)}
-          >
-            <Pencil size={13} strokeWidth={2} aria-hidden />
-            Edit
-          </button>
+          {isPassed && onRepeat ? (
+            <button
+              type="button"
+              className="promo-mgmt__action--edit"
+              aria-label={`Repeat ${promo.title}`}
+              onClick={() => onRepeat(promo)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              Repeat
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="promo-mgmt__action--edit"
+              aria-label={`Edit ${promo.title}`}
+              onClick={() => onEdit(promo)}
+            >
+              <Pencil size={13} strokeWidth={2} aria-hidden />
+              Edit
+            </button>
+          )}
           <button
             type="button"
             className="promo-mgmt__action--delete"
@@ -1019,6 +1041,7 @@ export default function ManagerPromotions() {
   const { club, clubId } = useManagerClub()
   const [promotions, setPromotions] = useState<PromotionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1027,7 +1050,7 @@ export default function ManagerPromotions() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [form, setForm] = useState<PromotionFormState>(EMPTY_FORM)
   const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null)
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all')
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('active')
   const [openDateTimePicker, setOpenDateTimePicker] = useState<'valid_from' | 'valid_until' | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState('')
@@ -1035,7 +1058,17 @@ export default function ManagerPromotions() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [globalTc, setGlobalTc] = useState('')
+  const [claimCounts, setClaimCounts] = useState<Record<string, { claimed: number; redeemed: number }>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowForm(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('action')
+      setSearchParams(next, { replace: true })
+    }
+  }, [])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
@@ -1065,6 +1098,20 @@ export default function ManagerPromotions() {
     setEditingPromotionId(null)
     setForm({ ...EMPTY_FORM, terms_conditions: globalTc })
     resetImageState(imagePreviewUrl)
+    setShowForm(true)
+  }
+
+  function openRepeatModal(promo: PromotionRow) {
+    setFormErrors({})
+    const fs = promotionRowToFormState(promo)
+    // Clear dates so manager sets new ones, and reset status to draft
+    fs.valid_from = ''
+    fs.valid_until = ''
+    if (!fs.terms_conditions && globalTc) fs.terms_conditions = globalTc
+    setForm(fs)
+    setEditingPromotionId(null) // null = create new, not edit existing
+    resetImageState(imagePreviewUrl)
+    setImagePreviewUrl(promo.image_url ?? '')
     setShowForm(true)
   }
 
@@ -1129,6 +1176,26 @@ export default function ManagerPromotions() {
         setLoading(false)
       })
   }, [clubId, refreshKey])
+
+  // ── Fetch claim counts for all club promotions ────────────────────────────
+
+  useEffect(() => {
+    if (!clubId || !supabase || !isSupabaseConfigured || promotions.length === 0) return
+    const ids = promotions.map(p => p.promotion_id)
+    void supabase
+      .from('claimed_promotions')
+      .select('promotion_id, status')
+      .in('promotion_id', ids)
+      .then(({ data }) => {
+        const counts: Record<string, { claimed: number; redeemed: number }> = {}
+        for (const row of (data ?? []) as { promotion_id: string; status: string }[]) {
+          if (!counts[row.promotion_id]) counts[row.promotion_id] = { claimed: 0, redeemed: 0 }
+          counts[row.promotion_id].claimed += 1
+          if (row.status === 'redeemed') counts[row.promotion_id].redeemed += 1
+        }
+        setClaimCounts(counts)
+      })
+  }, [promotions, clubId])
 
   // ── Toast auto-dismiss ────────────────────────────────────────────────────
 
@@ -1201,8 +1268,13 @@ export default function ManagerPromotions() {
         )
       case 'passed':
         return promotions.filter(promoIsPassed)
-      default:
-        return promotions
+      default: {
+        const order = (p: PromotionRow) =>
+          p.status === 'active' && !promoIsPassed(p) ? 0 :
+          (p.status === 'draft' || p.status === 'pending') && !promoIsPassed(p) ? 1 :
+          promoIsPassed(p) ? 2 : 3
+        return [...promotions].sort((a, b) => order(a) - order(b))
+      }
     }
   }, [promotions, activeFilter])
 
@@ -1836,7 +1908,7 @@ export default function ManagerPromotions() {
 
             {/* ── Filter tabs ──────────────────────────────────────────────── */}
             <div className="promo-mgmt__filter-tabs" role="tablist" aria-label="Filter promotions">
-              {(['all', 'active', 'draft', 'passed'] as const).map((tab) => (
+              {(['active', 'draft', 'passed', 'all'] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -1871,6 +1943,8 @@ export default function ManagerPromotions() {
                     onEdit={openEditModal}
                     onDelete={(p) => setDeleteTarget({ id: p.promotion_id, title: p.title })}
                     onView={setViewPromo}
+                    onRepeat={openRepeatModal}
+                    claimCount={claimCounts[promo.promotion_id]}
                   />
                 ))}
               </section>

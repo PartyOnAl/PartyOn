@@ -404,7 +404,7 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   const navigate = useNavigate()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState(false)
-  const [bellCount, setBellCount] = useState(getNoShowBadgeCount)
+  const [bellCount, setBellCount] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
   const initials = useMemo(() => getInitials(profile?.name, profile?.surname, profile?.email), [profile?.name, profile?.surname, profile?.email])
   const fullName = profile?.name ? `${profile.name} ${profile.surname ?? ''}`.trim() : 'Manager'
@@ -431,15 +431,43 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
     }
   }, [profile?.id])
 
+  // Live dispute notification count — only disputes filed since manager last visited disputes page
   useEffect(() => {
-    function syncBell() { setBellCount(getNoShowBadgeCount()) }
-    window.addEventListener(NO_SHOW_BADGE_EVENT, syncBell)
-    window.addEventListener('storage', syncBell)
-    return () => {
-      window.removeEventListener(NO_SHOW_BADGE_EVENT, syncBell)
-      window.removeEventListener('storage', syncBell)
+    if (!profile?.club_id || !managerSupabase) return
+    const clubId = profile.club_id
+
+    function getLastSeen(): string {
+      return localStorage.getItem('partyon_disputes_last_seen') ?? new Date(0).toISOString()
     }
-  }, [])
+
+    async function fetchCount() {
+      const { count } = await managerSupabase!
+        .from('disputes')
+        .select('id', { count: 'exact', head: true })
+        .eq('club_id', clubId)
+        .eq('status', 'open')
+        .is('manager_deleted_at', null)
+        .gt('created_at', getLastSeen())
+      setBellCount(count ?? 0)
+    }
+
+    void fetchCount()
+
+    const channel = managerSupabase
+      .channel(`disputes-bell-${clubId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'disputes', filter: `club_id=eq.${clubId}` }, () => {
+        void fetchCount()
+      })
+      .subscribe()
+
+    function onSeen() { void fetchCount() }
+    window.addEventListener('partyon_disputes_seen', onSeen)
+
+    return () => {
+      void managerSupabase!.removeChannel(channel)
+      window.removeEventListener('partyon_disputes_seen', onSeen)
+    }
+  }, [profile?.club_id])
 
   useEffect(() => {
     if (!openMenu) return
@@ -453,7 +481,7 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   }, [openMenu])
 
   function handleBellClick() {
-    navigate(bellCount > 0 ? '/manager/reservations' : '/manager/disputes')
+    navigate('/manager/disputes')
   }
 
   return (

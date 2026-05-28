@@ -335,11 +335,15 @@ export default function TableManagement() {
     if (tblErr) { setError(tblErr.message); setDbTables([]) }
     else { setDbTables((tblData ?? []) as DbTableRow[]) }
 
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
     const { data: evData, error: evErr } = await supabase
       .from('events')
       .select('event_id, event_name, event_starting_date')
       .eq('club_id', clubId)
-      .order('event_starting_date', { ascending: false })
+      .gte('event_starting_date', todayStart.toISOString())
+      .order('event_starting_date', { ascending: true })
     if (evErr) { setError(p => p ?? evErr.message); setClubEvents([]); setReservations([]); return }
 
     const evs = (evData ?? []) as ClubEventRow[]

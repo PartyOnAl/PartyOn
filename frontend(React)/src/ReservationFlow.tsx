@@ -409,9 +409,10 @@ export default function ReservationFlow() {
 
     let inserted: { reservation_id?: string; id?: string; created_at?: string | null } | null = null
 
-    const { error: modernError } = await supabase.from('reservations').insert(modernPayload)
+    const { data: modernData, error: modernError } = await supabase
+      .from('reservations').insert(modernPayload).select('reservation_id,created_at').single()
     if (!modernError) {
-      inserted = { id: reference, created_at: nowIso }
+      inserted = modernData as { id?: string; reservation_id?: string; created_at?: string | null } ?? { id: reference, created_at: nowIso }
     } else {
       const legacyPayload: Record<string, unknown> = {
         user_id: user.id,
@@ -439,6 +440,30 @@ export default function ReservationFlow() {
         return
       }
       inserted = legacyData as { id?: string; reservation_id?: string; created_at?: string | null }
+    }
+
+    // Auto-assign a physical table of the selected type
+    const reservationId = (inserted as { reservation_id?: string } | null)?.reservation_id
+    if (reservationId && tableType && clubTables.length > 0 && event?.id) {
+      const tablesOfType = clubTables.filter(
+        t => (t.type ?? '').toLowerCase() === tableType.toLowerCase(),
+      )
+      if (tablesOfType.length > 0) {
+        const { data: takenRows } = await supabase
+          .from('reservations')
+          .select('table_id')
+          .eq('event_id', event.id)
+          .in('status', ['confirmed', 'pending'])
+          .not('table_id', 'is', null)
+        const takenIds = new Set((takenRows ?? []).map(r => (r as { table_id: string }).table_id))
+        const freeTable = tablesOfType.find(t => !takenIds.has(t.id))
+        if (freeTable) {
+          await supabase
+            .from('reservations')
+            .update({ table_id: freeTable.id })
+            .eq('reservation_id', reservationId)
+        }
+      }
     }
 
     setSubmitting(false)
@@ -947,10 +972,10 @@ export default function ReservationFlow() {
                   <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={() => navigate('/my-bookings')}>
                     View My Bookings
                   </Button>
-                  <Button type="button" variant="outline" className="rounded-full" onClick={downloadIcs}>
+                  <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={downloadIcs}>
                     <CalendarPlus className="mr-2 h-4 w-4" />Add to Calendar
                   </Button>
-                  <Button type="button" variant="outline" className="rounded-full" onClick={() => void downloadPdf()}>
+                  <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={() => void downloadPdf()}>
                     <Download className="mr-2 h-4 w-4" />Download PDF
                   </Button>
                 </div>

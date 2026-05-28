@@ -116,8 +116,20 @@ export default function PromotionOfferDetailPage() {
           .eq('promotion_id', resolvedId)
           .maybeSingle()
         const row = existing as { redemption_code: string | null; status: string | null } | null
-        if (row && String(row.status ?? 'claimed').toLowerCase() !== 'cancelled') {
-          setClaimedCode(row.redemption_code ?? '')
+        if (row) {
+          if (String(row.status ?? '').toLowerCase() === 'cancelled') {
+            // Re-activate a previously cancelled claim (user paid again)
+            const { data: updated } = await supabase
+              .from('claimed_promotions')
+              .update({ status: 'active' })
+              .eq('user_id', user.id)
+              .eq('promotion_id', resolvedId)
+              .select('redemption_code')
+              .single()
+            if (updated) setClaimedCode((updated as { redemption_code: string }).redemption_code)
+          } else {
+            setClaimedCode(row.redemption_code ?? '')
+          }
         }
       }
       // Clean ?claimed=true from the URL without triggering a re-render loop

@@ -312,11 +312,22 @@ function NavbarSearchField({
 export function Navbar() {
   const { user, profile, signOut } = useAuth()
   const {
-    savedEvents,
+    savedEvents: allSavedEvents,
     loading: savedLoading,
     removeEvent,
     refresh: refreshSaved,
   } = useSavedEvents()
+
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const savedEvents = allSavedEvents.filter((e) => {
+    const src = e.rawDate || e.startDateTime || e.date
+    if (!src) return true
+    const d = new Date(src)
+    if (Number.isNaN(d.getTime())) return true
+    d.setHours(0, 0, 0, 0)
+    return d >= now
+  })
   const { events: catalogEvents, clubs: catalogClubs, promotions: catalogPromotions } = useCatalog()
 
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -523,28 +534,30 @@ export function Navbar() {
                         <Link
                           key={savedEvent.id}
                           to={`/events/${savedEvent.id}`}
-                          className="block rounded-lg border border-border/40 bg-secondary/40 p-3 hover:bg-[rgba(255,255,255,0.06)] hover:border-primary/30 transition-[background,border-color] duration-200 ease-in-out cursor-pointer"
+                          className="flex items-center gap-3 rounded-lg border border-border/40 bg-secondary/40 p-2 hover:bg-[rgba(255,255,255,0.06)] hover:border-primary/30 transition-[background,border-color] duration-200 ease-in-out cursor-pointer"
                           onClick={() => setSavedOpen(false)}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-foreground truncate">
-                                {savedEvent.title}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1">{savedEvent.date}</p>
-                            </div>
-                            <button
-                              type="button"
-                              className="text-xs text-primary hover:text-primary/80 transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                removeSavedEvent(savedEvent.id)
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </div>
+                          {savedEvent.imageUrl && (
+                            <img
+                              src={savedEvent.imageUrl}
+                              alt={savedEvent.title}
+                              className="h-10 w-10 rounded-md object-cover flex-shrink-0"
+                            />
+                          )}
+                          <p className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
+                            {savedEvent.title}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-xs text-primary hover:text-primary/80 transition-colors flex-shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              removeSavedEvent(savedEvent.id)
+                            }}
+                          >
+                            Remove
+                          </button>
                         </Link>
                       ))}
                     </div>
@@ -723,31 +736,33 @@ export function Navbar() {
                         <Link
                           key={savedEvent.id}
                           to={`/events/${savedEvent.id}`}
-                          className="block rounded-lg border border-border/40 bg-secondary/40 p-3 transition-[background,border-color] duration-200 ease-in-out hover:border-primary/30 hover:bg-[rgba(255,255,255,0.06)]"
+                          className="flex items-center gap-3 rounded-lg border border-border/40 bg-secondary/40 p-2 transition-[background,border-color] duration-200 ease-in-out hover:border-primary/30 hover:bg-[rgba(255,255,255,0.06)]"
                           onClick={() => {
                             setSavedOpen(false)
                             setMobileOpen(false)
                           }}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-foreground">
-                                {savedEvent.title}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">{savedEvent.date}</p>
-                            </div>
-                            <button
-                              type="button"
-                              className="text-xs text-primary transition-colors hover:text-primary/80"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                removeSavedEvent(savedEvent.id)
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </div>
+                          {savedEvent.imageUrl && (
+                            <img
+                              src={savedEvent.imageUrl}
+                              alt={savedEvent.title}
+                              className="h-10 w-10 rounded-md object-cover flex-shrink-0"
+                            />
+                          )}
+                          <p className="truncate text-sm font-semibold text-foreground flex-1 min-w-0">
+                            {savedEvent.title}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-xs text-primary transition-colors hover:text-primary/80 flex-shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              removeSavedEvent(savedEvent.id)
+                            }}
+                          >
+                            Remove
+                          </button>
                         </Link>
                       ))}
                     </div>

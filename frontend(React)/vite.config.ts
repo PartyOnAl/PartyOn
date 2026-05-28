@@ -41,6 +41,11 @@ export default defineConfig(({ mode }) => {
         '/users': { target: apiTarget, changeOrigin: true },
         '/me': { target: apiTarget, changeOrigin: true },
         '/dashboard': { target: apiTarget, changeOrigin: true },
+        '/staff': { target: apiTarget, changeOrigin: true },
+        '/admin': { target: apiTarget, changeOrigin: true },
+        '/clubs': { target: apiTarget, changeOrigin: true },
+        '/payment': { target: apiTarget, changeOrigin: true },
+        '/saved': { target: apiTarget, changeOrigin: true },
         '/api': {
           target: apiTarget,
           changeOrigin: true,

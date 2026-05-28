@@ -120,8 +120,9 @@ function nullableNumber(value: unknown): number | null {
 
 function claimedPromotionCheckoutPrice(promotion: ClaimedOffer['promotion']): number {
   const originalPrice = promotion?.original_price
+  if (!originalPrice || originalPrice <= 0) return 0
   const discountValue = promotion?.discount_value
-  if (!originalPrice || originalPrice <= 0 || !discountValue || discountValue <= 0) return 0
+  if (!discountValue || discountValue <= 0) return originalPrice
   return Math.max(0, originalPrice * (1 - discountValue / 100))
 }
 

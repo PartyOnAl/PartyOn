@@ -991,6 +991,15 @@ export default function EventManagement() {
   }, [])
 
   useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowCreateForm(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('action')
+      setSearchParams(next, { replace: true })
+    }
+  }, [])
+
+  useEffect(() => {
     const featuredPaidEventId = searchParams.get('featured_paid')
     if (!featuredPaidEventId || !supabase || !isSupabaseConfigured || !clubId) return
 

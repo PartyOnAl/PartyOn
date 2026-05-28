@@ -726,7 +726,7 @@ export default function ManagerDashboard() {
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
-                  onClick={() => navigate('/manager/events')}
+                  onClick={() => navigate('/manager/events?action=new')}
                 >
                   <span className="manager-dash__qa-icon-wrap"><IconCalendar /></span>
                   <span className="manager-dash__qa-label">Create Event</span>
@@ -735,12 +735,13 @@ export default function ManagerDashboard() {
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
-                  onClick={() => navigate('/manager/promotions')}
+                  onClick={() => navigate('/manager/promotions?action=new')}
                 >
                   <span className="manager-dash__qa-icon-wrap"><IconDollar /></span>
                   <span className="manager-dash__qa-label">Add Promotion</span>
                   <IconPlus />
                 </button>
+
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
@@ -760,6 +761,9 @@ export default function ManagerDashboard() {
             <div className="manager-dash__card manager-dash__card--list">
               <div className="manager-dash__card-head">
                 <h2 className="manager-dash__card-title">Upcoming Events</h2>
+                <Link to="/manager/events" className="manager-dash__link-all">
+                  View all →
+                </Link>
               </div>
               {listLoading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

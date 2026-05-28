@@ -302,11 +302,12 @@ export default function ManagerAnalytics() {
       return acc
     }, {})
 
-    const volumeByEvent = reservations.reduce<Record<string, number>>((acc, reservation) => {
-      if (!reservation.event_id) return acc
-      const event = eventById[reservation.event_id]
-      if (!countsTowardVolumeMetrics(reservation, event)) return acc
-      acc[reservation.event_id] = (acc[reservation.event_id] ?? 0) + 1
+    // Count tickets sold per event from completed payments — same source as revenue so they always match
+    const volumeByEvent = completedPayments.reduce<Record<string, number>>((acc, payment) => {
+      const reservation = payment.reservation_id ? reservationById[payment.reservation_id] : null
+      const eventId = reservation?.event_id
+      if (!eventId) return acc
+      acc[eventId] = (acc[eventId] ?? 0) + 1
       return acc
     }, {})
 
