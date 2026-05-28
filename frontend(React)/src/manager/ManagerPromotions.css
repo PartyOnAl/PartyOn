@@ -675,3 +675,51 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Promotion hour grid dropdown ─────────────────────────────────────── */
+.promo-time-hour-grid {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  padding: 10px;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  width: 148px;
+}
+
+.promo-time-hour-btn {
+  width: 100%;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #2a2a2a;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.promo-time-hour-btn:hover {
+  background: hsl(var(--primary) / 0.18);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.35);
+}
+
+.promo-time-hour-btn--selected {
+  background: hsl(var(--primary) / 0.22);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.55);
+}
+
+.promo-time-hour-btn--selected:hover {
+  background: hsl(var(--primary) / 0.28);
+}
