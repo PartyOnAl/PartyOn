@@ -367,12 +367,41 @@ function PromotionTimeField({
   }
 
   function commitHour(raw: string) {
-    const sanitized = raw.replace(/\D/g, '').slice(0, 2)
-    setDraftHour(sanitized)
-    const hourNumber = Number(sanitized)
-    if (Number.isFinite(hourNumber) && hourNumber >= 1 && hourNumber <= 12) {
-      onChange(toTimeValue(String(hourNumber), parts.minute, parts.period))
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 0) { setDraftHour(''); return }
+
+    const first = Number(digits[0])
+
+    if (digits.length === 1) {
+      setDraftHour(digits)
+      // 2-9: already a fully valid hour — apply immediately
+      if (first >= 2 && first <= 9) {
+        onChange(toTimeValue(digits, parts.minute, parts.period))
+      }
+      // 0 or 1: wait in case user types a second digit (10 / 11 / 12)
+      return
     }
+
+    // Two digits received
+    const n = Number(digits)
+    if (n >= 10 && n <= 12) {
+      // Valid: 10, 11, 12
+      setDraftHour(digits)
+      onChange(toTimeValue(digits, parts.minute, parts.period))
+    } else {
+      // Invalid second digit (e.g. 13, 96) — keep only the first digit
+      const safe = String(Math.min(12, Math.max(1, first)))
+      setDraftHour(safe)
+      onChange(toTimeValue(safe, parts.minute, parts.period))
+    }
+  }
+
+  function nudgeHour(direction: 1 | -1) {
+    const current = Math.min(12, Math.max(1, Number(draftHour) || 12))
+    const next = current + direction
+    const wrapped = next > 12 ? 1 : next < 1 ? 12 : next
+    setDraftHour(String(wrapped))
+    onChange(toTimeValue(String(wrapped), parts.minute, parts.period))
   }
 
   return (
@@ -401,6 +430,10 @@ function PromotionTimeField({
                 aria-label={`${label} hour`}
                 className="event-mgmt__time-menu-trigger"
                 onChange={(e) => commitHour(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') { e.preventDefault(); nudgeHour(1) }
+                  else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeHour(-1) }
+                }}
                 onBlur={() => {
                   const hourNumber = Math.min(12, Math.max(1, Number(draftHour) || Number(parts.hour) || 12))
                   applyTime({ hour: String(hourNumber) })

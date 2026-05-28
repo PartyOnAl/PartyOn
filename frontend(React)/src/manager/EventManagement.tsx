@@ -498,13 +498,41 @@ export function TimePickerField({
   }
 
   function commitHour(raw: string) {
-    // Allow only digits, max 2 chars
-    const sanitized = raw.replace(/\D/g, '').slice(0, 2)
-    setDraftHour(sanitized)
-    const n = Number(sanitized)
-    if (Number.isFinite(n) && n >= 1 && n <= 12) {
-      onChange(toTimeValue(sanitized, draftMinute, draftPeriod))
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 0) { setDraftHour(''); return }
+
+    const first = Number(digits[0])
+
+    if (digits.length === 1) {
+      setDraftHour(digits)
+      // 2-9: already a fully valid hour — apply immediately
+      if (first >= 2 && first <= 9) {
+        onChange(toTimeValue(digits, draftMinute, draftPeriod))
+      }
+      // 0 or 1: wait in case user types a second digit (10 / 11 / 12)
+      return
     }
+
+    // Two digits received
+    const n = Number(digits)
+    if (n >= 10 && n <= 12) {
+      // Valid: 10, 11, 12
+      setDraftHour(digits)
+      onChange(toTimeValue(digits, draftMinute, draftPeriod))
+    } else {
+      // Invalid second digit (e.g. 13, 96) — keep only the first digit
+      const safe = String(Math.min(12, Math.max(1, first)))
+      setDraftHour(safe)
+      onChange(toTimeValue(safe, draftMinute, draftPeriod))
+    }
+  }
+
+  function nudgeHour(direction: 1 | -1) {
+    const current = Math.min(12, Math.max(1, Number(draftHour) || 12))
+    const next = current + direction
+    const wrapped = next > 12 ? 1 : next < 1 ? 12 : next
+    setDraftHour(String(wrapped))
+    onChange(toTimeValue(String(wrapped), draftMinute, draftPeriod))
   }
 
   function closeTimePicker() {
@@ -538,8 +566,12 @@ export function TimePickerField({
                 aria-label="Hour"
                 className="event-mgmt__time-menu-trigger"
                 onChange={(e) => commitHour(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') { e.preventDefault(); nudgeHour(1) }
+                  else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeHour(-1) }
+                }}
                 onBlur={() => {
-                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || Number(hour12) || 12))
+                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || hour12 || 12))
                   applyDraftTime({ hour: String(clamped) })
                 }}
               />
