@@ -445,17 +445,17 @@ export function TimePickerField({
   disabled?: boolean
   onChange: (time: string) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
   const current = value || '00:00'
   const [hourRaw, minuteRaw] = current.split(':')
   const hour24 = Number(hourRaw || 0)
   const minute = minuteRaw || '00'
   const period = hour24 >= 12 ? 'PM' : 'AM'
   const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+  const [isOpen, setIsOpen] = useState(false)
   const [draftHour, setDraftHour] = useState(String(hour12))
   const [draftMinute, setDraftMinute] = useState(minute.padStart(2, '0'))
   const [draftPeriod, setDraftPeriod] = useState<'AM' | 'PM'>(period)
-  const [openSubmenu, setOpenSubmenu] = useState<null | 'hour' | 'minute'>(null)
+  const [openSubmenu, setOpenSubmenu] = useState<null | 'minute'>(null)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -479,23 +479,12 @@ export function TimePickerField({
     if (!isOpen) setOpenSubmenu(null)
   }, [isOpen])
 
-  useEffect(() => {
-    if (!openSubmenu) return
-    function onDocMouseDown(e: MouseEvent) {
-      const el = e.target as HTMLElement
-      if (el.closest('.event-mgmt__time-menu')) return
-      setOpenSubmenu(null)
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [openSubmenu])
-
   function toTimeValue(hour: string, minuteValue: string, periodValue: 'AM' | 'PM') {
     const h12 = Math.min(12, Math.max(1, Number(hour) || 12))
     const safeMinute = minuteValue === '30' ? '30' : '00'
-    let hour24 = h12 % 12
-    if (periodValue === 'PM') hour24 += 12
-    return `${String(hour24).padStart(2, '0')}:${safeMinute}`
+    let h24 = h12 % 12
+    if (periodValue === 'PM') h24 += 12
+    return `${String(h24).padStart(2, '0')}:${safeMinute}`
   }
 
   function applyDraftTime(next: { hour?: string; minute?: string; period?: 'AM' | 'PM' }) {
@@ -508,8 +497,19 @@ export function TimePickerField({
     onChange(toTimeValue(nextHour, nextMinute, nextPeriod))
   }
 
+  function commitHour(raw: string) {
+    // Allow only digits, max 2 chars
+    const sanitized = raw.replace(/\D/g, '').slice(0, 2)
+    setDraftHour(sanitized)
+    const n = Number(sanitized)
+    if (Number.isFinite(n) && n >= 1 && n <= 12) {
+      onChange(toTimeValue(sanitized, draftMinute, draftPeriod))
+    }
+  }
+
   function closeTimePicker() {
     setIsOpen(false)
+    setOpenSubmenu(null)
   }
 
   return (
@@ -529,47 +529,23 @@ export function TimePickerField({
         <div className="event-mgmt__time-popover">
           <p className="event-mgmt__time-title">ENTER TIME</p>
           <div className="event-mgmt__time-editor">
+            {/* Hour — typed input */}
             <div className="event-mgmt__time-menu">
-              <button
-                type="button"
-                className="event-mgmt__time-menu-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={openSubmenu === 'hour'}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draftHour}
                 aria-label="Hour"
-                onClick={() => setOpenSubmenu((s) => (s === 'hour' ? null : 'hour'))}
-              >
-                {String(Math.min(12, Math.max(1, Number(draftHour) || 12)))}
-              </button>
-              {openSubmenu === 'hour' && (
-                <ul className="event-mgmt__time-menu-list" role="listbox" aria-label="Hours">
-                  {HOUR_SELECT_OPTIONS.map((h) => {
-                    const selected =
-                      String(Math.min(12, Math.max(1, Number(draftHour) || 12))) === h
-                    return (
-                      <li key={h} role="presentation">
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          className={
-                            selected
-                              ? 'event-mgmt__time-menu-option event-mgmt__time-menu-option--selected'
-                              : 'event-mgmt__time-menu-option'
-                          }
-                          onClick={() => {
-                            applyDraftTime({ hour: h })
-                            setOpenSubmenu(null)
-                          }}
-                        >
-                          {h}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                className="event-mgmt__time-menu-trigger"
+                onChange={(e) => commitHour(e.target.value)}
+                onBlur={() => {
+                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || Number(hour12) || 12))
+                  applyDraftTime({ hour: String(clamped) })
+                }}
+              />
             </div>
             <span className="event-mgmt__time-colon">:</span>
+            {/* Minute — dropdown */}
             <div className="event-mgmt__time-menu">
               <button
                 type="button"
@@ -609,6 +585,7 @@ export function TimePickerField({
                 </ul>
               )}
             </div>
+            {/* AM / PM toggle */}
             <div className="event-mgmt__ampm-toggle">
               {(['AM', 'PM'] as const).map((p) => (
                 <button
