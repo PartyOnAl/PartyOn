@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '@/api'
 import { useSearchParams } from 'react-router-dom'
 import './ManagerDashboard.css'
@@ -146,6 +146,81 @@ function buildDateTime(date: string, time: string) {
   return `${date}T${time || '00:00'}`
 }
 
+type EventDateTimeParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+}
+
+function parseEventDateTimeParts(value: string | null | undefined): EventDateTimeParts | null {
+  if (!value) return null
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+  if (!match) return null
+  const [, yRaw, moRaw, dRaw, hRaw = '00', miRaw = '00'] = match
+  const year = Number(yRaw)
+  const month = Number(moRaw)
+  const day = Number(dRaw)
+  const hour = Number(hRaw)
+  const minute = Number(miRaw)
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null
+  }
+  return { year, month, day, hour, minute }
+}
+
+function sameCalendarDay(a: EventDateTimeParts, b: EventDateTimeParts): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
+function formatCardDate(parts: EventDateTimeParts): string {
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function formatCardTime(parts: EventDateTimeParts): string {
+  const period = parts.hour < 12 ? 'AM' : 'PM'
+  const hour12 = parts.hour % 12 === 0 ? 12 : parts.hour % 12
+  return `${hour12}:${String(parts.minute).padStart(2, '0')} ${period}`
+}
+
+function formatCardDateTime(parts: EventDateTimeParts): string {
+  return `${formatCardDate(parts)} ${formatCardTime(parts)}`
+}
+
+function formatEventPeriod(startValue: string, endValue: string | null): string {
+  const start = parseEventDateTimeParts(startValue)
+  if (!start) return ''
+
+  const end = parseEventDateTimeParts(endValue)
+  if (!end) return formatCardDateTime(start)
+
+  return `${formatCardDateTime(start)} - ${formatCardDateTime(end)}`
+}
+
+function buildEventHours(startValue: string, endValue: string | null): string | null {
+  const start = parseEventDateTimeParts(startValue)
+  if (!start) return null
+
+  const end = parseEventDateTimeParts(endValue)
+  const startTime = formatCardTime(start)
+  if (!end) return startTime
+
+  const endTime = formatCardTime(end)
+  if (sameCalendarDay(start, end)) return `${startTime} - ${endTime}`
+  return `${startTime} - ${formatCardDate(end)} ${endTime}`
+}
+
 function parseNumLoose(s: string): number | null {
   const t = String(s).trim().replace(',', '.')
   if (t === '') return null
@@ -272,6 +347,7 @@ function DatePickerField({
   const focusedDate = selectedDate || fallbackDate
   const initialMonth = focusedDate ? new Date(`${focusedDate}T00:00`) : new Date()
   const [isOpen, setIsOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [viewMonth, setViewMonth] = useState(
     new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1),
   )
@@ -281,6 +357,16 @@ function DatePickerField({
     const nextMonth = focusedDate ? new Date(`${focusedDate}T00:00`) : new Date()
     setViewMonth(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1))
   }, [isOpen, focusedDate])
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      setIsOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen])
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
@@ -292,7 +378,7 @@ function DatePickerField({
   ]
 
   return (
-    <div className="event-mgmt__field event-mgmt__picker-field">
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
       <label>{label}</label>
       <button
         type="button"
@@ -370,6 +456,7 @@ export function TimePickerField({
   const [draftMinute, setDraftMinute] = useState(minute.padStart(2, '0'))
   const [draftPeriod, setDraftPeriod] = useState<'AM' | 'PM'>(period)
   const [openSubmenu, setOpenSubmenu] = useState<null | 'hour' | 'minute'>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -377,6 +464,16 @@ export function TimePickerField({
     setDraftMinute(minute.padStart(2, '0'))
     setDraftPeriod(period)
   }, [isOpen, hour12, minute, period])
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      setIsOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) setOpenSubmenu(null)
@@ -393,17 +490,30 @@ export function TimePickerField({
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [openSubmenu])
 
-  function commitTime() {
-    const h12 = Math.min(12, Math.max(1, Number(draftHour) || 12))
-    const safeMinute = draftMinute === '30' ? '30' : '00'
+  function toTimeValue(hour: string, minuteValue: string, periodValue: 'AM' | 'PM') {
+    const h12 = Math.min(12, Math.max(1, Number(hour) || 12))
+    const safeMinute = minuteValue === '30' ? '30' : '00'
     let hour24 = h12 % 12
-    if (draftPeriod === 'PM') hour24 += 12
-    onChange(`${String(hour24).padStart(2, '0')}:${safeMinute}`)
+    if (periodValue === 'PM') hour24 += 12
+    return `${String(hour24).padStart(2, '0')}:${safeMinute}`
+  }
+
+  function applyDraftTime(next: { hour?: string; minute?: string; period?: 'AM' | 'PM' }) {
+    const nextHour = next.hour ?? draftHour
+    const nextMinute = next.minute ?? draftMinute
+    const nextPeriod = next.period ?? draftPeriod
+    setDraftHour(nextHour)
+    setDraftMinute(nextMinute)
+    setDraftPeriod(nextPeriod)
+    onChange(toTimeValue(nextHour, nextMinute, nextPeriod))
+  }
+
+  function closeTimePicker() {
     setIsOpen(false)
   }
 
   return (
-    <div className="event-mgmt__field event-mgmt__picker-field">
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
       <label>{label}</label>
       <button
         type="button"
@@ -447,7 +557,7 @@ export function TimePickerField({
                               : 'event-mgmt__time-menu-option'
                           }
                           onClick={() => {
-                            setDraftHour(h)
+                            applyDraftTime({ hour: h })
                             setOpenSubmenu(null)
                           }}
                         >
@@ -487,7 +597,7 @@ export function TimePickerField({
                               : 'event-mgmt__time-menu-option'
                           }
                           onClick={() => {
-                            setDraftMinute(m)
+                            applyDraftTime({ minute: m })
                             setOpenSubmenu(null)
                           }}
                         >
@@ -505,7 +615,7 @@ export function TimePickerField({
                   key={p}
                   type="button"
                   className={draftPeriod === p ? 'event-mgmt__ampm-btn event-mgmt__ampm-btn--active' : 'event-mgmt__ampm-btn'}
-                  onClick={() => setDraftPeriod(p)}
+                  onClick={() => applyDraftTime({ period: p })}
                 >
                   {p}
                 </button>
@@ -515,8 +625,7 @@ export function TimePickerField({
           <div className="event-mgmt__time-actions">
             <span className="event-mgmt__time-clock" aria-hidden>◷</span>
             <div className="event-mgmt__time-action-buttons">
-              <button type="button" onClick={() => setIsOpen(false)}>CANCEL</button>
-              <button type="button" onClick={commitTime}>OK</button>
+              <button type="button" onClick={closeTimePicker}>Close</button>
             </div>
           </div>
         </div>
@@ -697,14 +806,7 @@ function EventCard({
       : 'Free entry'
   const attendanceLabel = paidEntry ? 'tickets sold' : 'reservations'
 
-  const eventDate = new Date(ev.event_starting_date)
-  const dateStr = eventDate.toLocaleDateString('en-US', {
-    month: 'numeric',
-    day: 'numeric',
-    year: 'numeric',
-  })
-  const timeStr = ev.event_hours ?? eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-  const dateLine = `${dateStr} • ${timeStr}`
+  const dateLine = formatEventPeriod(ev.event_starting_date, ev.event_ending_date)
   const isDraft = ev.event_status === 'draft'
   const isPast = eventIsPast(ev, todayStart)
 
@@ -1127,6 +1229,7 @@ export default function EventManagement() {
         event_type: form.event_type.trim(),
         event_starting_date: form.event_starting_date,
         event_ending_date: form.event_ending_date || null,
+        event_hours: buildEventHours(form.event_starting_date, form.event_ending_date || null),
         event_capacity: form.event_capacity ? Number(form.event_capacity) : null,
         ticket_price: form.ticket_price ? Number(form.ticket_price) : null,
         final_ticket_price: finalTicketPrice
@@ -1555,6 +1658,7 @@ export default function EventManagement() {
                             {new Date(viewingEvent.event_starting_date).toLocaleString('en-US', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
+                              timeZone: 'UTC',
                             })}
                           </p>
                         </div>
@@ -1565,6 +1669,7 @@ export default function EventManagement() {
                               ? new Date(viewingEvent.event_ending_date).toLocaleString('en-US', {
                                   dateStyle: 'medium',
                                   timeStyle: 'short',
+                                  timeZone: 'UTC',
                                 })
                               : '—'}
                           </p>
