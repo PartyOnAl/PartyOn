@@ -27,24 +27,42 @@ import { cn } from '@/lib/utils'
 const FALLBACK_IMG =
   'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&q=80'
 
-function formatFullDate(iso: string | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('en-GB', {
+type EventDateTimeParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+}
+
+function parseEventDateTimeParts(value: string | undefined): EventDateTimeParts | null {
+  if (!value) return null
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+  if (!match) return null
+  const [, yRaw, moRaw, dRaw, hRaw = '00', miRaw = '00'] = match
+  const parts = {
+    year: Number(yRaw),
+    month: Number(moRaw),
+    day: Number(dRaw),
+    hour: Number(hRaw),
+    minute: Number(miRaw),
+  }
+  return Object.values(parts).every(Number.isFinite) ? parts : null
+}
+
+function formatFullDateTime(value: string | undefined): string {
+  const parts = parseEventDateTimeParts(value)
+  if (!parts) return value ?? ''
+  const date = new Date(parts.year, parts.month - 1, parts.day)
+  const dateLabel = date.toLocaleDateString('en-GB', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   })
-}
-
-function formatTime(iso: string | undefined, hoursText?: string): string {
-  if (hoursText?.trim()) return hoursText.trim()
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const period = parts.hour < 12 ? 'AM' : 'PM'
+  const hour12 = parts.hour % 12 === 0 ? 12 : parts.hour % 12
+  return `${dateLabel}, ${hour12}:${String(parts.minute).padStart(2, '0')} ${period}`
 }
 
 function EventPageSkeleton() {
@@ -117,19 +135,19 @@ export default function EventClicked() {
 
   function primaryAction() {
     if (!ev) return
-    const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+    const isPaidTicket = ev.price > 0 && ev.ticketRequired !== false && ev.reservationOnly !== true
     const eid = ev.id?.trim()
     if (!eid || eid === 'undefined') return
     if (!user) {
       navigate(`/login?from=${encodeURIComponent(`/event/${ev.id}`)}`)
       return
     }
-    if (isReservation) {
-      navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
-    } else {
+    if (isPaidTicket) {
       navigate(`/payment/${encodeURIComponent(eid)}`, {
         state: { event: ev, ticketTypes },
       })
+    } else {
+      navigate(`/reserve/${encodeURIComponent(eid)}`, { state: { event: ev } })
     }
   }
 
@@ -174,18 +192,20 @@ export default function EventClicked() {
     )
   }
 
-  const isReservation = ev.reservationOnly === true || ev.ticketRequired === false
+  const isPaidTicket = ev.price > 0 && ev.ticketRequired !== false && ev.reservationOnly !== true
+  const isReservation = ev.reservationOnly === true
   const ticketTypes = detail?.ticketTypes ?? []
-  const priceLabel = isReservation
-    ? 'Free reservation'
-    : ev.price > 0
-      ? `${ev.currency ?? '€'}${ev.price.toFixed(2)}`
+  const displayPriceLabel = isPaidTicket
+    ? `${ev.currency ?? '€'}${ev.price.toFixed(2)}`
+    : isReservation
+      ? 'Free reservation'
       : 'Free entry'
-  const ctaLabel = isReservation ? 'Reserve a table' : 'Buy ticket'
+  const ctaLabel = isPaidTicket ? 'Buy ticket' : isReservation ? 'Reserve a table' : 'Reserve ticket'
 
-  const rawDate = ev.rawDate ?? ev.date
-  const fullDate = formatFullDate(rawDate)
-  const timeStr = formatTime(ev.rawDate, ev.doorsOpen)
+  const startDateTime = ev.startDateTime ?? ev.rawDate ?? ev.date
+  const endDateTime = ev.endDateTime
+  const startLabel = formatFullDateTime(startDateTime)
+  const endLabel = formatFullDateTime(endDateTime)
 
   const venueAddress = detail?.clubFullAddress ?? ev.address ?? ev.city ?? ''
   const venueName = ev.club && ev.club !== '—' ? ev.club : 'Venue'
@@ -277,16 +297,16 @@ export default function EventClicked() {
               {/* Info block */}
               <div className="rounded-xl border border-border/50 bg-card/40 p-4 md:p-5">
                 <ul className="flex flex-col gap-3 text-sm text-muted-foreground">
-                  {fullDate ? (
+                  {startLabel ? (
                     <li className="flex items-start gap-3">
                       <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
-                      <span className="text-foreground/90">{fullDate}</span>
+                      <span className="text-foreground/90">Starts: {startLabel}</span>
                     </li>
                   ) : null}
-                  {timeStr ? (
+                  {endLabel ? (
                     <li className="flex items-start gap-3">
                       <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
-                      <span className="text-foreground/90">{timeStr}</span>
+                      <span className="text-foreground/90">Ends: {endLabel}</span>
                     </li>
                   ) : null}
                   {venueAddress || venueName ? (
@@ -323,11 +343,13 @@ export default function EventClicked() {
 
               {/* Price + CTA */}
               <div className="rounded-2xl border border-border/50 bg-card/40 p-5 shadow-sm backdrop-blur-sm md:p-6">
-                <p className="text-lg font-bold text-foreground md:text-xl">{priceLabel}</p>
+                <p className="text-lg font-bold text-foreground md:text-xl">{displayPriceLabel}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {isReservation
+                  {isPaidTicket
+                    ? 'No hidden fees. Final price shown upfront.'
+                    : isReservation
                     ? 'No payment required — reserve your spot with the venue.'
-                    : 'No hidden fees. Final price shown upfront.'}
+                    : 'No payment required for this free-entry event.'}
                 </p>
                 <Button
                   type="button"

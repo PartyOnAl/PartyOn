@@ -372,6 +372,11 @@ export function Navbar() {
   }
 
   const scrollToSection = (sectionId: string) => {
+    if (sectionId === 'events') {
+      navigate('/events')
+      setMobileOpen(false)
+      return
+    }
     const doScroll = () => {
       const section = document.getElementById(sectionId)
       if (section) {
@@ -479,6 +484,8 @@ export function Navbar() {
               size="icon"
               className={headerGhostIconClass}
               onClick={() => setSavedOpen((open) => !open)}
+              aria-label="Saved events"
+              aria-expanded={savedOpen}
             >
               <Bookmark className="h-5 w-5" />
             </Button>
@@ -491,7 +498,7 @@ export function Navbar() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.18 }}
-                  className="absolute right-0 top-12 w-[320px] rounded-xl border border-border/50 bg-background/95 backdrop-blur-md shadow-2xl shadow-black/40 p-3 z-50"
+                  className="fixed right-[max(1rem,calc((100vw-1280px)/2+1rem))] top-[4.75rem] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 bg-[#0f0f12]/95 backdrop-blur-xl shadow-[0_24px_70px_rgba(0,0,0,0.62)] p-3 z-[70]"
                 >
                   <div className="flex items-center justify-between mb-3 px-1">
                     <p className="text-sm font-semibold text-foreground">Saved Events</p>
@@ -679,6 +686,7 @@ export function Navbar() {
               onClick={() => setSavedOpen((open) => !open)}
               title="Saved events"
               aria-label="Saved events"
+              aria-expanded={savedOpen}
             >
               <Bookmark className="h-5 w-5" />
             </Button>

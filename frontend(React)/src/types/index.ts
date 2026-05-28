@@ -30,6 +30,10 @@ export type Event = {
   isFeatured?: boolean
   /** ISO date string from event_starting_date — used for date filtering */
   rawDate?: string
+  /** Raw event_starting_date string from the catalog API, without client timezone shifting */
+  startDateTime?: string
+  /** Raw event_ending_date string from the catalog API, without client timezone shifting */
+  endDateTime?: string
   /** True when the event is table-reservation only */
   reservationOnly?: boolean
 }

@@ -335,8 +335,15 @@ function PromotionTimeField({
 }) {
   const parts = splitTimeParts(value)
   const [isOpen, setIsOpen] = useState(false)
-  const [openSubmenu, setOpenSubmenu] = useState<null | 'hour' | 'minute'>(null)
+  const [draftHour, setDraftHour] = useState(parts.hour)
+  const [openSubmenu, setOpenSubmenu] = useState<null | 'minute'>(null)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+
+  // Keep draft in sync whenever the popover opens
+  useEffect(() => {
+    if (!isOpen) return
+    setDraftHour(parts.hour)
+  }, [isOpen, parts.hour])
 
   useEffect(() => {
     if (!isOpen) return
@@ -354,12 +361,49 @@ function PromotionTimeField({
   }, [isOpen])
 
   function applyTime(next: { hour?: string; minute?: string; period?: 'AM' | 'PM' }) {
-    const nextHour = next.hour ?? parts.hour
+    const nextHour = next.hour ?? draftHour
     const hourNumber = Math.min(12, Math.max(1, Number(nextHour) || 12))
+    setDraftHour(String(hourNumber))
+    // toTimeValue handles AM/PM → 24h conversion: 1 PM → 13:00, 12 AM → 00:00, etc.
     onChange(toTimeValue(String(hourNumber), next.minute ?? parts.minute, next.period ?? parts.period))
   }
 
-  const HOUR_OPTIONS = ['1','2','3','4','5','6','7','8','9','10','11','12'] as const
+  function commitHour(raw: string) {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 0) { setDraftHour(''); return }
+
+    const first = Number(digits[0])
+
+    if (digits.length === 1) {
+      setDraftHour(digits)
+      // 2–9 can never form a valid two-digit hour (10–12) → apply immediately
+      if (first >= 2 && first <= 9) {
+        onChange(toTimeValue(digits, parts.minute, parts.period))
+      }
+      // 0 or 1 → wait for possible second digit (10 / 11 / 12)
+      return
+    }
+
+    // Two digits received
+    const n = Number(digits)
+    if (n >= 10 && n <= 12) {
+      setDraftHour(digits)
+      onChange(toTimeValue(digits, parts.minute, parts.period))
+    } else {
+      // Invalid (e.g. 13, 96) → keep only the first digit
+      const safe = String(Math.min(12, Math.max(1, first)))
+      setDraftHour(safe)
+      onChange(toTimeValue(safe, parts.minute, parts.period))
+    }
+  }
+
+  function nudgeHour(direction: 1 | -1) {
+    const current = Math.min(12, Math.max(1, Number(draftHour) || 12))
+    const next = current + direction
+    const wrapped = next > 12 ? 1 : next < 1 ? 12 : next
+    setDraftHour(String(wrapped))
+    onChange(toTimeValue(String(wrapped), parts.minute, parts.period))
+  }
 
   return (
     <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
@@ -378,41 +422,24 @@ function PromotionTimeField({
         <div className="event-mgmt__time-popover">
           <p className="event-mgmt__time-title">ENTER TIME</p>
           <div className="event-mgmt__time-editor">
-            {/* Hour — 3×4 grid dropdown */}
+            {/* Hour — typeable input (1–12). AM/PM toggle handles 13–24 conversion */}
             <div className="event-mgmt__time-menu">
-              <button
-                type="button"
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draftHour}
+                aria-label={`${label} hour`}
                 className="event-mgmt__time-menu-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={openSubmenu === 'hour'}
-                aria-label="Hour"
-                onClick={() => setOpenSubmenu((s) => (s === 'hour' ? null : 'hour'))}
-              >
-                {parts.hour}
-              </button>
-              {openSubmenu === 'hour' && (
-                <div className="promo-time-hour-grid" role="listbox" aria-label={`${label} hours`}>
-                  {HOUR_OPTIONS.map((h) => (
-                    <button
-                      key={h}
-                      type="button"
-                      role="option"
-                      aria-selected={parts.hour === h}
-                      className={
-                        parts.hour === h
-                          ? 'promo-time-hour-btn promo-time-hour-btn--selected'
-                          : 'promo-time-hour-btn'
-                      }
-                      onClick={() => {
-                        applyTime({ hour: h })
-                        setOpenSubmenu(null)
-                      }}
-                    >
-                      {h}
-                    </button>
-                  ))}
-                </div>
-              )}
+                onChange={(e) => commitHour(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp')   { e.preventDefault(); nudgeHour(1)  }
+                  if (e.key === 'ArrowDown') { e.preventDefault(); nudgeHour(-1) }
+                }}
+                onBlur={() => {
+                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || Number(parts.hour) || 12))
+                  applyTime({ hour: String(clamped) })
+                }}
+              />
             </div>
             <span className="event-mgmt__time-colon">:</span>
             {/* Minute — dropdown */}

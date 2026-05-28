@@ -71,7 +71,6 @@ const MAX_RESERVATION_GUESTS = 8
 
 function eventNeedsTicket(ev: Event): boolean {
   if (ev.ticketRequired === false) return false
-  if (ev.ticketRequired === true) return true
   return ev.price > 0
 }
 

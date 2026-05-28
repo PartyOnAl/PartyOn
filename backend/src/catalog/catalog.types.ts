@@ -31,6 +31,10 @@ export type CatalogEventDto = {
   isFeatured?: boolean;
   /** Raw ISO date string from event_starting_date — used for client-side date filtering */
   rawDate?: string;
+  /** Raw event_starting_date string as stored by the database, without client timezone shifting */
+  startDateTime?: string;
+  /** Raw event_ending_date string as stored by the database, without client timezone shifting */
+  endDateTime?: string;
   /** True when the event is table-reservation only (no ticket purchase) */
   reservationOnly?: boolean;
 };
