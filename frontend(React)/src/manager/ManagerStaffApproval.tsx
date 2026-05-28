@@ -6,6 +6,7 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import type { InviteStaffRole } from '../lib/staffRoles'
+import { API_BASE_URL } from '../api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -292,7 +293,7 @@ export default function ManagerStaffApproval() {
       setError(null)
     }
 
-    void fetch('/api/staff', {
+    void fetch(`${API_BASE_URL}/staff`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     })
       .then(async (res) => {
@@ -355,7 +356,7 @@ export default function ManagerStaffApproval() {
     }
 
     const nextStatus = nextRole.startsWith('rejected_') ? 'rejected' : 'approved'
-    const res = await fetch(`/api/staff/${person.id}/status`, {
+    const res = await fetch(`${API_BASE_URL}/staff/${person.id}/status`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -400,7 +401,7 @@ export default function ManagerStaffApproval() {
       return
     }
     setDeletingStaffId(person.id)
-    const res = await fetch(`/api/staff/${person.id}`, {
+    const res = await fetch(`${API_BASE_URL}/staff/${person.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${session.access_token}` },
     })
@@ -434,7 +435,7 @@ export default function ManagerStaffApproval() {
     setIsSendingInvite(true)
     setInviteError(null)
 
-    const res = await fetch('/api/staff/invite', {
+    const res = await fetch(`${API_BASE_URL}/staff/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ fullName: name, email, role: inviteForm.role }),

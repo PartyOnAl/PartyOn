@@ -5,6 +5,7 @@ import { MANAGER_NAV, ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent } from './eventPaidEntry'
+import { API_BASE_URL } from '../api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -304,7 +305,7 @@ export default function ManagerDashboard() {
 
     void (async () => {
       try {
-        const res = await fetch('/api/dashboard/stats', {
+        const res = await fetch(`${API_BASE_URL}/dashboard/stats`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })
 

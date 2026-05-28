@@ -6,6 +6,7 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent, reservationIsConfirmed } from './eventPaidEntry'
+import { API_BASE_URL } from '../api'
 
 type EventRow = {
   event_id: string
@@ -176,7 +177,7 @@ export default function ManagerAnalytics() {
 
   useEffect(() => {
     if (!session?.access_token) return
-    void fetch('/api/dashboard/stats', {
+    void fetch(`${API_BASE_URL}/dashboard/stats`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     })
       .then((r) => (r.ok ? (r.json() as Promise<{ totalRevenue?: number }>) : Promise.resolve(null)))

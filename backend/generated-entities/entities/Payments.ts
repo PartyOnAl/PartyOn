@@ -1,6 +1,7 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { Reservations } from "./Reservations";
 import { Profiles } from "./Profiles";
+import { Events } from "./Events";
 
 @Index("payments_pkey", ["paymentId"], { unique: true })
 @Entity("payments", { schema: "public" })
@@ -29,6 +30,19 @@ export class Payments {
   })
   status: string | null;
 
+  @Column("integer", {
+    name: "times_used",
+    nullable: true,
+    default: () => "0",
+  })
+  timesUsed: number | null;
+
+  @Column("text", { name: "intent", nullable: true })
+  intent: string | null;
+
+  @Column("uuid", { name: "batch_id", nullable: true })
+  batchId: string | null;
+
   @ManyToOne(() => Reservations, (reservations) => reservations.payments, {
     onDelete: "CASCADE",
   })
@@ -40,4 +54,8 @@ export class Payments {
   @ManyToOne(() => Profiles, (profiles) => profiles.payments)
   @JoinColumn([{ name: "user_id", referencedColumnName: "id" }])
   user: Profiles;
+
+  @ManyToOne(() => Events)
+  @JoinColumn([{ name: "event_id", referencedColumnName: "eventId" }])
+  event: Events;
 }
