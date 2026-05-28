@@ -55,6 +55,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --background: 240 10% 3.9%;
   --foreground: 0 0% 98%;
   --card: 240 8% 8%;
@@ -169,6 +170,30 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     margin: 0;
+    scrollbar-color: hsl(var(--secondary)) hsl(var(--background));
+  }
+
+  * {
+    scrollbar-color: hsl(var(--secondary)) hsl(var(--background));
+  }
+
+  *::-webkit-scrollbar {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--secondary));
+    border: 2px solid hsl(var(--background));
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.45);
   }
 
   input:focus,
