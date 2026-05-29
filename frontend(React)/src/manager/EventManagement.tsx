@@ -159,6 +159,15 @@ function buildDateTime(date: string, time: string) {
   return `${date}T${time || '00:00'}`
 }
 
+/** Convert a UTC ISO timestamp (from Supabase) into a `datetime-local` string in the user's local timezone. */
+function toDatetimeLocal(value?: string | null): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 type EventDateTimeParts = {
   year: number
   month: number
@@ -1107,8 +1116,8 @@ export default function EventManagement() {
       event_name: ev.event_name,
       event_description: ev.event_description ?? '',
       event_type: ev.event_type ?? '',
-      event_starting_date: ev.event_starting_date,
-      event_ending_date: ev.event_ending_date ?? '',
+      event_starting_date: toDatetimeLocal(ev.event_starting_date),
+      event_ending_date: toDatetimeLocal(ev.event_ending_date),
       event_capacity: ev.event_capacity === null ? '' : String(ev.event_capacity),
       ticket_price: tp,
       discount_percent: discount,
@@ -1258,8 +1267,12 @@ export default function EventManagement() {
         event_name: form.event_name.trim(),
         event_description: form.event_description.trim(),
         event_type: form.event_type.trim(),
-        event_starting_date: form.event_starting_date,
-        event_ending_date: form.event_ending_date || null,
+        event_starting_date: form.event_starting_date
+          ? new Date(form.event_starting_date).toISOString()
+          : null,
+        event_ending_date: form.event_ending_date
+          ? new Date(form.event_ending_date).toISOString()
+          : null,
         event_hours: buildEventHours(form.event_starting_date, form.event_ending_date || null),
         event_capacity: form.event_capacity ? Number(form.event_capacity) : null,
         ticket_price: form.ticket_price ? Number(form.ticket_price) : null,

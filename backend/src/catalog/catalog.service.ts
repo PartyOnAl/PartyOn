@@ -83,12 +83,7 @@ function pickOptionalBoolean(
 function rawDateTimeString(value: unknown): string | undefined {
   if (value == null || value === '') return undefined;
   if (value instanceof Date) {
-    const y = value.getFullYear();
-    const mo = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    const h = String(value.getHours()).padStart(2, '0');
-    const mi = String(value.getMinutes()).padStart(2, '0');
-    return `${y}-${mo}-${d}T${h}:${mi}`;
+    return value.toISOString();
   }
   return String(value);
 }

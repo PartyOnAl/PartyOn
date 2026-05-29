@@ -9,22 +9,22 @@ import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
 import { useCatalog } from '@/contexts/CatalogContext'
 
-function isActiveOrUpcomingEvent(event: {
-  startDateTime?: string
-  endDateTime?: string
-}, now: Date): boolean {
-  const todayStart = new Date(now)
-  todayStart.setHours(0, 0, 0, 0)
+function isActiveOrUpcomingEvent(
+  event: { startDateTime?: string; endDateTime?: string },
+  now: Date,
+): boolean {
+  const currentTime = now.getTime()
 
   if (event.endDateTime) {
-    const end = new Date(event.endDateTime)
-    return Number.isNaN(end.getTime()) || end >= todayStart
+    const end = new Date(event.endDateTime).getTime()
+    if (Number.isNaN(end)) return true
+    return end >= currentTime
   }
 
   if (event.startDateTime) {
-    const start = new Date(event.startDateTime)
-    if (Number.isNaN(start.getTime())) return true
-    return start >= todayStart
+    const start = new Date(event.startDateTime).getTime()
+    if (Number.isNaN(start)) return true
+    return start >= currentTime
   }
 
   return true
