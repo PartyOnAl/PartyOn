@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { PartyOnLogo } from '../components/PartyOnLogo'
 import { useAuth } from '../contexts/AuthContext'
 import { managerSupabase } from '../lib/supabase'
-import { NO_SHOW_BADGE_EVENT, clearNoShowBadgeCount, getNoShowBadgeCount } from './noShow'
+// import { NO_SHOW_BADGE_EVENT, clearNoShowBadgeCount, getNoShowBadgeCount } from './noShow'  // no-show: commented out
 
 export const MANAGER_NAV = [
   { id: 'dashboard', label: 'Dashboard', to: '/manager/dashboard' },
@@ -283,7 +283,7 @@ export function ManagerSidebar() {
   const { pathname } = useLocation()
   const { profile, signOut } = useAuth()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [noShowBadgeCount, setNoShowBadgeCount] = useState(getNoShowBadgeCount)
+  // const [noShowBadgeCount, setNoShowBadgeCount] = useState(getNoShowBadgeCount)  // no-show: commented out
   const initials = getInitials(profile?.name, profile?.surname, profile?.email)
 
   useEffect(() => {
@@ -308,6 +308,7 @@ export function ManagerSidebar() {
     }
   }, [profile?.id])
 
+  /* no-show: commented out
   useEffect(() => {
     function syncBadge() {
       setNoShowBadgeCount(getNoShowBadgeCount())
@@ -319,6 +320,7 @@ export function ManagerSidebar() {
       window.removeEventListener('storage', syncBadge)
     }
   }, [])
+  */
 
   function getActiveId(): ManagerNavId | null {
     if (pathname === '/manager/dashboard') return 'dashboard'
@@ -337,11 +339,13 @@ export function ManagerSidebar() {
 
   const activeId = getActiveId()
 
+  /* no-show: commented out
   useEffect(() => {
     if (activeId !== 'reservations') return
     clearNoShowBadgeCount()
     setNoShowBadgeCount(0)
   }, [activeId])
+  */
 
   return (
     <aside className="manager-dash__sidebar" aria-label="Manager navigation">
@@ -366,11 +370,13 @@ export function ManagerSidebar() {
             >
               <NavIcon id={item.id} />
               <span>{item.label}</span>
+              {/* no-show badge: commented out
               {item.id === 'reservations' && noShowBadgeCount > 0 ? (
                 <span className="manager-dash__nav-badge" aria-label={`${noShowBadgeCount} no-show notifications`}>
                   {noShowBadgeCount > 9 ? '9+' : noShowBadgeCount}
                 </span>
               ) : null}
+              */}
             </Link>
           )
         })}
