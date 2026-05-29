@@ -945,17 +945,26 @@ export class CatalogService {
     return [...s];
   }
 
-  /** Calendar-day comparison: event occurs today or later. */
+  /** Calendar-day comparison: event is still running or starts today/later. */
   private isEventUpcomingRow(row: Record<string, unknown>): boolean {
-    const raw =
+    const startRaw =
       row.event_starting_date ??
       row.starts_at ??
       row.start_date ??
       row.event_date ??
       row.date ??
       row.start_time;
-    if (raw == null) return false;
-    const d = new Date(String(raw));
+    const endRaw =
+      row.event_ending_date ??
+      row.ends_at ??
+      row.end_date ??
+      row.end_time;
+    if (endRaw != null) {
+      const end = new Date(String(endRaw));
+      if (!Number.isNaN(end.getTime())) return end > new Date();
+    }
+    if (startRaw == null) return false;
+    const d = new Date(String(startRaw));
     if (Number.isNaN(d.getTime())) return false;
     const start = new Date();
     start.setHours(0, 0, 0, 0);
@@ -1235,9 +1244,6 @@ export class CatalogService {
     let eventEntities: Events[] = [];
     try {
       const now = new Date();
-      const todayStart = new Date(now);
-      todayStart.setHours(0, 0, 0, 0);
-      const thirtyDaysAgo = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000);
       eventEntities = await this.eventsRepo
         .createQueryBuilder('e')
         .leftJoinAndSelect('e.club', 'c')
@@ -1256,16 +1262,10 @@ export class CatalogService {
         )
         .andWhere(
           new Brackets((qb) => {
-            qb.where('e.event_starting_date >= :todayStart', { todayStart })
-              .orWhere(
-                new Brackets((inner) => {
-                  inner
-                    .where('e.event_starting_date >= :thirtyDaysAgo', { thirtyDaysAgo })
-                    .andWhere('e.event_starting_date < :todayStart', { todayStart })
-                    .andWhere('e.event_ending_date IS NOT NULL')
-                    .andWhere('e.event_ending_date > :now', { now });
-                }),
-              );
+            qb.where('e.event_ending_date > :now', { now }).orWhere(
+              'e.event_starting_date >= :now',
+              { now },
+            );
           }),
         )
         .orderBy('e.event_starting_date', 'ASC', 'NULLS LAST')

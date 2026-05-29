@@ -9,15 +9,33 @@ import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
 import { useCatalog } from '@/contexts/CatalogContext'
 
+function isActiveOrUpcomingEvent(event: {
+  startDateTime?: string
+  endDateTime?: string
+}, now: Date): boolean {
+  if (event.endDateTime) {
+    const end = new Date(event.endDateTime)
+    return Number.isNaN(end.getTime()) || end > now
+  }
+
+  if (event.startDateTime) {
+    const start = new Date(event.startDateTime)
+    if (Number.isNaN(start.getTime())) return true
+    const todayStart = new Date(now)
+    todayStart.setHours(0, 0, 0, 0)
+    return start >= todayStart
+  }
+
+  return true
+}
+
 export default function Home() {
   const { events, promotions, loading, error } = useCatalog()
   const featuredEvents = useMemo(() => {
     const now = new Date()
     return events.filter((e) => {
       if (!e.isFeatured) return false
-      if (e.endDateTime) return new Date(e.endDateTime) > now
-      if (e.startDateTime) return new Date(e.startDateTime) >= now
-      return true
+      return isActiveOrUpcomingEvent(e, now)
     })
   }, [events])
   const navigate = useNavigate()

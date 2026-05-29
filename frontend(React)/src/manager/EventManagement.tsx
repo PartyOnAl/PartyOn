@@ -61,6 +61,16 @@ function eventIsPast(event: Pick<EventRow, 'event_ending_date'>, todayStart: Dat
   return Boolean(event.event_ending_date && new Date(event.event_ending_date) < todayStart)
 }
 
+function eventIsActiveOrUpcoming(
+  event: Pick<EventRow, 'event_starting_date' | 'event_ending_date'>,
+  now: Date,
+): boolean {
+  if (event.event_ending_date) {
+    return new Date(event.event_ending_date) > now
+  }
+  return new Date(event.event_starting_date) > now
+}
+
 type EventFormState = {
   event_name: string
   event_description: string
@@ -1174,7 +1184,7 @@ export default function EventManagement() {
 
   const stats = [
     { label: 'Total Events',                value: String(events.length),                                                       accent: 'purple', icon: <IconStatCalendar /> },
-    { label: 'Upcoming',                    value: String(events.filter((e) => new Date(e.event_starting_date) > now).length),  accent: 'blue',   icon: <IconStatClock /> },
+    { label: 'Upcoming',                    value: String(events.filter((e) => eventIsActiveOrUpcoming(e, now)).length),        accent: 'blue',   icon: <IconStatClock /> },
     { label: 'Total Tickets / Reservations', value: String(totalGuestCount(allReservations)),                                   accent: 'pink',   icon: <IconStatTicket /> },
     { label: 'Confirmed Reservations',      value: String(totalGuestCount(confirmedReservations)),                              accent: 'green',  icon: <IconStatCheckCircle /> },
     { label: 'Past Events',                 value: String(events.filter((e) => eventIsPast(e, todayStart)).length),            accent: 'gray',   icon: <IconStatHistory /> },
@@ -1184,7 +1194,7 @@ export default function EventManagement() {
   const normalizedSearch = eventSearch.trim().toLowerCase()
   const filteredEvents = events.filter((event) => {
     const status = event.event_status?.toLowerCase() ?? ''
-    const isUpcoming = new Date(event.event_starting_date) > now
+    const isUpcoming = eventIsActiveOrUpcoming(event, now)
     const isPast = eventIsPast(event, todayStart)
     const matchesFilter =
       activeFilter === 'all' ||
