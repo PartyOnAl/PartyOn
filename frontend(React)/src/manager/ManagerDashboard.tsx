@@ -374,11 +374,13 @@ export default function ManagerDashboard() {
       setClubEventPricing(clubEvents)
 
       // Active promotions — independent of events, fetch before any early-return
+      const today = new Date().toISOString().split('T')[0]
       const { data: promoData } = await supabase!
         .from('promotions')
         .select('promotion_id, title, category, discount_value, valid_until, status, image_url')
         .eq('club_id', clubId)
         .eq('status', 'active')
+        .gte('valid_until', today)
         .order('valid_until', { ascending: true })
         .limit(5)
       setActivePromotions((promoData ?? []) as ActivePromotion[])

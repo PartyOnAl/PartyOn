@@ -10,7 +10,6 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   isPaidTicketEvent,
   reservationIsConfirmed,
-  totalGuestCount,
 } from './eventPaidEntry'
 
 type ReservationMini = {
@@ -18,6 +17,13 @@ type ReservationMini = {
   type: string | null
   status: string | null
   nr_of_people: number | null
+  number_of_people: number | null  // modern schema column name
+}
+
+type TicketMini = {
+  id: string
+  quantity: number | null
+  status: string | null
 }
 
 type EventRow = {
@@ -37,15 +43,27 @@ type EventRow = {
   featured_request_status: string | null
   featured_rejection_reason: string | null
   reservations: ReservationMini[]
+  tickets: TicketMini[]
+}
+
+/** Guest headcount from a single reservation — handles both legacy (nr_of_people) and modern (number_of_people) columns. */
+function reservationHeadcount(r: ReservationMini): number {
+  return r.nr_of_people || r.number_of_people || 1
 }
 
 /** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
 function confirmedGuestsForEvent(ev: EventRow): number {
-  return totalGuestCount(ev.reservations.filter(reservationIsConfirmed))
+  const fromReservations = ev.reservations
+    .filter(reservationIsConfirmed)
+    .reduce((sum, r) => sum + reservationHeadcount(r), 0)
+  const fromTickets = (ev.tickets ?? [])
+    .filter(reservationIsConfirmed)
+    .reduce((sum, t) => sum + (t.quantity || 1), 0)
+  return fromReservations + fromTickets
 }
 
 function eventHasReservations(ev: EventRow): boolean {
-  return ev.reservations.length > 0
+  return ev.reservations.length > 0 || (ev.tickets ?? []).length > 0
 }
 
 function getEventStatusBadgeClass(status: string | null): string {
@@ -1173,7 +1191,8 @@ export default function EventManagement() {
         event_ending_date, event_hours,
         event_capacity, ticket_price, final_ticket_price, event_image, event_status,
         is_featured, featured_request_status, featured_rejection_reason,
-        reservations(reservation_id, type, status, nr_of_people)
+        reservations(reservation_id, type, status, nr_of_people, number_of_people),
+        tickets(id, quantity, status)
       `)
       .eq('club_id', clubId)
       .order('event_starting_date', { ascending: false })
@@ -1192,14 +1211,18 @@ export default function EventManagement() {
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const allReservations = events.flatMap((e) => e.reservations)
-  const confirmedReservations = allReservations.filter(reservationIsConfirmed)
+  const totalAllGuests = events.reduce((sum, e) => {
+    const fromRes = e.reservations.reduce((s, r) => s + reservationHeadcount(r), 0)
+    const fromTix = (e.tickets ?? []).reduce((s, t) => s + (t.quantity || 1), 0)
+    return sum + fromRes + fromTix
+  }, 0)
+  const totalConfirmedGuests = events.reduce((sum, e) => sum + confirmedGuestsForEvent(e), 0)
 
   const stats = [
     { label: 'Total Events',                value: String(events.length),                                                       accent: 'purple', icon: <IconStatCalendar /> },
     { label: 'Upcoming',                    value: String(events.filter((e) => eventIsActiveOrUpcoming(e, now)).length),        accent: 'blue',   icon: <IconStatClock /> },
-    { label: 'Total Tickets / Reservations', value: String(totalGuestCount(allReservations)),                                   accent: 'pink',   icon: <IconStatTicket /> },
-    { label: 'Confirmed Reservations',      value: String(totalGuestCount(confirmedReservations)),                              accent: 'green',  icon: <IconStatCheckCircle /> },
+    { label: 'Total Tickets / Reservations', value: String(totalAllGuests),                                                    accent: 'pink',   icon: <IconStatTicket /> },
+    { label: 'Confirmed Reservations',      value: String(totalConfirmedGuests),                                               accent: 'green',  icon: <IconStatCheckCircle /> },
     { label: 'Past Events',                 value: String(events.filter((e) => eventIsPast(e, todayStart)).length),            accent: 'gray',   icon: <IconStatHistory /> },
     { label: 'Draft Events',                value: String(events.filter((e) => e.event_status === 'draft').length),            accent: 'amber',  icon: <IconStatDraft /> },
   ]
