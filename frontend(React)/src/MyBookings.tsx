@@ -31,6 +31,7 @@ type BookingItem = {
   eventId: string
   eventName: string
   eventDate: string | null
+  eventEndDate: string | null
   eventImage: string | null
   venue: string | null
   ticketTypeName: string | null
@@ -56,6 +57,7 @@ type ReservationRowLegacy = {
     event_id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: {
@@ -76,6 +78,7 @@ type ReservationRowModern = {
     id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: { club_name: string | null } | null
@@ -91,6 +94,7 @@ type TicketRow = {
     id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: { club_name: string | null } | null
@@ -191,9 +195,15 @@ function normalizeKind(type: string | null | undefined): 'ticket' | 'reservation
   return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
 }
 
-function isPastBooking(booking: Pick<BookingItem, 'eventDate'>): boolean {
+function isPastBooking(booking: Pick<BookingItem, 'eventDate' | 'eventEndDate'>): boolean {
+  const now = new Date()
+  // If the event has an end date, use that — an ongoing event is still "upcoming"
+  if (booking.eventEndDate) {
+    const end = new Date(booking.eventEndDate)
+    if (!Number.isNaN(end.getTime())) return end < now
+  }
   const bookingDate = booking.eventDate ? new Date(booking.eventDate) : null
-  return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < new Date()
+  return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < now
 }
 
 function canCancelReservation(booking: Pick<BookingItem, 'eventDate'>): boolean {
@@ -548,7 +558,7 @@ function MyBookingsPage() {
         .from('reservations')
         .select(
           `reservation_id,reservation_date,nr_of_people,type,status,created_at,
-           event:events(event_id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
+           event:events(event_id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name),
            payments(status)`,
         )
@@ -566,6 +576,7 @@ function MyBookingsPage() {
             eventId: event?.event_id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.reservation_date,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: ticketType?.name || null,
@@ -584,7 +595,7 @@ function MyBookingsPage() {
         .from('reservations')
         .select(
           `id,number_of_people,time_slot,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name))`,
+           event:events(id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name))`,
         )
         .eq('user_id', user.id)
 
@@ -600,6 +611,7 @@ function MyBookingsPage() {
             eventId: event?.id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.time_slot || row.created_at,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: 'Reservation',
@@ -618,7 +630,7 @@ function MyBookingsPage() {
         .from('tickets')
         .select(
           `id,quantity,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
+           event:events(id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name)`,
         )
         .eq('user_id', user.id)
@@ -634,6 +646,7 @@ function MyBookingsPage() {
             eventId: event?.id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.created_at,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: ticketType?.name || 'General Admission',
