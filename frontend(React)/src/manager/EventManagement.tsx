@@ -1213,7 +1213,7 @@ export default function EventManagement() {
       activeFilter === 'all' ||
       (activeFilter === 'featured' && (event.is_featured === true || event.featured_request_status === 'pending_review')) ||
       (activeFilter === 'draft' && status === 'draft') ||
-      (activeFilter === 'upcoming' && isUpcoming) ||
+      (activeFilter === 'upcoming' && isUpcoming && status !== 'draft') ||
       (activeFilter === 'past' && isPast)
     const matchesSearch = normalizedSearch === '' || event.event_name.toLowerCase().includes(normalizedSearch)
 
