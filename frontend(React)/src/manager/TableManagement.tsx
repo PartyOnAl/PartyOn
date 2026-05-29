@@ -170,7 +170,7 @@ function naturalCompareTableNum(a: string, b: string) {
 
 function getPrimaryReservation(tableId: string, reservations: ReservationRow[]): ReservationRow | null {
   const list = reservations
-    .filter(r => r.table_id === tableId && ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)))
+    .filter(r => r.table_id === tableId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)))
     .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
   return list[0] ?? null
 }
@@ -191,7 +191,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
 
 function computeDisplayForEvent(table: DbTableRow, reservations: ReservationRow[], eventId: string): TableDisplay {
   const forEvent = reservations
-    .filter(r => r.table_id === table.id && r.event_id === eventId && ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)))
+    .filter(r => r.table_id === table.id && r.event_id === eventId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)))
     .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
   const primary = forEvent[0] ?? null
   const dbStatus = normalizeFloorStatus(table.table_status)
@@ -429,7 +429,7 @@ export default function TableManagement() {
     return reservations.find(
       r => r.table_id === manageTableId &&
         r.event_id === selectedEventId &&
-        ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)),
+        ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)),
     ) ?? null
   }, [manageTableId, selectedEventId, reservations])
 
@@ -747,7 +747,7 @@ export default function TableManagement() {
     if (!supabase) return
     setDeleteDialogBusy(true)
     try {
-      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */])
+      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed', 'noshow'])
       const { error: delErr } = await supabase.from('tables').delete().eq('id', tableId)
       if (delErr) { setToastMessage(delErr.message); return }
       setDeleteDialogTableId(null)
@@ -812,7 +812,7 @@ export default function TableManagement() {
   async function releaseTable() {
     if (!supabase || !manageTableId) return
     setActionBusy(true)
-    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */])
+    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed', 'noshow'])
     const posNext = positionJsonWithoutFloorUi(activeManageRow?.position ?? null)
     await supabase.from('tables').update({ table_status: 'available', position: posNext }).eq('id', manageTableId)
     setActionBusy(false)

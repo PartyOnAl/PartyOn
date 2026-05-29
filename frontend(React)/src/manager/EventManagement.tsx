@@ -9,7 +9,6 @@ import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supaba
 import { useAuth } from '../contexts/AuthContext'
 import {
   isPaidTicketEvent,
-  reservationIsConfirmed,
 } from './eventPaidEntry'
 
 type ReservationMini = {
@@ -43,10 +42,13 @@ function reservationHeadcount(r: ReservationMini): number {
   return r.nr_of_people || 1
 }
 
-/** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
-function confirmedGuestsForEvent(ev: EventRow): number {
+/** Count all active (non-cancelled) reservations for an event. */
+function activeGuestsForEvent(ev: EventRow): number {
   return ev.reservations
-    .filter(reservationIsConfirmed)
+    .filter(r => {
+      const s = (r.status ?? '').trim().toLowerCase()
+      return s !== 'cancelled'
+    })
     .reduce((sum, r) => sum + reservationHeadcount(r), 0)
 }
 
@@ -832,7 +834,7 @@ function EventCard({
   onFeatureRequest: (event: EventRow) => void
   todayStart: Date
 }) {
-  const booked = confirmedGuestsForEvent(ev)
+  const booked = activeGuestsForEvent(ev)
   const cap = ev.event_capacity ?? 0
   const capacityPct = cap > 0 ? Math.round(Math.min(100, (booked / cap) * 100)) : 0
   const paidEntry = isPaidTicketEvent(ev)
@@ -1198,17 +1200,13 @@ export default function EventManagement() {
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const totalAllGuests = events.reduce(
-    (sum, e) => sum + e.reservations.reduce((s, r) => s + reservationHeadcount(r), 0),
-    0,
-  )
-  const totalConfirmedGuests = events.reduce((sum, e) => sum + confirmedGuestsForEvent(e), 0)
+  const totalActiveGuests = events.reduce((sum, e) => sum + activeGuestsForEvent(e), 0)
 
   const stats = [
     { label: 'Total Events',                value: String(events.length),                                                       accent: 'purple', icon: <IconStatCalendar /> },
     { label: 'Upcoming',                    value: String(events.filter((e) => eventIsActiveOrUpcoming(e, now)).length),        accent: 'blue',   icon: <IconStatClock /> },
-    { label: 'Total Tickets / Reservations', value: String(totalAllGuests),                                                    accent: 'pink',   icon: <IconStatTicket /> },
-    { label: 'Confirmed Reservations',      value: String(totalConfirmedGuests),                                               accent: 'green',  icon: <IconStatCheckCircle /> },
+    { label: 'Total Tickets / Reservations', value: String(totalActiveGuests),                                                 accent: 'pink',   icon: <IconStatTicket /> },
+    { label: 'Active Reservations',         value: String(totalActiveGuests),                                                  accent: 'green',  icon: <IconStatCheckCircle /> },
     { label: 'Past Events',                 value: String(events.filter((e) => eventIsPast(e, todayStart)).length),            accent: 'gray',   icon: <IconStatHistory /> },
     { label: 'Draft Events',                value: String(events.filter((e) => e.event_status === 'draft').length),            accent: 'amber',  icon: <IconStatDraft /> },
   ]
@@ -1761,7 +1759,7 @@ export default function EventManagement() {
                         <div className="event-mgmt__field">
                           <label>Capacity</label>
                           <p className="event-mgmt__meta-row" style={{ margin: 0 }}>
-                            {confirmedGuestsForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
+                            {activeGuestsForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
                             {isPaidTicketEvent(viewingEvent) ? 'tickets sold' : 'reservations'}
                           </p>
                         </div>
