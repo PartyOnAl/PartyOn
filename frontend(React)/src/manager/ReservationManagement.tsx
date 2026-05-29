@@ -895,6 +895,7 @@ export default function ReservationManagement() {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function freeReservationTable(row: ReservationRow) {
     if (!supabase || !row.table_id) return
     const table = dbTables.find((t) => t.id === row.table_id)
@@ -1658,6 +1659,7 @@ export default function ReservationManagement() {
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
               const eventFree = reservationEventIsFree(row)
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const tableOccupied = row.table_id
                 ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
                 : false
