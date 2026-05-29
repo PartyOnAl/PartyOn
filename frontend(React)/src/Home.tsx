@@ -13,16 +13,17 @@ function isActiveOrUpcomingEvent(event: {
   startDateTime?: string
   endDateTime?: string
 }, now: Date): boolean {
+  const todayStart = new Date(now)
+  todayStart.setHours(0, 0, 0, 0)
+
   if (event.endDateTime) {
     const end = new Date(event.endDateTime)
-    return Number.isNaN(end.getTime()) || end > now
+    return Number.isNaN(end.getTime()) || end >= todayStart
   }
 
   if (event.startDateTime) {
     const start = new Date(event.startDateTime)
     if (Number.isNaN(start.getTime())) return true
-    const todayStart = new Date(now)
-    todayStart.setHours(0, 0, 0, 0)
     return start >= todayStart
   }
 

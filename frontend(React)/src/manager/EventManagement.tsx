@@ -44,6 +44,10 @@ function confirmedGuestsForEvent(ev: EventRow): number {
   return totalGuestCount(ev.reservations.filter(reservationIsConfirmed))
 }
 
+function eventHasReservations(ev: EventRow): boolean {
+  return ev.reservations.length > 0
+}
+
 function getEventStatusBadgeClass(status: string | null): string {
   const normalized = status?.toLowerCase() ?? 'upcoming'
   const variant =
@@ -1381,6 +1385,15 @@ export default function EventManagement() {
     }
 
     setToast(null)
+    if (eventHasReservations(deletingEvent)) {
+      setDeletingEvent(null)
+      setToast({
+        type: 'error',
+        message: 'This event already has reservations, so it cannot be permanently deleted without breaking booking history.',
+      })
+      return
+    }
+
     const { error: deleteErr } = await supabase
       .from('events')
       .delete()
@@ -1415,23 +1428,43 @@ export default function EventManagement() {
     }
 
     setToast(null)
+    const deletablePastEventIds = events
+      .filter((event) => pastEventIds.includes(event.event_id) && !eventHasReservations(event))
+      .map((event) => event.event_id)
+    const protectedPastCount = pastEventIds.length - deletablePastEventIds.length
+
+    if (deletablePastEventIds.length === 0) {
+      setConfirmDeletePast(false)
+      setToast({
+        type: 'error',
+        message: 'Past events with reservations cannot be permanently deleted without breaking booking history.',
+      })
+      return
+    }
+
     const { error: deleteErr } = await supabase
       .from('events')
       .delete()
       .eq('club_id', clubId)
-      .in('event_id', pastEventIds)
+      .in('event_id', deletablePastEventIds)
 
     if (deleteErr) {
       setToast({ type: 'error', message: deleteErr.message })
       return
     }
 
-    if (viewingEvent && pastEventIds.includes(viewingEvent.event_id)) {
+    if (viewingEvent && deletablePastEventIds.includes(viewingEvent.event_id)) {
       closeViewingEvent()
     }
     setConfirmDeletePast(false)
-    setEvents((current) => current.filter((event) => !pastEventIds.includes(event.event_id)))
-    setToast({ type: 'success', message: 'All past events deleted' })
+    setEvents((current) => current.filter((event) => !deletablePastEventIds.includes(event.event_id)))
+    setToast({
+      type: protectedPastCount > 0 ? 'error' : 'success',
+      message:
+        protectedPastCount > 0
+          ? `Deleted ${deletablePastEventIds.length} past event${deletablePastEventIds.length === 1 ? '' : 's'}. ${protectedPastCount} with reservations were kept to preserve booking history.`
+          : 'All past events deleted',
+    })
   }
 
   if (loading) {

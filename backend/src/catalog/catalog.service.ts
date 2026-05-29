@@ -945,7 +945,7 @@ export class CatalogService {
     return [...s];
   }
 
-  /** Calendar-day comparison: event is still running or starts today/later. */
+  /** Calendar-day comparison: event is still running today or starts today/later. */
   private isEventUpcomingRow(row: Record<string, unknown>): boolean {
     const startRaw =
       row.event_starting_date ??
@@ -959,18 +959,18 @@ export class CatalogService {
       row.ends_at ??
       row.end_date ??
       row.end_time;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
     if (endRaw != null) {
       const end = new Date(String(endRaw));
-      if (!Number.isNaN(end.getTime())) return end > new Date();
+      if (!Number.isNaN(end.getTime())) return end >= todayStart;
     }
     if (startRaw == null) return false;
     const d = new Date(String(startRaw));
     if (Number.isNaN(d.getTime())) return false;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
     const day = new Date(d);
     day.setHours(0, 0, 0, 0);
-    return day.getTime() >= start.getTime();
+    return day.getTime() >= todayStart.getTime();
   }
 
   private eventRowSortMs(row: Record<string, unknown>): number {
@@ -1244,6 +1244,8 @@ export class CatalogService {
     let eventEntities: Events[] = [];
     try {
       const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
       eventEntities = await this.eventsRepo
         .createQueryBuilder('e')
         .leftJoinAndSelect('e.club', 'c')
@@ -1262,10 +1264,16 @@ export class CatalogService {
         )
         .andWhere(
           new Brackets((qb) => {
-            qb.where('e.event_ending_date > :now', { now }).orWhere(
-              'e.event_starting_date >= :now',
-              { now },
-            );
+            qb.where('e.event_ending_date >= :todayStart', { todayStart })
+              .orWhere(
+                new Brackets((inner) => {
+                  inner
+                    .where('e.event_ending_date IS NULL')
+                    .andWhere('e.event_starting_date >= :todayStart', {
+                      todayStart,
+                    });
+                }),
+              );
           }),
         )
         .orderBy('e.event_starting_date', 'ASC', 'NULLS LAST')
