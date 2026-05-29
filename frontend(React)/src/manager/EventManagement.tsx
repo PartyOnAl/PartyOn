@@ -20,12 +20,6 @@ type ReservationMini = {
   number_of_people: number | null  // modern schema column name
 }
 
-type TicketMini = {
-  id: string
-  quantity: number | null
-  status: string | null
-}
-
 type EventRow = {
   event_id: string
   event_name: string
@@ -43,7 +37,6 @@ type EventRow = {
   featured_request_status: string | null
   featured_rejection_reason: string | null
   reservations: ReservationMini[]
-  tickets: TicketMini[]
 }
 
 /** Guest headcount from a single reservation — handles both legacy (nr_of_people) and modern (number_of_people) columns. */
@@ -53,17 +46,13 @@ function reservationHeadcount(r: ReservationMini): number {
 
 /** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
 function confirmedGuestsForEvent(ev: EventRow): number {
-  const fromReservations = ev.reservations
+  return ev.reservations
     .filter(reservationIsConfirmed)
     .reduce((sum, r) => sum + reservationHeadcount(r), 0)
-  const fromTickets = (ev.tickets ?? [])
-    .filter(reservationIsConfirmed)
-    .reduce((sum, t) => sum + (t.quantity || 1), 0)
-  return fromReservations + fromTickets
 }
 
 function eventHasReservations(ev: EventRow): boolean {
-  return ev.reservations.length > 0 || (ev.tickets ?? []).length > 0
+  return ev.reservations.length > 0
 }
 
 function getEventStatusBadgeClass(status: string | null): string {
@@ -1191,8 +1180,7 @@ export default function EventManagement() {
         event_ending_date, event_hours,
         event_capacity, ticket_price, final_ticket_price, event_image, event_status,
         is_featured, featured_request_status, featured_rejection_reason,
-        reservations(reservation_id, type, status, nr_of_people, number_of_people),
-        tickets(id, quantity, status)
+        reservations(reservation_id, type, status, nr_of_people, number_of_people)
       `)
       .eq('club_id', clubId)
       .order('event_starting_date', { ascending: false })
@@ -1211,11 +1199,10 @@ export default function EventManagement() {
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const totalAllGuests = events.reduce((sum, e) => {
-    const fromRes = e.reservations.reduce((s, r) => s + reservationHeadcount(r), 0)
-    const fromTix = (e.tickets ?? []).reduce((s, t) => s + (t.quantity || 1), 0)
-    return sum + fromRes + fromTix
-  }, 0)
+  const totalAllGuests = events.reduce(
+    (sum, e) => sum + e.reservations.reduce((s, r) => s + reservationHeadcount(r), 0),
+    0,
+  )
   const totalConfirmedGuests = events.reduce((sum, e) => sum + confirmedGuestsForEvent(e), 0)
 
   const stats = [
