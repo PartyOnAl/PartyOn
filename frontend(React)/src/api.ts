@@ -12,14 +12,22 @@ export type ApiResult<T> = {
   error: string | null;
 };
 
+const FETCH_TIMEOUT_MS = 60_000
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  )
+}
+
 export async function getJson<TResponse>(
   endpoint: string,
   init?: RequestInit,
 ): Promise<ApiResult<TResponse>> {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...init,
-    });
+    const response = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, init);
     const body = (await response.json()) as TResponse | { message?: string | string[] };
 
     if (!response.ok) {

@@ -568,11 +568,7 @@ export class CatalogService {
         row.club_id != null && String(row.club_id).trim() !== ''
           ? String(row.club_id)
           : undefined,
-      isFeatured:
-        row.is_featured === true &&
-        row.featured_request_status === 'approved'
-          ? true
-          : undefined,
+      isFeatured: row.is_featured === true ? true : undefined,
       rawDate: rawDateTimeString(row.event_starting_date),
       startDateTime: rawDateTimeString(row.event_starting_date),
       endDateTime: rawDateTimeString(row.event_ending_date),
@@ -1239,17 +1235,39 @@ export class CatalogService {
     let eventEntities: Events[] = [];
     try {
       const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const thirtyDaysAgo = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000);
       eventEntities = await this.eventsRepo
         .createQueryBuilder('e')
         .leftJoinAndSelect('e.club', 'c')
         .where(
           new Brackets((qb) => {
-            qb.where("e.event_status = 'published'").orWhere(
-              'e.event_status IS NULL',
-            );
+            qb.where("e.event_status = 'published'")
+              .orWhere('e.event_status IS NULL')
+              .orWhere(
+                new Brackets((inner) => {
+                  inner
+                    .where('e.is_featured = true')
+                    .andWhere("(e.event_status IS NULL OR e.event_status != 'cancelled')");
+                }),
+              );
           }),
         )
-        .andWhere('e.event_starting_date >= :now', { now })
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where('e.event_starting_date >= :todayStart', { todayStart })
+              .orWhere(
+                new Brackets((inner) => {
+                  inner
+                    .where('e.event_starting_date >= :thirtyDaysAgo', { thirtyDaysAgo })
+                    .andWhere('e.event_starting_date < :todayStart', { todayStart })
+                    .andWhere('e.event_ending_date IS NOT NULL')
+                    .andWhere('e.event_ending_date > :now', { now });
+                }),
+              );
+          }),
+        )
         .orderBy('e.event_starting_date', 'ASC', 'NULLS LAST')
         .addOrderBy('e.event_id', 'ASC')
         .getMany();

@@ -29,9 +29,9 @@ import { AdminModule } from './admin/admin.module';
       autoLoadEntities: true,
       synchronize: false,
       extra: {
-        max: 5,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        max: 2,
+        idleTimeoutMillis: 10000,
+        connectionTimeoutMillis: 20000,
       },
     }),
     AuthModule,

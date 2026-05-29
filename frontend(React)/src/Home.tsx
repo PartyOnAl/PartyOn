@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
@@ -11,7 +11,15 @@ import { useCatalog } from '@/contexts/CatalogContext'
 
 export default function Home() {
   const { events, promotions, loading, error } = useCatalog()
-  const featuredEvents = events.filter((e) => e.isFeatured)
+  const featuredEvents = useMemo(() => {
+    const now = new Date()
+    return events.filter((e) => {
+      if (!e.isFeatured) return false
+      if (e.endDateTime) return new Date(e.endDateTime) > now
+      if (e.startDateTime) return new Date(e.startDateTime) >= now
+      return true
+    })
+  }, [events])
   const navigate = useNavigate()
   const location = useLocation()
 
