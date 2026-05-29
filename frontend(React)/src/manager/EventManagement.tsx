@@ -17,7 +17,6 @@ type ReservationMini = {
   type: string | null
   status: string | null
   nr_of_people: number | null
-  number_of_people: number | null  // modern schema column name
 }
 
 type EventRow = {
@@ -39,9 +38,9 @@ type EventRow = {
   reservations: ReservationMini[]
 }
 
-/** Guest headcount from a single reservation — handles both legacy (nr_of_people) and modern (number_of_people) columns. */
+/** Guest headcount from a single reservation. Falls back to 1 if nr_of_people is null. */
 function reservationHeadcount(r: ReservationMini): number {
-  return r.nr_of_people || r.number_of_people || 1
+  return r.nr_of_people || 1
 }
 
 /** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
@@ -1180,7 +1179,7 @@ export default function EventManagement() {
         event_ending_date, event_hours,
         event_capacity, ticket_price, final_ticket_price, event_image, event_status,
         is_featured, featured_request_status, featured_rejection_reason,
-        reservations(reservation_id, type, status, nr_of_people, number_of_people)
+        reservations(reservation_id, type, status, nr_of_people)
       `)
       .eq('club_id', clubId)
       .order('event_starting_date', { ascending: false })

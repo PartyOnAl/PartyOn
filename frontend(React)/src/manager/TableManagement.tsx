@@ -7,7 +7,11 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
-import { NO_SHOW_STATUS, normalizeReservationStatus, reservationIsNoShow } from './noShow'
+import {
+  // NO_SHOW_STATUS,       // no-show: commented out
+  normalizeReservationStatus,
+  // reservationIsNoShow,  // no-show: commented out
+} from './noShow'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +66,7 @@ type TableDisplay = {
   guestName?: string
   eventLabel?: string
   linkedReservationId?: string
-  noShow?: boolean
+  // noShow?: boolean  // no-show: commented out
 }
 
 type VipPackageDraft = { minSpend: string; bottleNote: string }
@@ -166,7 +170,7 @@ function naturalCompareTableNum(a: string, b: string) {
 
 function getPrimaryReservation(tableId: string, reservations: ReservationRow[]): ReservationRow | null {
   const list = reservations
-    .filter(r => r.table_id === tableId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)))
+    .filter(r => r.table_id === tableId && ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)))
     .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
   return list[0] ?? null
 }
@@ -179,7 +183,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
     return { status: 'occupied', guestName: primary ? guestLabel(primary) : undefined, eventLabel: primary?.events?.event_name, linkedReservationId: primary?.reservation_id }
   }
   if (primary) {
-    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id, noShow: reservationIsNoShow(primary.status) }
+    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id /*, noShow: reservationIsNoShow(primary.status) // no-show: commented out */ }
   }
   if (db === 'reserved') return { status: 'reserved' }
   return { status: 'available' }
@@ -187,7 +191,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
 
 function computeDisplayForEvent(table: DbTableRow, reservations: ReservationRow[], eventId: string): TableDisplay {
   const forEvent = reservations
-    .filter(r => r.table_id === table.id && r.event_id === eventId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)))
+    .filter(r => r.table_id === table.id && r.event_id === eventId && ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)))
     .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
   const primary = forEvent[0] ?? null
   const dbStatus = normalizeFloorStatus(table.table_status)
@@ -196,7 +200,7 @@ function computeDisplayForEvent(table: DbTableRow, reservations: ReservationRow[
     return { status: 'occupied', guestName: primary ? guestLabel(primary) : undefined, eventLabel: primary?.events?.event_name, linkedReservationId: primary?.reservation_id }
   }
   if (primary) {
-    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id, noShow: reservationIsNoShow(primary.status) }
+    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id /*, noShow: reservationIsNoShow(primary.status) // no-show: commented out */ }
   }
   return { status: 'available' }
 }
@@ -425,7 +429,7 @@ export default function TableManagement() {
     return reservations.find(
       r => r.table_id === manageTableId &&
         r.event_id === selectedEventId &&
-        ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)),
+        ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)),
     ) ?? null
   }, [manageTableId, selectedEventId, reservations])
 
@@ -743,7 +747,7 @@ export default function TableManagement() {
     if (!supabase) return
     setDeleteDialogBusy(true)
     try {
-      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed', NO_SHOW_STATUS])
+      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */])
       const { error: delErr } = await supabase.from('tables').delete().eq('id', tableId)
       if (delErr) { setToastMessage(delErr.message); return }
       setDeleteDialogTableId(null)
@@ -808,7 +812,7 @@ export default function TableManagement() {
   async function releaseTable() {
     if (!supabase || !manageTableId) return
     setActionBusy(true)
-    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed', NO_SHOW_STATUS])
+    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */])
     const posNext = positionJsonWithoutFloorUi(activeManageRow?.position ?? null)
     await supabase.from('tables').update({ table_status: 'available', position: posNext }).eq('id', manageTableId)
     setActionBusy(false)
@@ -1018,9 +1022,11 @@ export default function TableManagement() {
                             <td data-label="Status">
                               <div className="tbl-mgmt__status-stack">
                                 <EventStatusBadge status={evStatus} />
+                                {/* no-show: commented out
                                 {disp.noShow ? (
                                   <span className="tbl-mgmt__noshow-warning">No-Show needs attention</span>
                                 ) : null}
+                                */}
                               </div>
                             </td>
                           )}
@@ -1474,9 +1480,11 @@ export default function TableManagement() {
                 <span className="tbl-modal-status-dot" aria-hidden />
                 {activeManageDisplay.status.charAt(0).toUpperCase() + activeManageDisplay.status.slice(1)}
               </span>
+              {/* no-show: commented out
               {activeManageDisplay.noShow ? (
                 <span className="tbl-modal-noshow">No-Show</span>
               ) : null}
+              */}
             </div>
 
             {relocateOpen ? (
