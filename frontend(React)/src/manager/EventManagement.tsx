@@ -1731,7 +1731,7 @@ export default function EventManagement() {
                             {new Date(viewingEvent.event_starting_date).toLocaleString('en-US', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
-                              timeZone: 'UTC',
+                              timeZone: 'Europe/Tirane',
                             })}
                           </p>
                         </div>
@@ -1742,7 +1742,7 @@ export default function EventManagement() {
                               ? new Date(viewingEvent.event_ending_date).toLocaleString('en-US', {
                                   dateStyle: 'medium',
                                   timeStyle: 'short',
-                                  timeZone: 'UTC',
+                                  timeZone: 'Europe/Tirane',
                                 })
                               : '—'}
                           </p>
