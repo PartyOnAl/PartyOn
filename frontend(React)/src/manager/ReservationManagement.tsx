@@ -895,7 +895,7 @@ export default function ReservationManagement() {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /* no-show: commented out (only called from no-show functions)
   async function freeReservationTable(row: ReservationRow) {
     if (!supabase || !row.table_id) return
     const table = dbTables.find((t) => t.id === row.table_id)
@@ -904,6 +904,7 @@ export default function ReservationManagement() {
     if (position !== undefined) payload.position = position
     await supabase.from('tables').update(payload).eq('id', row.table_id)
   }
+  */
 
   /* no-show: commented out
   async function markReservationNoShow(row: ReservationRow, openActions = false) {
@@ -1659,10 +1660,11 @@ export default function ReservationManagement() {
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
               const eventFree = reservationEventIsFree(row)
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              /* no-show: commented out
               const tableOccupied = row.table_id
                 ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
                 : false
+              */
               /* no-show: commented out
               const noShow = getNoShowState(
                 row.status,
