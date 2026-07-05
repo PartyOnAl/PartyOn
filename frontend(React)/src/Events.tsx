@@ -10,6 +10,7 @@ import { getJson } from '@/api'
 import type { Event } from '@/types'
 
 type QuickFilter = 'all' | 'tonight' | 'weekend' | 'free' | 'live' | 'clubs' | 'festivals'
+type PriceFilter = 'all' | 'free' | 'under10' | 'under25' | 'paid'
 
 const QUICK_FILTERS: Array<{ value: QuickFilter; label: string }> = [
   { value: 'all', label: 'All' },
@@ -19,6 +20,14 @@ const QUICK_FILTERS: Array<{ value: QuickFilter; label: string }> = [
   { value: 'live', label: 'Live Music' },
   { value: 'clubs', label: 'Clubs' },
   { value: 'festivals', label: 'Festivals' },
+]
+
+const PRICE_OPTIONS: DropdownOption[] = [
+  { value: 'all', label: 'Any price' },
+  { value: 'free', label: 'Free entry' },
+  { value: 'under10', label: 'Under €10' },
+  { value: 'under25', label: 'Under €25' },
+  { value: 'paid', label: 'Paid events' },
 ]
 
 function normalizeLabel(value: string | undefined): string | null {
@@ -138,6 +147,15 @@ function eventMatchesDateRange(event: Event, start: string, end: string) {
   const rangeEnd = fromInputDate(end || start, true)
   if (!rangeStart || !rangeEnd) return true
   return date >= rangeStart && date <= rangeEnd
+}
+
+function eventMatchesPrice(event: Event, filter: PriceFilter) {
+  if (filter === 'all') return true
+  if (filter === 'free') return event.price <= 0
+  if (filter === 'under10') return event.price > 0 && event.price <= 10
+  if (filter === 'under25') return event.price > 0 && event.price <= 25
+  if (filter === 'paid') return event.price > 0
+  return true
 }
 
 function DatePicker({
@@ -274,6 +292,7 @@ export default function Events() {
   const [musicType, setMusicType] = useState('all')
   const [dateStart, setDateStart] = useState('')
   const [dateEnd, setDateEnd] = useState('')
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>('all')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
   const [dbCities, setDbCities] = useState<string[]>([])
   const [dbMusicTypes, setDbMusicTypes] = useState<string[]>([])
@@ -314,10 +333,11 @@ export default function Events() {
         matchesCity &&
         matchesMusic &&
         eventMatchesDateRange(event, dateStart, dateEnd) &&
-        eventMatchesQuickFilter(event, quickFilter)
+        eventMatchesQuickFilter(event, quickFilter) &&
+        eventMatchesPrice(event, priceFilter)
       )
     })
-  }, [city, dateEnd, dateStart, events, musicType, query, quickFilter])
+  }, [city, dateEnd, dateStart, events, musicType, priceFilter, query, quickFilter])
 
   return (
     <div className="events-page">
@@ -372,16 +392,18 @@ export default function Events() {
                   if (start) setQuickFilter('all')
                 }}
               />
+              <FilterDropdown value={priceFilter} options={PRICE_OPTIONS} onChange={(value) => setPriceFilter(value as PriceFilter)} />
               <button
                 type="button"
                 className="events-clear-btn"
-                disabled={!query && city === 'all' && musicType === 'all' && !dateStart && quickFilter === 'all'}
+                disabled={!query && city === 'all' && musicType === 'all' && !dateStart && priceFilter === 'all' && quickFilter === 'all'}
                 onClick={() => {
                   setQuery('')
                   setCity('all')
                   setMusicType('all')
                   setDateStart('')
                   setDateEnd('')
+                  setPriceFilter('all')
                   setQuickFilter('all')
                 }}
               >

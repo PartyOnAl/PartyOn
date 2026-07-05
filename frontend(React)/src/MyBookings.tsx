@@ -1,32 +1,10 @@
-import {
-  Component,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FC,
-  type ReactNode,
-} from 'react'
-import QRCodeSvg from 'react-qr-code'
-import {
-  AlertTriangle,
-  CalendarDays,
-  ChevronRight,
-  Copy,
-  Gift,
-  MapPin,
-  ReceiptText,
-  ScanLine,
-  Share2,
-  Star,
-  Ticket,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { QRCode } from 'react-qr-code'
+import { AlertTriangle, CalendarDays, ChevronRight, Copy, Gift, MapPin, ReceiptText, ScanLine, Share2, Star, Ticket, Trash2, X } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
-import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 type ClaimedOffer = {
   id: string
@@ -53,6 +31,7 @@ type BookingItem = {
   eventId: string
   eventName: string
   eventDate: string | null
+  eventEndDate: string | null
   eventImage: string | null
   venue: string | null
   ticketTypeName: string | null
@@ -65,7 +44,7 @@ type BookingItem = {
 }
 
 type FilterKind = 'upcoming' | 'past'
-type OfferFilter = 'active' | 'used'
+type OfferFilter = 'active' | 'used' | 'past'
 
 type ReservationRowLegacy = {
   reservation_id: string
@@ -78,6 +57,7 @@ type ReservationRowLegacy = {
     event_id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: {
@@ -98,6 +78,7 @@ type ReservationRowModern = {
     id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: { club_name: string | null } | null
@@ -113,25 +94,12 @@ type TicketRow = {
     id: string
     event_name: string
     event_starting_date: string | null
+    event_ending_date: string | null
     event_image: string | null
     club_id?: string | null
     club: { club_name: string | null } | null
   } | null
   ticket_type: { name: string | null } | null
-}
-
-type PromotionQrCodeProps = {
-  value: string
-  size?: number
-  bgColor?: string
-  fgColor?: string
-  level?: 'L' | 'M' | 'Q' | 'H'
-}
-
-const QrCodeRenderer = QRCodeSvg as unknown as FC<PromotionQrCodeProps>
-
-function PromotionQrCode(props: PromotionQrCodeProps) {
-  return <QrCodeRenderer {...props} />
 }
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -156,8 +124,9 @@ function nullableNumber(value: unknown): number | null {
 
 function claimedPromotionCheckoutPrice(promotion: ClaimedOffer['promotion']): number {
   const originalPrice = promotion?.original_price
+  if (!originalPrice || originalPrice <= 0) return 0
   const discountValue = promotion?.discount_value
-  if (!originalPrice || originalPrice <= 0 || !discountValue || discountValue <= 0) return 0
+  if (!discountValue || discountValue <= 0) return originalPrice
   return Math.max(0, originalPrice * (1 - discountValue / 100))
 }
 
@@ -226,9 +195,15 @@ function normalizeKind(type: string | null | undefined): 'ticket' | 'reservation
   return t.includes('reservation') || t.includes('table') ? 'reservation' : 'ticket'
 }
 
-function isPastBooking(booking: Pick<BookingItem, 'eventDate'>): boolean {
+function isPastBooking(booking: Pick<BookingItem, 'eventDate' | 'eventEndDate'>): boolean {
+  const now = new Date()
+  // If the event has an end date, use that — an ongoing event is still "upcoming"
+  if (booking.eventEndDate) {
+    const end = new Date(booking.eventEndDate)
+    if (!Number.isNaN(end.getTime())) return end < now
+  }
   const bookingDate = booking.eventDate ? new Date(booking.eventDate) : null
-  return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < new Date()
+  return !!bookingDate && !Number.isNaN(bookingDate.getTime()) && bookingDate < now
 }
 
 function canCancelReservation(booking: Pick<BookingItem, 'eventDate'>): boolean {
@@ -236,6 +211,19 @@ function canCancelReservation(booking: Pick<BookingItem, 'eventDate'>): boolean 
   const eventDate = new Date(booking.eventDate)
   if (Number.isNaN(eventDate.getTime())) return false
   return eventDate.getTime() - Date.now() >= 24 * 60 * 60 * 1000
+}
+
+function promotionValidUntilEnd(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  if (!/[tT]/.test(value)) date.setHours(23, 59, 59, 999)
+  return date
+}
+
+function isClaimedOfferExpired(offer: ClaimedOffer): boolean {
+  const end = promotionValidUntilEnd(offer.promotion?.valid_until)
+  return !!end && end.getTime() < Date.now()
 }
 
 function getClaimCode(offer: Pick<ClaimedOffer, 'id' | 'redemption_code'>): string {
@@ -554,7 +542,7 @@ function MyBookingsPage() {
       const {
         data: { user },
         error: userError,
-      } = await getAuthUser('user')
+      } = await supabase.auth.getUser()
       if (!active) return
 
       if (userError || !user) {
@@ -570,7 +558,7 @@ function MyBookingsPage() {
         .from('reservations')
         .select(
           `reservation_id,reservation_date,nr_of_people,type,status,created_at,
-           event:events(event_id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
+           event:events(event_id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name),
            payments(status)`,
         )
@@ -588,6 +576,7 @@ function MyBookingsPage() {
             eventId: event?.event_id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.reservation_date,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: ticketType?.name || null,
@@ -606,7 +595,7 @@ function MyBookingsPage() {
         .from('reservations')
         .select(
           `id,number_of_people,time_slot,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name))`,
+           event:events(id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name))`,
         )
         .eq('user_id', user.id)
 
@@ -622,6 +611,7 @@ function MyBookingsPage() {
             eventId: event?.id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.time_slot || row.created_at,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: 'Reservation',
@@ -640,7 +630,7 @@ function MyBookingsPage() {
         .from('tickets')
         .select(
           `id,quantity,status,created_at,
-           event:events(id,event_name,event_starting_date,event_image,club_id,club:clubs(club_name)),
+           event:events(id,event_name,event_starting_date,event_ending_date,event_image,club_id,club:clubs(club_name)),
            ticket_type:ticket_types(name)`,
         )
         .eq('user_id', user.id)
@@ -656,6 +646,7 @@ function MyBookingsPage() {
             eventId: event?.id || '',
             eventName: event?.event_name || 'Untitled event',
             eventDate: event?.event_starting_date || row.created_at,
+            eventEndDate: event?.event_ending_date || null,
             eventImage: event?.event_image || null,
             venue: club?.club_name || null,
             ticketTypeName: ticketType?.name || 'General Admission',
@@ -702,8 +693,11 @@ function MyBookingsPage() {
   const filteredOffers = useMemo(() => {
     return claimedOffers.filter((offer) => {
       const s = String(offer.status ?? '').toLowerCase()
-      if (offerFilter === 'active') return s !== 'redeemed' && s !== 'used' && s !== 'expired'
-      return s === 'redeemed' || s === 'used'
+      const isUsed = s === 'redeemed' || s === 'used'
+      const isExpired = s === 'expired' || isClaimedOfferExpired(offer)
+      if (offerFilter === 'active') return !isUsed && !isExpired
+      if (offerFilter === 'used') return isUsed
+      return isExpired && !isUsed
     })
   }, [claimedOffers, offerFilter])
 
@@ -992,10 +986,10 @@ function MyBookingsPage() {
               )}
             </div>
 
-            {/* Active / Used sub-tabs for Claimed Promotions */}
+            {/* Active / Used / Past sub-tabs for Claimed Promotions */}
             {activeTab === 'offers' && (
               <div className="mt-4 flex gap-5 border-b border-white/8 pb-0">
-                {(['active', 'used'] as OfferFilter[]).map((f) => (
+                {(['active', 'used', 'past'] as OfferFilter[]).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -1049,12 +1043,18 @@ function MyBookingsPage() {
                   <Gift className="h-6 w-6 text-primary" />
                 </div>
                 <h2 className="text-xl font-bold text-white">
-                  {offerFilter === 'active' ? 'No active promotions' : 'No used promotions'}
+                  {offerFilter === 'active'
+                    ? 'No active promotions'
+                    : offerFilter === 'used'
+                      ? 'No used promotions'
+                      : 'No past promotions'}
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   {offerFilter === 'active'
                     ? 'Browse promotions and claim one to see it here'
-                    : 'Promotions you redeem will appear here'}
+                    : offerFilter === 'used'
+                      ? 'Promotions you redeem will appear here'
+                      : 'Expired claimed promotions will appear here'}
                 </p>
                 {offerFilter === 'active' && (
                   <button
@@ -1073,19 +1073,29 @@ function MyBookingsPage() {
                   const claimCode = getClaimCode(offer)
                   const offerStatus = String(offer.status ?? '').toLowerCase()
                   const isUsed = offerStatus === 'redeemed' || offerStatus === 'used'
-                  const canCancelClaim = !isUsed && claimedPromotionCheckoutPrice(promo) === 0
+                  const isExpired = offerStatus === 'expired' || isClaimedOfferExpired(offer)
+                  const canCancelClaim = !isUsed && !isExpired && claimedPromotionCheckoutPrice(promo) === 0
                   const statusColor = isUsed
                     ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300'
-                    : 'border-primary/30 bg-primary/10 text-primary'
+                    : isExpired
+                      ? 'border-white/15 bg-white/8 text-muted-foreground'
+                      : 'border-primary/30 bg-primary/10 text-primary'
+                  const statusLabel = isUsed ? 'Redeemed' : isExpired ? 'Expired' : 'Active'
                   return (
                     <article
                       key={offer.id}
-                      className="grid cursor-pointer gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)] md:min-h-[168px] md:grid-cols-[96px_1fr_auto] md:items-center"
-                      onClick={() => setQrModalOffer(offer)}
-                      role="button"
-                      tabIndex={0}
+                      className={`grid gap-4 rounded-2xl border border-white/10 bg-[#101016]/80 p-4 transition-[background-color,box-shadow,border-color] duration-200 md:min-h-[168px] md:grid-cols-[96px_1fr_auto] md:items-center ${
+                        isExpired
+                          ? ''
+                          : 'cursor-pointer hover:border-primary/25 hover:bg-[#15151c]/90 hover:shadow-[0_0_28px_-8px_rgba(168,85,247,0.2)]'
+                      }`}
+                      onClick={() => {
+                        if (!isExpired) setQrModalOffer(offer)
+                      }}
+                      role={isExpired ? undefined : 'button'}
+                      tabIndex={isExpired ? undefined : 0}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
+                        if (!isExpired && (e.key === 'Enter' || e.key === ' ')) {
                           e.preventDefault()
                           setQrModalOffer(offer)
                         }
@@ -1113,7 +1123,7 @@ function MyBookingsPage() {
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                           <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize ${statusColor}`}>
-                            {isUsed ? 'Redeemed' : 'Active'}
+                            {statusLabel}
                           </span>
                           {promo?.valid_until && !isUsed && (
                             <span className="text-xs text-muted-foreground">
@@ -1146,6 +1156,11 @@ function MyBookingsPage() {
                             </button>
                           )}
                         </div>
+                      ) : isExpired ? (
+                        <div className="flex items-center gap-2 self-center justify-self-start rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-muted-foreground md:justify-self-end">
+                          <CalendarDays className="h-3.5 w-3.5" />
+                          Past promotion
+                        </div>
                       ) : (
                         /* Active: QR preview + cancel */
                         <div className="flex flex-col items-center gap-1">
@@ -1153,7 +1168,7 @@ function MyBookingsPage() {
                             className="rounded-lg border border-white/15 bg-white p-1.5 shadow-sm"
                             onClick={() => setQrModalOffer(offer)}
                           >
-                            <PromotionQrCode
+                            <QRCode
                               value={claimCode}
                               size={56}
                               bgColor="#ffffff"
@@ -1358,11 +1373,11 @@ function MyBookingsPage() {
       {/* ── QR Code modal ────────────────────────────────────────────────── */}
       {qrModalOffer ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 px-4 pb-4 backdrop-blur-sm sm:items-center sm:pb-0"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-3 backdrop-blur-sm sm:items-center sm:p-4"
           onClick={() => { setQrModalOffer(null); setCodeCopied(false); setShareCopied(false) }}
         >
           <div
-            className="w-full max-w-md overflow-hidden rounded-3xl border border-white/12 bg-[#0e0e14] shadow-2xl"
+            className="max-h-[calc(100svh-1.5rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/12 bg-[#0e0e14] shadow-2xl sm:max-h-[calc(100svh-2rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Handle bar for mobile */}
@@ -1371,7 +1386,7 @@ function MyBookingsPage() {
             </div>
 
             {/* Header */}
-            <div className="flex items-start justify-between px-5 pb-3 pt-4">
+            <div className="flex items-start justify-between px-4 pb-2 pt-3 sm:px-5 sm:pb-3 sm:pt-4">
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-widest text-primary/70">Claimed Promotion</p>
                 <h2 className="mt-0.5 truncate text-base font-bold text-white">
@@ -1395,11 +1410,11 @@ function MyBookingsPage() {
             </div>
 
             {/* QR Code */}
-            <div className="flex flex-col items-center gap-4 px-5 pb-6">
-              <div ref={qrModalQrRef} className="rounded-2xl border-4 border-white bg-white p-4 shadow-[0_0_40px_rgba(168,85,247,0.25)]">
-                <PromotionQrCode
+            <div className="flex flex-col items-center gap-3 px-4 pb-4 sm:gap-4 sm:px-5 sm:pb-5">
+              <div ref={qrModalQrRef} className="rounded-2xl border-4 border-white bg-white p-3 shadow-[0_0_40px_rgba(168,85,247,0.25)] sm:p-4">
+                <QRCode
                   value={getClaimCode(qrModalOffer)}
-                  size={200}
+                  size={176}
                   bgColor="#ffffff"
                   fgColor="#05050a"
                   level="M"
@@ -1443,8 +1458,8 @@ function MyBookingsPage() {
               </div>
 
               {/* Code text + copy */}
-              <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <p className="flex-1 text-center font-mono text-lg font-bold tracking-[0.2em] text-white">
+              <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3">
+                <p className="min-w-0 flex-1 break-all text-center font-mono text-base font-bold tracking-[0.16em] text-white sm:text-lg sm:tracking-[0.2em]">
                   {getClaimCode(qrModalOffer)}
                 </p>
                 <button
@@ -1467,7 +1482,7 @@ function MyBookingsPage() {
                 <button
                   type="button"
                   onClick={() => void shareClaimedOffer(qrModalOffer)}
-                  className="inline-flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-2xl border border-white/12 bg-white/[0.06] px-3 py-3 text-sm font-semibold text-white/85 transition hover:border-primary/40 hover:bg-primary/15 hover:text-white"
+                  className="inline-flex min-h-12 w-full flex-col items-center justify-center gap-1 rounded-2xl border border-white/12 bg-white/[0.06] px-3 py-2.5 text-sm font-semibold text-white/85 transition hover:border-primary/40 hover:bg-primary/15 hover:text-white sm:min-h-14 sm:py-3"
                 >
                   <Share2 className="h-5 w-5" />
                   Share PDF

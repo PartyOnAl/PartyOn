@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
 import { HeroSection } from '@/components/HeroSection'
@@ -9,9 +9,36 @@ import { GetAppSection } from '@/components/GetAppSection'
 import { LovableFooter } from '@/components/LovableFooter'
 import { useCatalog } from '@/contexts/CatalogContext'
 
+function isActiveOrUpcomingEvent(
+  event: { startDateTime?: string; endDateTime?: string },
+  now: Date,
+): boolean {
+  const currentTime = now.getTime()
+
+  if (event.endDateTime) {
+    const end = new Date(event.endDateTime).getTime()
+    if (Number.isNaN(end)) return true
+    return end >= currentTime
+  }
+
+  if (event.startDateTime) {
+    const start = new Date(event.startDateTime).getTime()
+    if (Number.isNaN(start)) return true
+    return start >= currentTime
+  }
+
+  return true
+}
+
 export default function Home() {
   const { events, promotions, loading, error } = useCatalog()
-  const featuredEvents = events.filter((e) => e.isFeatured)
+  const featuredEvents = useMemo(() => {
+    const now = new Date()
+    return events.filter((e) => {
+      if (!e.isFeatured) return false
+      return isActiveOrUpcomingEvent(e, now)
+    })
+  }, [events])
   const navigate = useNavigate()
   const location = useLocation()
 

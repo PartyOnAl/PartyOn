@@ -7,7 +7,11 @@ import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
-import { NO_SHOW_STATUS, normalizeReservationStatus, reservationIsNoShow } from './noShow'
+import {
+  // NO_SHOW_STATUS,       // no-show: commented out
+  normalizeReservationStatus,
+  // reservationIsNoShow,  // no-show: commented out
+} from './noShow'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +66,7 @@ type TableDisplay = {
   guestName?: string
   eventLabel?: string
   linkedReservationId?: string
-  noShow?: boolean
+  // noShow?: boolean  // no-show: commented out
 }
 
 type VipPackageDraft = { minSpend: string; bottleNote: string }
@@ -179,7 +183,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
     return { status: 'occupied', guestName: primary ? guestLabel(primary) : undefined, eventLabel: primary?.events?.event_name, linkedReservationId: primary?.reservation_id }
   }
   if (primary) {
-    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id, noShow: reservationIsNoShow(primary.status) }
+    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id /*, noShow: reservationIsNoShow(primary.status) // no-show: commented out */ }
   }
   if (db === 'reserved') return { status: 'reserved' }
   return { status: 'available' }
@@ -196,7 +200,7 @@ function computeDisplayForEvent(table: DbTableRow, reservations: ReservationRow[
     return { status: 'occupied', guestName: primary ? guestLabel(primary) : undefined, eventLabel: primary?.events?.event_name, linkedReservationId: primary?.reservation_id }
   }
   if (primary) {
-    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id, noShow: reservationIsNoShow(primary.status) }
+    return { status: 'reserved', guestName: guestLabel(primary), eventLabel: primary.events?.event_name, linkedReservationId: primary.reservation_id /*, noShow: reservationIsNoShow(primary.status) // no-show: commented out */ }
   }
   return { status: 'available' }
 }
@@ -335,11 +339,15 @@ export default function TableManagement() {
     if (tblErr) { setError(tblErr.message); setDbTables([]) }
     else { setDbTables((tblData ?? []) as DbTableRow[]) }
 
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
     const { data: evData, error: evErr } = await supabase
       .from('events')
       .select('event_id, event_name, event_starting_date')
       .eq('club_id', clubId)
-      .order('event_starting_date', { ascending: false })
+      .gte('event_starting_date', todayStart.toISOString())
+      .order('event_starting_date', { ascending: true })
     if (evErr) { setError(p => p ?? evErr.message); setClubEvents([]); setReservations([]); return }
 
     const evs = (evData ?? []) as ClubEventRow[]
@@ -739,7 +747,7 @@ export default function TableManagement() {
     if (!supabase) return
     setDeleteDialogBusy(true)
     try {
-      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed', NO_SHOW_STATUS])
+      await supabase.from('reservations').update({ table_id: null }).eq('table_id', tableId).in('status', ['pending', 'confirmed', 'noshow'])
       const { error: delErr } = await supabase.from('tables').delete().eq('id', tableId)
       if (delErr) { setToastMessage(delErr.message); return }
       setDeleteDialogTableId(null)
@@ -804,7 +812,7 @@ export default function TableManagement() {
   async function releaseTable() {
     if (!supabase || !manageTableId) return
     setActionBusy(true)
-    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed', NO_SHOW_STATUS])
+    await supabase.from('reservations').update({ table_id: null }).eq('table_id', manageTableId).in('status', ['pending', 'confirmed', 'noshow'])
     const posNext = positionJsonWithoutFloorUi(activeManageRow?.position ?? null)
     await supabase.from('tables').update({ table_status: 'available', position: posNext }).eq('id', manageTableId)
     setActionBusy(false)
@@ -1014,9 +1022,11 @@ export default function TableManagement() {
                             <td data-label="Status">
                               <div className="tbl-mgmt__status-stack">
                                 <EventStatusBadge status={evStatus} />
+                                {/* no-show: commented out
                                 {disp.noShow ? (
                                   <span className="tbl-mgmt__noshow-warning">No-Show needs attention</span>
                                 ) : null}
+                                */}
                               </div>
                             </td>
                           )}
@@ -1470,9 +1480,11 @@ export default function TableManagement() {
                 <span className="tbl-modal-status-dot" aria-hidden />
                 {activeManageDisplay.status.charAt(0).toUpperCase() + activeManageDisplay.status.slice(1)}
               </span>
+              {/* no-show: commented out
               {activeManageDisplay.noShow ? (
                 <span className="tbl-modal-noshow">No-Show</span>
               ) : null}
+              */}
             </div>
 
             {relocateOpen ? (

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { PartyOnLogo } from '../components/PartyOnLogo'
 import { useAuth } from '../contexts/AuthContext'
 import { managerSupabase } from '../lib/supabase'
-import { NO_SHOW_BADGE_EVENT, clearNoShowBadgeCount, getNoShowBadgeCount } from './noShow'
+// import { NO_SHOW_BADGE_EVENT, clearNoShowBadgeCount, getNoShowBadgeCount } from './noShow'  // no-show: commented out
 
 export const MANAGER_NAV = [
   { id: 'dashboard', label: 'Dashboard', to: '/manager/dashboard' },
@@ -283,7 +283,7 @@ export function ManagerSidebar() {
   const { pathname } = useLocation()
   const { profile, signOut } = useAuth()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [noShowBadgeCount, setNoShowBadgeCount] = useState(getNoShowBadgeCount)
+  // const [noShowBadgeCount, setNoShowBadgeCount] = useState(getNoShowBadgeCount)  // no-show: commented out
   const initials = getInitials(profile?.name, profile?.surname, profile?.email)
 
   useEffect(() => {
@@ -308,6 +308,7 @@ export function ManagerSidebar() {
     }
   }, [profile?.id])
 
+  /* no-show: commented out
   useEffect(() => {
     function syncBadge() {
       setNoShowBadgeCount(getNoShowBadgeCount())
@@ -319,6 +320,7 @@ export function ManagerSidebar() {
       window.removeEventListener('storage', syncBadge)
     }
   }, [])
+  */
 
   function getActiveId(): ManagerNavId | null {
     if (pathname === '/manager/dashboard') return 'dashboard'
@@ -337,11 +339,13 @@ export function ManagerSidebar() {
 
   const activeId = getActiveId()
 
+  /* no-show: commented out
   useEffect(() => {
     if (activeId !== 'reservations') return
     clearNoShowBadgeCount()
     setNoShowBadgeCount(0)
   }, [activeId])
+  */
 
   return (
     <aside className="manager-dash__sidebar" aria-label="Manager navigation">
@@ -366,11 +370,13 @@ export function ManagerSidebar() {
             >
               <NavIcon id={item.id} />
               <span>{item.label}</span>
+              {/* no-show badge: commented out
               {item.id === 'reservations' && noShowBadgeCount > 0 ? (
                 <span className="manager-dash__nav-badge" aria-label={`${noShowBadgeCount} no-show notifications`}>
                   {noShowBadgeCount > 9 ? '9+' : noShowBadgeCount}
                 </span>
               ) : null}
+              */}
             </Link>
           )
         })}
@@ -404,7 +410,7 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   const navigate = useNavigate()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState(false)
-  const [bellCount, setBellCount] = useState(getNoShowBadgeCount)
+  const [bellCount, setBellCount] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
   const initials = useMemo(() => getInitials(profile?.name, profile?.surname, profile?.email), [profile?.name, profile?.surname, profile?.email])
   const fullName = profile?.name ? `${profile.name} ${profile.surname ?? ''}`.trim() : 'Manager'
@@ -431,15 +437,43 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
     }
   }, [profile?.id])
 
+  // Live dispute notification count — only disputes filed since manager last visited disputes page
   useEffect(() => {
-    function syncBell() { setBellCount(getNoShowBadgeCount()) }
-    window.addEventListener(NO_SHOW_BADGE_EVENT, syncBell)
-    window.addEventListener('storage', syncBell)
-    return () => {
-      window.removeEventListener(NO_SHOW_BADGE_EVENT, syncBell)
-      window.removeEventListener('storage', syncBell)
+    if (!profile?.club_id || !managerSupabase) return
+    const clubId = profile.club_id
+
+    function getLastSeen(): string {
+      return localStorage.getItem('partyon_disputes_last_seen') ?? new Date(0).toISOString()
     }
-  }, [])
+
+    async function fetchCount() {
+      const { count } = await managerSupabase!
+        .from('disputes')
+        .select('id', { count: 'exact', head: true })
+        .eq('club_id', clubId)
+        .eq('status', 'open')
+        .is('manager_deleted_at', null)
+        .gt('created_at', getLastSeen())
+      setBellCount(count ?? 0)
+    }
+
+    void fetchCount()
+
+    const channel = managerSupabase
+      .channel(`disputes-bell-${clubId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'disputes', filter: `club_id=eq.${clubId}` }, () => {
+        void fetchCount()
+      })
+      .subscribe()
+
+    function onSeen() { void fetchCount() }
+    window.addEventListener('partyon_disputes_seen', onSeen)
+
+    return () => {
+      void managerSupabase!.removeChannel(channel)
+      window.removeEventListener('partyon_disputes_seen', onSeen)
+    }
+  }, [profile?.club_id])
 
   useEffect(() => {
     if (!openMenu) return
@@ -453,7 +487,7 @@ export function ManagerTopBar({ clubName }: { clubName?: string }) {
   }, [openMenu])
 
   function handleBellClick() {
-    navigate(bellCount > 0 ? '/manager/reservations' : '/manager/disputes')
+    navigate('/manager/disputes')
   }
 
   return (

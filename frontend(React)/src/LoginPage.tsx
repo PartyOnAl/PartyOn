@@ -1,33 +1,15 @@
 import { useId, useState, useEffect, type FormEvent } from 'react'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Session } from '@supabase/supabase-js'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-
 import ForgotPasswordModal from './ForgotPasswordModal'
-
-import { persistAdminRoleHint } from './lib/authSession'
-
-import {
-  adminSupabase,
-  isSupabaseConfigured,
-  loginSupabase,
-  managerSupabase,
-  userSupabase,
-} from './lib/supabase'
-
+import { isSupabaseConfigured, managerSupabase, supabase } from './lib/supabase'
 import { userMustChangePassword } from './lib/mustChangePassword'
-
-import { isAdminRole, isManagerRole } from './lib/accountRoles'
-
 import {
   getStaffRoleFromUser,
   isMobileOnlyStaffRole,
 } from './lib/staffRoles'
-
 import styles from './LoginPage.module.css'
 import { API_BASE_URL } from './api'
-
-/** Temporary client used only to identify the role during password login. */
-const supabase = loginSupabase
 
 function GoogleIcon() {
   return (
@@ -110,17 +92,10 @@ function EyeIcon({ open }: { open: boolean }) {
           strokeWidth="1.5"
           strokeLinejoin="round"
         />
-        <circle
-          cx="12"
-          cy="12"
-          r="3"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
       </svg>
     )
   }
-
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
@@ -150,146 +125,108 @@ function safeInternalPath(path: unknown): string | null {
   return path
 }
 
-/** Creates a stable isolated session for password-login lanes. */
-async function establishLaneSession(
-  client: SupabaseClient,
-  email: string,
+function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'superadmin' || role === 'super_admin'
+}
+
+/**
+ * Manager/admin routes use a separate Supabase auth storage key. Prefer moving
+ * the session from the user client; if that fails, sign in again on the
+ * manager client (same credentials) so the dashboard always gets a session.
+ */
+async function ensureManagerSideSession(
+  normalizedEmail: string,
   password: string,
-): Promise<string | null> {
-  const { error } = await client.auth.signInWithPassword({
-    email,
-    password,
-  })
-
-  if (error) {
-    return error.message
+  userSession: Session | null,
+): Promise<{ error: string | null }> {
+  if (!managerSupabase) {
+    return { error: 'Authentication is not configured.' }
   }
 
-  const { data } = await client.auth.getSession()
-
-  if (!data.session) {
-    return 'Failed to establish lane session.'
+  const access = userSession?.access_token
+  const refresh = userSession?.refresh_token
+  if (access && refresh) {
+    const { error } = await managerSupabase.auth.setSession({
+      access_token: access,
+      refresh_token: refresh,
+    })
+    if (!error) {
+      const { data: afterSet } = await managerSupabase.auth.getSession()
+      if (afterSet.session) return { error: null }
+    }
   }
 
-  return null
+  const { data: signData, error: signErr } =
+    await managerSupabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    })
+  if (signErr) return { error: signErr.message }
+
+  const { data: afterSign } = await managerSupabase.auth.getSession()
+  if (!afterSign.session && signData.session) {
+    const { error: recoverErr } = await managerSupabase.auth.setSession({
+      access_token: signData.session.access_token,
+      refresh_token: signData.session.refresh_token,
+    })
+    if (recoverErr) return { error: recoverErr.message }
+  }
+
+  const { data: finalCheck } = await managerSupabase.auth.getSession()
+  if (!finalCheck.session) {
+    return {
+      error:
+        'Could not establish a manager session after sign-in. Please try again.',
+    }
+  }
+  return { error: null }
 }
 
 export default function LoginPage() {
   const navigate = useNavigate()
-
   const location = useLocation()
-
   const [searchParams] = useSearchParams()
-
   const [email, setEmail] = useState('')
-
   const [password, setPassword] = useState('')
-
   const [showPassword, setShowPassword] = useState(false)
-
   const [submitAttempted, setSubmitAttempted] = useState(false)
-
   const [requestError, setRequestError] = useState<string | null>(null)
-
   const [isSubmitting, setIsSubmitting] = useState(false)
-
   const [forgotOpen, setForgotOpen] = useState(false)
 
   const emailErrorId = useId()
-
   const passwordErrorId = useId()
 
   useEffect(() => {
-    const st = location.state as {
-      staffWebBlocked?: boolean
-      accountBlocked?: boolean
-      adminAccessDenied?: boolean
-    } | null
-
-    if (st?.adminAccessDenied) {
-      setRequestError(
-        'Admin session could not be verified. Please sign in again.',
-      )
-
-      navigate(
-        {
-          pathname: location.pathname,
-          search: location.search,
-        },
-        {
-          replace: true,
-        },
-      )
-
-      return
-    }
-
-    if (st?.accountBlocked) {
-      setRequestError(
-        'Your account has been blocked. Contact support.',
-      )
-
-      navigate(
-        {
-          pathname: location.pathname,
-          search: location.search,
-        },
-        {
-          replace: true,
-        },
-      )
-
-      return
-    }
-
-    if (st?.staffWebBlocked) {
-      setRequestError(
-        'Staff accounts cannot log in here.',
-      )
-
-      navigate(
-        {
-          pathname: location.pathname,
-          search: location.search,
-        },
-        {
-          replace: true,
-        },
-      )
-    }
-  }, [
-    location.pathname,
-    location.search,
-    location.state,
-    navigate,
-  ])
+    const st = location.state as { staffWebBlocked?: boolean } | null
+    if (!st?.staffWebBlocked) return
+    setRequestError(
+      'Staff accounts cannot log in here. Please use the manager portal or the mobile app.',
+    )
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true },
+    )
+  }, [location.state, location.pathname, location.search, navigate])
 
   const emailError =
     submitAttempted && !email.trim()
       ? 'Please enter your email.'
-      : submitAttempted &&
-        email.trim() &&
-        !isValidEmail(email)
+      : submitAttempted && email.trim() && !isValidEmail(email)
       ? 'Enter a valid email address.'
       : null
 
   const passwordError =
-    submitAttempted && !password.trim()
-      ? 'Please enter your password.'
-      : null
+    submitAttempted && !password.trim() ? 'Please enter your password.' : null
 
-  async function handleSubmit(
-    e: FormEvent<HTMLFormElement>,
-  ) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-
     setSubmitAttempted(true)
-
     setRequestError(null)
 
-    if (!userSupabase || !isSupabaseConfigured) {
+    if (!supabase || !isSupabaseConfigured) {
       setRequestError(
-        'Supabase is not configured.',
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
       )
       return
     }
@@ -299,75 +236,49 @@ export default function LoginPage() {
       isValidEmail(email) &&
       password.trim().length > 0
 
-    if (!valid) return
-
-    setIsSubmitting(true)
-
-    try {
-      const normalizedEmail = email
-        .trim()
-        .toLowerCase()
-
-      /**
-       * Main login
-       */
-      const { data, error } =
-        await supabase!.auth.signInWithPassword({
+    if (valid) {
+      setIsSubmitting(true)
+      try {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: normalizedEmail,
           password,
         })
 
-      if (error) {
-        setRequestError(error.message)
-        return
-      }
-
-      if (!data.user || !data.session) {
-        setRequestError(
-          'Authentication failed.',
-        )
-        return
-      }
-
-      /**
-       * Force password change flow
-       */
-      if (userMustChangePassword(data.user)) {
-        const sessionError =
-          await establishLaneSession(
-            userSupabase!,
-            normalizedEmail,
-            password,
-          )
-
-        if (sessionError) {
-          setRequestError(sessionError)
+        if (error) {
+          setRequestError(error.message)
           return
         }
 
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
+        if (userMustChangePassword(data.user)) {
+          if (managerSupabase) {
+            await managerSupabase.auth.signOut({ scope: 'local' })
+          }
+          navigate('/staff/change-password', { replace: true })
+          return
+        }
 
-        navigate('/staff/change-password', {
-          replace: true,
-        })
+        const userId = data.user?.id
+        if (!userId) {
+          setRequestError(
+            'Login succeeded, but no user id was returned by Supabase.',
+          )
+          return
+        }
 
-        return
-      }
-
-      /**
-       * Fetch role
-       */
-      const { data: profileData, error: profileError } =
-        await supabase!
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('id, role')
-          .eq('id', data.user.id)
-          .single()
+          .eq('id', userId)
+          .maybeSingle()
 
-      if (profileError) {
-        setRequestError(profileError.message)
+        if (profileError) {
+          setRequestError(
+            `Login succeeded, but profile could not be loaded: ${profileError.message}`,
+          )
+          await supabase.auth.signOut()
+          return
+        }
 
         if (!profileData) {
           // No profile row yet — create one via the backend so they can log in
@@ -375,226 +286,120 @@ export default function LoginPage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              id: data.user.id,
+              id: userId,
               email: normalizedEmail,
             }),
           })
         }
 
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
+        const roleNorm = String(profileData?.role ?? '').toLowerCase().trim()
 
-        return
-      }
-
-      const roleNorm = String(
-        profileData?.role ?? '',
-      )
-        .toLowerCase()
-        .trim()
-
-      /**
-       * Manager flow
-       */
-      if (isManagerRole(roleNorm)) {
-        if (!managerSupabase) {
-          setRequestError(
-            'Manager authentication unavailable.',
-          )
-          return
-        }
-
-        const sessionError =
-          await establishLaneSession(
-            managerSupabase,
+        if (roleNorm === 'manager') {
+          const { error: mgrSessErr } = await ensureManagerSideSession(
             normalizedEmail,
             password,
+            data.session ?? null,
           )
-
-        if (sessionError) {
-          setRequestError(sessionError)
+          if (mgrSessErr) {
+            await supabase.auth.signOut({ scope: 'local' })
+            await managerSupabase?.auth.signOut({ scope: 'local' })
+            setRequestError(mgrSessErr)
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          navigate('/manager/dashboard', { replace: true })
           return
         }
 
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
-
-        navigate('/manager/dashboard', {
-          replace: true,
-          state: {
-            managerRole: roleNorm,
-          },
-        })
-
-        return
-      }
-
-      /**
-       * Admin flow
-       */
-      if (isAdminRole(roleNorm)) {
-        if (!adminSupabase) {
-          setRequestError(
-            'Admin authentication unavailable.',
-          )
-          return
-        }
-
-        const sessionError =
-          await establishLaneSession(
-            adminSupabase,
+        if (isAdminRole(roleNorm)) {
+          const { error: mgrSessErr } = await ensureManagerSideSession(
             normalizedEmail,
             password,
+            data.session ?? null,
           )
-
-        if (sessionError) {
-          setRequestError(sessionError)
+          if (mgrSessErr) {
+            await supabase.auth.signOut({ scope: 'local' })
+            await managerSupabase?.auth.signOut({ scope: 'local' })
+            setRequestError(mgrSessErr)
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          navigate('/admin/platform-analysis', { replace: true })
           return
         }
 
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
-
-        persistAdminRoleHint(data.user)
-
-        navigate('/admin/platform-analysis', {
-          replace: true,
-          state: {
-            adminRole: roleNorm,
-          },
-        })
-
-        return
-      }
-
-      /**
-       * Staff restrictions
-       */
-      const staffRole =
-        getStaffRoleFromUser(data.user)
-
-      if (staffRole) {
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
-
-        if (isMobileOnlyStaffRole(staffRole)) {
-          navigate('/staff/mobile-only', {
-            replace: true,
-          })
-
+        const staffRole = getStaffRoleFromUser(data.user)
+        if (staffRole) {
+          if (managerSupabase) {
+            await managerSupabase.auth.signOut({ scope: 'local' })
+          }
+          if (isMobileOnlyStaffRole(staffRole)) {
+            await supabase.auth.signOut({ scope: 'local' })
+            navigate('/staff/mobile-only', { replace: true })
+            return
+          }
+          await supabase.auth.signOut({ scope: 'local' })
+          setRequestError(
+            'Staff accounts cannot log in here. Please use the manager portal or the mobile app.',
+          )
           return
         }
 
-        setRequestError(
-          'Staff accounts cannot log in here.',
-        )
+        if (managerSupabase) {
+          await managerSupabase.auth.signOut({ scope: 'local' })
+        }
 
-        return
+        let target =
+          safeInternalPath(searchParams.get('from')) ??
+          safeInternalPath((location.state as { from?: string } | null)?.from) ??
+          '/home'
+
+        if (target.startsWith('/manager') && roleNorm !== 'manager') {
+          target = '/home'
+        }
+        if (target.startsWith('/admin') && !isAdminRole(roleNorm)) {
+          target = '/home'
+        }
+        navigate(target, { replace: true })
+      } catch (err) {
+        setRequestError(err instanceof Error ? err.message : String(err))
+        try {
+          await supabase.auth.signOut({ scope: 'local' })
+          await managerSupabase?.auth.signOut({ scope: 'local' })
+        } catch {
+          /* ignore cleanup errors */
+        }
+      } finally {
+        setIsSubmitting(false)
       }
-
-      /**
-       * Customer flow
-       */
-      const sessionError =
-        await establishLaneSession(
-          userSupabase!,
-          normalizedEmail,
-          password,
-        )
-
-      if (sessionError) {
-        setRequestError(sessionError)
-        return
-      }
-
-      await supabase!.auth.signOut({
-        scope: 'local',
-      })
-
-      let target =
-        safeInternalPath(
-          searchParams.get('from'),
-        ) ??
-        safeInternalPath(
-          (
-            location.state as {
-              from?: string
-            } | null
-          )?.from,
-        ) ??
-        '/home'
-
-      if (
-        target.startsWith('/manager') &&
-        !isManagerRole(roleNorm)
-      ) {
-        target = '/home'
-      }
-
-      if (
-        target.startsWith('/admin') &&
-        !isAdminRole(roleNorm)
-      ) {
-        target = '/home'
-      }
-
-      navigate(target, {
-        replace: true,
-      })
-    } catch (err) {
-      setRequestError(
-        err instanceof Error
-          ? err.message
-          : String(err),
-      )
-
-      try {
-        await supabase!.auth.signOut({
-          scope: 'local',
-        })
-      } catch {
-        //
-      }
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
   function handleOpenForgot() {
     setRequestError(null)
-
     if (!supabase || !isSupabaseConfigured) {
       setRequestError(
-        'Supabase is not configured.',
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
       )
       return
     }
-
     setForgotOpen(true)
   }
 
   async function handleGoogleLogin() {
     setRequestError(null)
-
     if (!supabase || !isSupabaseConfigured) {
       setRequestError(
-        'Supabase is not configured.',
+        'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in frontend .env.',
       )
       return
     }
-
-    const { error } =
-      await userSupabase!.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}`,
-        },
-      })
-
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    })
     if (error) {
       setRequestError(error.message)
     }
@@ -603,207 +408,106 @@ export default function LoginPage() {
   return (
     <div className={styles.page}>
       <div className={styles.glow} aria-hidden />
-
       <div className={styles.inner}>
         <div className={styles.logo}>
-          Party
-          <span className={styles.logoAccent}>
-            On
-          </span>
+          Party<span className={styles.logoAccent}>On</span>
         </div>
 
         <div className={styles.card}>
-          <h1 className={styles.heading}>
-            Welcome back
-          </h1>
+          <h1 className={styles.heading}>Welcome back</h1>
 
-          <form
-            className={styles.form}
-            onSubmit={handleSubmit}
-            autoComplete="on"
-            noValidate
-          >
+          <form className={styles.form} onSubmit={handleSubmit} autoComplete="on" noValidate>
             <div className={styles.field}>
-              <label
-                className={styles.fieldLabel}
-                htmlFor="login-email"
-              >
+              <label className={styles.fieldLabel} htmlFor="login-email">
                 Email
               </label>
-
               <div className={styles.inputWithIcons}>
                 <span className={styles.inputIconLeft}>
                   <MailIcon />
                 </span>
-
                 <input
                   id="login-email"
-                  className={`${styles.input} ${styles.inputPaddedLeft} ${
-                    emailError
-                      ? styles.inputInvalid
-                      : ''
-                  }`}
+                  className={`${styles.input} ${styles.inputPaddedLeft} ${emailError ? styles.inputInvalid : ''}`}
                   type="email"
                   name="email"
                   autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(e) =>
-                    setEmail(e.target.value)
-                  }
-                  aria-invalid={
-                    emailError ? true : undefined
-                  }
-                  aria-describedby={
-                    emailError
-                      ? emailErrorId
-                      : undefined
-                  }
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={emailError ? true : undefined}
+                  aria-describedby={emailError ? emailErrorId : undefined}
                 />
               </div>
-
               {emailError ? (
-                <p
-                  id={emailErrorId}
-                  className={styles.error}
-                  role="alert"
-                >
+                <p id={emailErrorId} className={styles.error} role="alert">
                   {emailError}
                 </p>
               ) : null}
             </div>
 
             <div className={styles.field}>
-              <label
-                className={styles.fieldLabel}
-                htmlFor="login-password"
-              >
+              <label className={styles.fieldLabel} htmlFor="login-password">
                 Password
               </label>
-
               <div className={styles.inputWithIcons}>
                 <span className={styles.inputIconLeft}>
                   <LockIcon />
                 </span>
-
                 <input
                   id="login-password"
-                  className={`${styles.input} ${styles.inputPaddedBoth} ${
-                    passwordError
-                      ? styles.inputInvalid
-                      : ''
-                  }`}
-                  type={
-                    showPassword
-                      ? 'text'
-                      : 'password'
-                  }
+                  className={`${styles.input} ${styles.inputPaddedBoth} ${passwordError ? styles.inputInvalid : ''}`}
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   autoComplete="current-password"
                   placeholder="Enter your password"
                   value={password}
-                  onChange={(e) =>
-                    setPassword(e.target.value)
-                  }
-                  aria-invalid={
-                    passwordError
-                      ? true
-                      : undefined
-                  }
-                  aria-describedby={
-                    passwordError
-                      ? passwordErrorId
-                      : undefined
-                  }
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-invalid={passwordError ? true : undefined}
+                  aria-describedby={passwordError ? passwordErrorId : undefined}
                 />
-
                 <button
                   type="button"
                   className={styles.togglePassword}
-                  onClick={() =>
-                    setShowPassword((v) => !v)
-                  }
-                  aria-label={
-                    showPassword
-                      ? 'Hide password'
-                      : 'Show password'
-                  }
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   <EyeIcon open={showPassword} />
                 </button>
               </div>
-
               {passwordError ? (
-                <p
-                  id={passwordErrorId}
-                  className={styles.error}
-                  role="alert"
-                >
+                <p id={passwordErrorId} className={styles.error} role="alert">
                   {passwordError}
                 </p>
               ) : null}
             </div>
 
             <div className={styles.forgotRow}>
-              <button
-                type="button"
-                className={styles.forgotLink}
-                onClick={handleOpenForgot}
-              >
+              <button type="button" className={styles.forgotLink} onClick={handleOpenForgot}>
                 Forgot password?
               </button>
             </div>
 
             {requestError ? (
-              <p
-                className={styles.error}
-                role="alert"
-              >
+              <p className={styles.error} role="alert">
                 {requestError}
               </p>
             ) : null}
-
-            <button
-              type="submit"
-              className={styles.submit}
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? 'Logging in...'
-                : 'Log in'}
+            <button type="submit" className={styles.submit} disabled={isSubmitting}>
+              {isSubmitting ? 'Logging in...' : 'Log in'}
             </button>
           </form>
 
           <div className={styles.divider}>
-            <span
-              className={styles.dividerLine}
-              aria-hidden
-            />
-
-            <span className={styles.dividerText}>
-              or continue with
-            </span>
-
-            <span
-              className={styles.dividerLine}
-              aria-hidden
-            />
+            <span className={styles.dividerLine} aria-hidden />
+            <span className={styles.dividerText}>or continue with</span>
+            <span className={styles.dividerLine} aria-hidden />
           </div>
 
-          <button
-            type="button"
-            className={styles.social}
-            onClick={() =>
-              void handleGoogleLogin()
-            }
-          >
+          <button type="button" className={styles.social} onClick={() => void handleGoogleLogin()}>
             <span className={styles.socialIcon}>
               <GoogleIcon />
             </span>
-
-            <span className={styles.socialLabel}>
-              Continue with Google
-            </span>
+            <span className={styles.socialLabel}>Continue with Google</span>
           </button>
 
           <p className={styles.footer}>
@@ -811,9 +515,7 @@ export default function LoginPage() {
             <button
               type="button"
               className={styles.footerLink}
-              onClick={() =>
-                navigate('/signup')
-              }
+              onClick={() => navigate('/signup')}
             >
               Sign up
             </button>

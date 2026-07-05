@@ -20,7 +20,6 @@ import Events from './Events'
 import Promotions from './Promotions'
 import PromotionOfferDetailPage from './PromotionOfferDetailPage'
 import PurchasedTicket from './PurchasedTicket'
-//import Search from './Search'
 import MyBookings from './MyBookings'
 import MyDisputes from './MyDisputes'
 import ReservationFlow from './ReservationFlow'
@@ -66,8 +65,7 @@ import PrivacyPolicy from './PrivacyPolicy'
 import HelpCenter from './HelpCenter'
 import { userMustChangePassword } from './lib/mustChangePassword'
 import { getStaffRoleFromUser, isMobileOnlyStaffRole } from './lib/staffRoles'
-import { authLaneFromPathname, isSupabaseConfigured, userSupabase } from './lib/supabase'
-import PaymentMethod from './PaymentMethod'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 function MustChangePasswordGuard() {
   const { user, isLoading } = useAuth()
@@ -76,9 +74,8 @@ function MustChangePasswordGuard() {
 
   useEffect(() => {
     if (isLoading) return
-    const path = location.pathname
-    if (authLaneFromPathname(path) !== 'user') return
     if (!userMustChangePassword(user)) return
+    const path = location.pathname
     if (
       path === '/staff/change-password' ||
       path === '/login' ||
@@ -97,11 +94,20 @@ function WebStaffAccessGuard() {
   const { user, profile, isLoading } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const lane = authLaneFromPathname(location.pathname)
+  const isManagerPath =
+    location.pathname.startsWith('/manager') || location.pathname.startsWith('/admin')
 
   useEffect(() => {
     if (isLoading) return
-    if (lane !== 'user') return
+    if (isManagerPath) return
+
+    const roleNorm = String(profile?.role ?? '').toLowerCase().trim()
+    const isAdminRole =
+      roleNorm === 'admin' || roleNorm === 'superadmin' || roleNorm === 'super_admin'
+    if (isAdminRole) {
+      navigate('/admin/platform-analysis', { replace: true })
+      return
+    }
 
     const staffRole = getStaffRoleFromUser(user ?? null)
     if (!staffRole) return
@@ -112,23 +118,22 @@ function WebStaffAccessGuard() {
       path === '/login' ||
       path === '/signup' ||
       path === '/reset-password' ||
-      path === '/staff/change-password' ||
-      path.startsWith('/reserve')
+      path === '/staff/change-password'
     ) {
       return
     }
 
-    if (!userSupabase || !isSupabaseConfigured) return
+    if (!supabase || !isSupabaseConfigured) return
 
     if (isMobileOnlyStaffRole(staffRole)) {
-      void userSupabase.auth.signOut({ scope: 'local' })
+      void supabase.auth.signOut({ scope: 'local' })
       navigate('/staff/mobile-only', { replace: true })
       return
     }
 
-    void userSupabase.auth.signOut({ scope: 'local' })
+    void supabase.auth.signOut({ scope: 'local' })
     navigate('/login', { replace: true, state: { staffWebBlocked: true } })
-  }, [user, profile, isLoading, location.pathname, lane, navigate])
+  }, [user, profile, isLoading, location.pathname, isManagerPath, navigate])
 
   return null
 }
@@ -136,7 +141,7 @@ function WebStaffAccessGuard() {
 function ScrollToTop() {
   const { pathname } = useLocation()
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0 })
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [pathname])
   return null
 }
@@ -155,7 +160,6 @@ function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
-
       <AuthProvider>
         <CatalogProvider>
           <SavedEventsProvider>
@@ -192,7 +196,7 @@ function App() {
               <Route path="/my-tickets" element={<Navigate to="/my-bookings" replace />} />
               <Route path="/my-bookings/:bookingId" element={<PurchasedTicket />} />
               <Route path="/purchased-ticket" element={<Navigate to="/my-bookings" replace />} />
-              <Route path="/purchased-ticket/:id/:quantity/:payment_id" element={<PurchasedTicket />} />
+              <Route path="/purchased-ticket/:id/:quantity" element={<PurchasedTicket />} />
               <Route path="/success" element={<Success />} />
               <Route path="/cancel" element={<Cancel />} />
               <Route path="/top-clubs" element={<TopClubs />} />
@@ -270,6 +274,22 @@ function App() {
                 path="/admin/revenue-payments"
                 element={<AdminRoute><RevenueAndPayments /></AdminRoute>}
               />
+              <Route
+                path="/admin/featured-events"
+                element={<AdminRoute><FeaturedEvents /></AdminRoute>}
+              />
+              <Route
+                path="/admin/platform-analytics"
+                element={<AdminRoute><PlatformAnalytics /></AdminRoute>}
+              />
+              <Route
+                path="/admin/settings"
+                element={<AdminRoute><AdminSettings /></AdminRoute>}
+              />
+
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/help" element={<HelpCenter />} />
 
               <Route path="/header" element={<Header />} />
               <Route path="/footer" element={<Footer />} />
@@ -279,12 +299,10 @@ function App() {
               <Route path="/eventClicked" element={<EventClicked />} />
               <Route path="/topclubs" element={<TopClubs />} />
               <Route path="/purchasedticket" element={<PurchasedTicket />} />
-              <Route path="/paymentmethod" element={<PaymentMethod />} />
             </Routes>
           </SavedEventsProvider>
         </CatalogProvider>
       </AuthProvider>
-
     </BrowserRouter>
   )
 }

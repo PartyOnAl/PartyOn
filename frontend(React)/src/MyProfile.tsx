@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Calendar, Camera, Mail, Phone, ShieldCheck, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
-import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { DatePicker } from '@/components/DatePicker'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { API_BASE_URL } from '@/api'
 
 type ProfileRow = {
@@ -182,12 +182,7 @@ export default function MyProfile() {
         }
         return
       }
-
-      const {
-        data: { user },
-        error: userError,
-      } = await getAuthUser('user')
-
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (!active) return
       if (userError || !user) { navigate('/login', { replace: true }); return }
 

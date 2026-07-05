@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '@/api'
 import { useSearchParams } from 'react-router-dom'
 import './ManagerDashboard.css'
@@ -9,8 +9,6 @@ import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supaba
 import { useAuth } from '../contexts/AuthContext'
 import {
   isPaidTicketEvent,
-  reservationIsConfirmed,
-  totalGuestCount,
 } from './eventPaidEntry'
 
 type ReservationMini = {
@@ -39,9 +37,23 @@ type EventRow = {
   reservations: ReservationMini[]
 }
 
-/** Matches the “Confirmed Reservations” KPI: rows linked to the event with status confirmed (any reservation type). */
-function confirmedGuestsForEvent(ev: EventRow): number {
-  return totalGuestCount(ev.reservations.filter(reservationIsConfirmed))
+/** Guest headcount from a single reservation. Falls back to 1 if nr_of_people is null. */
+function reservationHeadcount(r: ReservationMini): number {
+  return r.nr_of_people || 1
+}
+
+/** Count all active (non-cancelled) reservations for an event. */
+function activeGuestsForEvent(ev: EventRow): number {
+  return ev.reservations
+    .filter(r => {
+      const s = (r.status ?? '').trim().toLowerCase()
+      return s !== 'cancelled'
+    })
+    .reduce((sum, r) => sum + reservationHeadcount(r), 0)
+}
+
+function eventHasReservations(ev: EventRow): boolean {
+  return ev.reservations.length > 0
 }
 
 function getEventStatusBadgeClass(status: string | null): string {
@@ -59,6 +71,16 @@ function getEventStatusBadgeClass(status: string | null): string {
 
 function eventIsPast(event: Pick<EventRow, 'event_ending_date'>, todayStart: Date): boolean {
   return Boolean(event.event_ending_date && new Date(event.event_ending_date) < todayStart)
+}
+
+function eventIsActiveOrUpcoming(
+  event: Pick<EventRow, 'event_starting_date' | 'event_ending_date'>,
+  now: Date,
+): boolean {
+  if (event.event_ending_date) {
+    return new Date(event.event_ending_date) > now
+  }
+  return new Date(event.event_starting_date) > now
 }
 
 type EventFormState = {
@@ -99,7 +121,6 @@ const MONTH_NAMES = [
   'December',
 ] as const
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
-const HOUR_SELECT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const
 const MINUTE_SELECT_OPTIONS = ['00', '30'] as const
 const EVENT_TYPE_OPTIONS = ['Club Night', 'Live Music', 'Special Event', 'Private Party', 'Other'] as const
 const EVENT_FILTERS: Array<{ id: EventFilter; label: string }> = [
@@ -144,6 +165,90 @@ function formatTimeLabel(value: string) {
 function buildDateTime(date: string, time: string) {
   if (!date) return ''
   return `${date}T${time || '00:00'}`
+}
+
+/** Convert a UTC ISO timestamp (from Supabase) into a `datetime-local` string in the user's local timezone. */
+function toDatetimeLocal(value?: string | null): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+type EventDateTimeParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+}
+
+function parseEventDateTimeParts(value: string | null | undefined): EventDateTimeParts | null {
+  if (!value) return null
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+  if (!match) return null
+  const [, yRaw, moRaw, dRaw, hRaw = '00', miRaw = '00'] = match
+  const year = Number(yRaw)
+  const month = Number(moRaw)
+  const day = Number(dRaw)
+  const hour = Number(hRaw)
+  const minute = Number(miRaw)
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null
+  }
+  return { year, month, day, hour, minute }
+}
+
+function sameCalendarDay(a: EventDateTimeParts, b: EventDateTimeParts): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
+function formatCardDate(parts: EventDateTimeParts): string {
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function formatCardTime(parts: EventDateTimeParts): string {
+  const period = parts.hour < 12 ? 'AM' : 'PM'
+  const hour12 = parts.hour % 12 === 0 ? 12 : parts.hour % 12
+  return `${hour12}:${String(parts.minute).padStart(2, '0')} ${period}`
+}
+
+function formatCardDateTime(parts: EventDateTimeParts): string {
+  return `${formatCardDate(parts)} ${formatCardTime(parts)}`
+}
+
+function formatEventPeriod(startValue: string, endValue: string | null): string {
+  const start = parseEventDateTimeParts(startValue)
+  if (!start) return ''
+
+  const end = parseEventDateTimeParts(endValue)
+  if (!end) return formatCardDateTime(start)
+
+  return `${formatCardDateTime(start)} - ${formatCardDateTime(end)}`
+}
+
+function buildEventHours(startValue: string, endValue: string | null): string | null {
+  const start = parseEventDateTimeParts(startValue)
+  if (!start) return null
+
+  const end = parseEventDateTimeParts(endValue)
+  const startTime = formatCardTime(start)
+  if (!end) return startTime
+
+  const endTime = formatCardTime(end)
+  if (sameCalendarDay(start, end)) return `${startTime} - ${endTime}`
+  return `${startTime} - ${formatCardDate(end)} ${endTime}`
 }
 
 function parseNumLoose(s: string): number | null {
@@ -272,6 +377,7 @@ function DatePickerField({
   const focusedDate = selectedDate || fallbackDate
   const initialMonth = focusedDate ? new Date(`${focusedDate}T00:00`) : new Date()
   const [isOpen, setIsOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [viewMonth, setViewMonth] = useState(
     new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1),
   )
@@ -281,6 +387,16 @@ function DatePickerField({
     const nextMonth = focusedDate ? new Date(`${focusedDate}T00:00`) : new Date()
     setViewMonth(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1))
   }, [isOpen, focusedDate])
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      setIsOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen])
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
@@ -292,7 +408,7 @@ function DatePickerField({
   ]
 
   return (
-    <div className="event-mgmt__field event-mgmt__picker-field">
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
       <label>{label}</label>
       <button
         type="button"
@@ -359,17 +475,18 @@ export function TimePickerField({
   disabled?: boolean
   onChange: (time: string) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
   const current = value || '00:00'
   const [hourRaw, minuteRaw] = current.split(':')
   const hour24 = Number(hourRaw || 0)
   const minute = minuteRaw || '00'
   const period = hour24 >= 12 ? 'PM' : 'AM'
   const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+  const [isOpen, setIsOpen] = useState(false)
   const [draftHour, setDraftHour] = useState(String(hour12))
   const [draftMinute, setDraftMinute] = useState(minute.padStart(2, '0'))
   const [draftPeriod, setDraftPeriod] = useState<'AM' | 'PM'>(period)
-  const [openSubmenu, setOpenSubmenu] = useState<null | 'hour' | 'minute'>(null)
+  const [openSubmenu, setOpenSubmenu] = useState<null | 'minute'>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -379,31 +496,82 @@ export function TimePickerField({
   }, [isOpen, hour12, minute, period])
 
   useEffect(() => {
-    if (!isOpen) setOpenSubmenu(null)
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!openSubmenu) return
+    if (!isOpen) return
     function onDocMouseDown(e: MouseEvent) {
-      const el = e.target as HTMLElement
-      if (el.closest('.event-mgmt__time-menu')) return
-      setOpenSubmenu(null)
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      setIsOpen(false)
     }
     document.addEventListener('mousedown', onDocMouseDown)
     return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [openSubmenu])
+  }, [isOpen])
 
-  function commitTime() {
-    const h12 = Math.min(12, Math.max(1, Number(draftHour) || 12))
-    const safeMinute = draftMinute === '30' ? '30' : '00'
-    let hour24 = h12 % 12
-    if (draftPeriod === 'PM') hour24 += 12
-    onChange(`${String(hour24).padStart(2, '0')}:${safeMinute}`)
+  useEffect(() => {
+    if (!isOpen) setOpenSubmenu(null)
+  }, [isOpen])
+
+  function toTimeValue(hour: string, minuteValue: string, periodValue: 'AM' | 'PM') {
+    const h12 = Math.min(12, Math.max(1, Number(hour) || 12))
+    const safeMinute = minuteValue === '30' ? '30' : '00'
+    let h24 = h12 % 12
+    if (periodValue === 'PM') h24 += 12
+    return `${String(h24).padStart(2, '0')}:${safeMinute}`
+  }
+
+  function applyDraftTime(next: { hour?: string; minute?: string; period?: 'AM' | 'PM' }) {
+    const nextHour = next.hour ?? draftHour
+    const nextMinute = next.minute ?? draftMinute
+    const nextPeriod = next.period ?? draftPeriod
+    setDraftHour(nextHour)
+    setDraftMinute(nextMinute)
+    setDraftPeriod(nextPeriod)
+    onChange(toTimeValue(nextHour, nextMinute, nextPeriod))
+  }
+
+  function commitHour(raw: string) {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 0) { setDraftHour(''); return }
+
+    const first = Number(digits[0])
+
+    if (digits.length === 1) {
+      setDraftHour(digits)
+      // 2-9: already a fully valid hour — apply immediately
+      if (first >= 2 && first <= 9) {
+        onChange(toTimeValue(digits, draftMinute, draftPeriod))
+      }
+      // 0 or 1: wait in case user types a second digit (10 / 11 / 12)
+      return
+    }
+
+    // Two digits received
+    const n = Number(digits)
+    if (n >= 10 && n <= 12) {
+      // Valid: 10, 11, 12
+      setDraftHour(digits)
+      onChange(toTimeValue(digits, draftMinute, draftPeriod))
+    } else {
+      // Invalid second digit (e.g. 13, 96) — keep only the first digit
+      const safe = String(Math.min(12, Math.max(1, first)))
+      setDraftHour(safe)
+      onChange(toTimeValue(safe, draftMinute, draftPeriod))
+    }
+  }
+
+  function nudgeHour(direction: 1 | -1) {
+    const current = Math.min(12, Math.max(1, Number(draftHour) || 12))
+    const next = current + direction
+    const wrapped = next > 12 ? 1 : next < 1 ? 12 : next
+    setDraftHour(String(wrapped))
+    onChange(toTimeValue(String(wrapped), draftMinute, draftPeriod))
+  }
+
+  function closeTimePicker() {
     setIsOpen(false)
+    setOpenSubmenu(null)
   }
 
   return (
-    <div className="event-mgmt__field event-mgmt__picker-field">
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
       <label>{label}</label>
       <button
         type="button"
@@ -419,47 +587,27 @@ export function TimePickerField({
         <div className="event-mgmt__time-popover">
           <p className="event-mgmt__time-title">ENTER TIME</p>
           <div className="event-mgmt__time-editor">
+            {/* Hour — typed input */}
             <div className="event-mgmt__time-menu">
-              <button
-                type="button"
-                className="event-mgmt__time-menu-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={openSubmenu === 'hour'}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draftHour}
                 aria-label="Hour"
-                onClick={() => setOpenSubmenu((s) => (s === 'hour' ? null : 'hour'))}
-              >
-                {String(Math.min(12, Math.max(1, Number(draftHour) || 12)))}
-              </button>
-              {openSubmenu === 'hour' && (
-                <ul className="event-mgmt__time-menu-list" role="listbox" aria-label="Hours">
-                  {HOUR_SELECT_OPTIONS.map((h) => {
-                    const selected =
-                      String(Math.min(12, Math.max(1, Number(draftHour) || 12))) === h
-                    return (
-                      <li key={h} role="presentation">
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          className={
-                            selected
-                              ? 'event-mgmt__time-menu-option event-mgmt__time-menu-option--selected'
-                              : 'event-mgmt__time-menu-option'
-                          }
-                          onClick={() => {
-                            setDraftHour(h)
-                            setOpenSubmenu(null)
-                          }}
-                        >
-                          {h}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                className="event-mgmt__time-menu-trigger"
+                onChange={(e) => commitHour(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') { e.preventDefault(); nudgeHour(1) }
+                  else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeHour(-1) }
+                }}
+                onBlur={() => {
+                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || hour12 || 12))
+                  applyDraftTime({ hour: String(clamped) })
+                }}
+              />
             </div>
             <span className="event-mgmt__time-colon">:</span>
+            {/* Minute — dropdown */}
             <div className="event-mgmt__time-menu">
               <button
                 type="button"
@@ -487,7 +635,7 @@ export function TimePickerField({
                               : 'event-mgmt__time-menu-option'
                           }
                           onClick={() => {
-                            setDraftMinute(m)
+                            applyDraftTime({ minute: m })
                             setOpenSubmenu(null)
                           }}
                         >
@@ -499,13 +647,14 @@ export function TimePickerField({
                 </ul>
               )}
             </div>
+            {/* AM / PM toggle */}
             <div className="event-mgmt__ampm-toggle">
               {(['AM', 'PM'] as const).map((p) => (
                 <button
                   key={p}
                   type="button"
                   className={draftPeriod === p ? 'event-mgmt__ampm-btn event-mgmt__ampm-btn--active' : 'event-mgmt__ampm-btn'}
-                  onClick={() => setDraftPeriod(p)}
+                  onClick={() => applyDraftTime({ period: p })}
                 >
                   {p}
                 </button>
@@ -515,8 +664,7 @@ export function TimePickerField({
           <div className="event-mgmt__time-actions">
             <span className="event-mgmt__time-clock" aria-hidden>◷</span>
             <div className="event-mgmt__time-action-buttons">
-              <button type="button" onClick={() => setIsOpen(false)}>CANCEL</button>
-              <button type="button" onClick={commitTime}>OK</button>
+              <button type="button" onClick={closeTimePicker}>Close</button>
             </div>
           </div>
         </div>
@@ -686,7 +834,7 @@ function EventCard({
   onFeatureRequest: (event: EventRow) => void
   todayStart: Date
 }) {
-  const booked = confirmedGuestsForEvent(ev)
+  const booked = activeGuestsForEvent(ev)
   const cap = ev.event_capacity ?? 0
   const capacityPct = cap > 0 ? Math.round(Math.min(100, (booked / cap) * 100)) : 0
   const paidEntry = isPaidTicketEvent(ev)
@@ -697,14 +845,7 @@ function EventCard({
       : 'Free entry'
   const attendanceLabel = paidEntry ? 'tickets sold' : 'reservations'
 
-  const eventDate = new Date(ev.event_starting_date)
-  const dateStr = eventDate.toLocaleDateString('en-US', {
-    month: 'numeric',
-    day: 'numeric',
-    year: 'numeric',
-  })
-  const timeStr = ev.event_hours ?? eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-  const dateLine = `${dateStr} • ${timeStr}`
+  const dateLine = formatEventPeriod(ev.event_starting_date, ev.event_ending_date)
   const isDraft = ev.event_status === 'draft'
   const isPast = eventIsPast(ev, todayStart)
 
@@ -881,6 +1022,15 @@ export default function EventManagement() {
   }, [])
 
   useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowCreateForm(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('action')
+      setSearchParams(next, { replace: true })
+    }
+  }, [])
+
+  useEffect(() => {
     const featuredPaidEventId = searchParams.get('featured_paid')
     if (!featuredPaidEventId || !supabase || !isSupabaseConfigured || !clubId) return
 
@@ -974,8 +1124,8 @@ export default function EventManagement() {
       event_name: ev.event_name,
       event_description: ev.event_description ?? '',
       event_type: ev.event_type ?? '',
-      event_starting_date: ev.event_starting_date,
-      event_ending_date: ev.event_ending_date ?? '',
+      event_starting_date: toDatetimeLocal(ev.event_starting_date),
+      event_ending_date: toDatetimeLocal(ev.event_ending_date),
       event_capacity: ev.event_capacity === null ? '' : String(ev.event_capacity),
       ticket_price: tp,
       discount_percent: discount,
@@ -1050,14 +1200,13 @@ export default function EventManagement() {
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const allReservations = events.flatMap((e) => e.reservations)
-  const confirmedReservations = allReservations.filter(reservationIsConfirmed)
+  const totalActiveGuests = events.reduce((sum, e) => sum + activeGuestsForEvent(e), 0)
 
   const stats = [
     { label: 'Total Events',                value: String(events.length),                                                       accent: 'purple', icon: <IconStatCalendar /> },
-    { label: 'Upcoming',                    value: String(events.filter((e) => new Date(e.event_starting_date) > now).length),  accent: 'blue',   icon: <IconStatClock /> },
-    { label: 'Total Tickets / Reservations', value: String(totalGuestCount(allReservations)),                                   accent: 'pink',   icon: <IconStatTicket /> },
-    { label: 'Confirmed Reservations',      value: String(totalGuestCount(confirmedReservations)),                              accent: 'green',  icon: <IconStatCheckCircle /> },
+    { label: 'Upcoming',                    value: String(events.filter((e) => eventIsActiveOrUpcoming(e, now)).length),        accent: 'blue',   icon: <IconStatClock /> },
+    { label: 'Total Tickets / Reservations', value: String(totalActiveGuests),                                                 accent: 'pink',   icon: <IconStatTicket /> },
+    { label: 'Active Reservations',         value: String(totalActiveGuests),                                                  accent: 'green',  icon: <IconStatCheckCircle /> },
     { label: 'Past Events',                 value: String(events.filter((e) => eventIsPast(e, todayStart)).length),            accent: 'gray',   icon: <IconStatHistory /> },
     { label: 'Draft Events',                value: String(events.filter((e) => e.event_status === 'draft').length),            accent: 'amber',  icon: <IconStatDraft /> },
   ]
@@ -1065,13 +1214,13 @@ export default function EventManagement() {
   const normalizedSearch = eventSearch.trim().toLowerCase()
   const filteredEvents = events.filter((event) => {
     const status = event.event_status?.toLowerCase() ?? ''
-    const isUpcoming = new Date(event.event_starting_date) > now
+    const isUpcoming = eventIsActiveOrUpcoming(event, now)
     const isPast = eventIsPast(event, todayStart)
     const matchesFilter =
       activeFilter === 'all' ||
       (activeFilter === 'featured' && (event.is_featured === true || event.featured_request_status === 'pending_review')) ||
       (activeFilter === 'draft' && status === 'draft') ||
-      (activeFilter === 'upcoming' && isUpcoming) ||
+      (activeFilter === 'upcoming' && isUpcoming && status !== 'draft') ||
       (activeFilter === 'past' && isPast)
     const matchesSearch = normalizedSearch === '' || event.event_name.toLowerCase().includes(normalizedSearch)
 
@@ -1125,8 +1274,13 @@ export default function EventManagement() {
         event_name: form.event_name.trim(),
         event_description: form.event_description.trim(),
         event_type: form.event_type.trim(),
-        event_starting_date: form.event_starting_date,
-        event_ending_date: form.event_ending_date || null,
+        event_starting_date: form.event_starting_date
+          ? new Date(form.event_starting_date).toISOString()
+          : null,
+        event_ending_date: form.event_ending_date
+          ? new Date(form.event_ending_date).toISOString()
+          : null,
+        event_hours: buildEventHours(form.event_starting_date, form.event_ending_date || null),
         event_capacity: form.event_capacity ? Number(form.event_capacity) : null,
         ticket_price: form.ticket_price ? Number(form.ticket_price) : null,
         final_ticket_price: finalTicketPrice
@@ -1251,6 +1405,15 @@ export default function EventManagement() {
     }
 
     setToast(null)
+    if (eventHasReservations(deletingEvent)) {
+      setDeletingEvent(null)
+      setToast({
+        type: 'error',
+        message: 'This event already has reservations, so it cannot be permanently deleted without breaking booking history.',
+      })
+      return
+    }
+
     const { error: deleteErr } = await supabase
       .from('events')
       .delete()
@@ -1285,23 +1448,43 @@ export default function EventManagement() {
     }
 
     setToast(null)
+    const deletablePastEventIds = events
+      .filter((event) => pastEventIds.includes(event.event_id) && !eventHasReservations(event))
+      .map((event) => event.event_id)
+    const protectedPastCount = pastEventIds.length - deletablePastEventIds.length
+
+    if (deletablePastEventIds.length === 0) {
+      setConfirmDeletePast(false)
+      setToast({
+        type: 'error',
+        message: 'Past events with reservations cannot be permanently deleted without breaking booking history.',
+      })
+      return
+    }
+
     const { error: deleteErr } = await supabase
       .from('events')
       .delete()
       .eq('club_id', clubId)
-      .in('event_id', pastEventIds)
+      .in('event_id', deletablePastEventIds)
 
     if (deleteErr) {
       setToast({ type: 'error', message: deleteErr.message })
       return
     }
 
-    if (viewingEvent && pastEventIds.includes(viewingEvent.event_id)) {
+    if (viewingEvent && deletablePastEventIds.includes(viewingEvent.event_id)) {
       closeViewingEvent()
     }
     setConfirmDeletePast(false)
-    setEvents((current) => current.filter((event) => !pastEventIds.includes(event.event_id)))
-    setToast({ type: 'success', message: 'All past events deleted' })
+    setEvents((current) => current.filter((event) => !deletablePastEventIds.includes(event.event_id)))
+    setToast({
+      type: protectedPastCount > 0 ? 'error' : 'success',
+      message:
+        protectedPastCount > 0
+          ? `Deleted ${deletablePastEventIds.length} past event${deletablePastEventIds.length === 1 ? '' : 's'}. ${protectedPastCount} with reservations were kept to preserve booking history.`
+          : 'All past events deleted',
+    })
   }
 
   if (loading) {
@@ -1555,6 +1738,7 @@ export default function EventManagement() {
                             {new Date(viewingEvent.event_starting_date).toLocaleString('en-US', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
+                              timeZone: 'Europe/Tirane',
                             })}
                           </p>
                         </div>
@@ -1565,6 +1749,7 @@ export default function EventManagement() {
                               ? new Date(viewingEvent.event_ending_date).toLocaleString('en-US', {
                                   dateStyle: 'medium',
                                   timeStyle: 'short',
+                                  timeZone: 'Europe/Tirane',
                                 })
                               : '—'}
                           </p>
@@ -1574,7 +1759,7 @@ export default function EventManagement() {
                         <div className="event-mgmt__field">
                           <label>Capacity</label>
                           <p className="event-mgmt__meta-row" style={{ margin: 0 }}>
-                            {confirmedGuestsForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
+                            {activeGuestsForEvent(viewingEvent)} / {viewingEvent.event_capacity ?? '∞'}{' '}
                             {isPaidTicketEvent(viewingEvent) ? 'tickets sold' : 'reservations'}
                           </p>
                         </div>

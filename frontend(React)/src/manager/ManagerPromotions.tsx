@@ -1,9 +1,9 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Pencil } from 'lucide-react'
 import './ManagerDashboard.css'
 import './EventManagement.css'
 import './ManagerPromotions.css'
-import { TimePickerField } from './EventManagement'
 import { ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useManagerClub } from './useManagerClub'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
@@ -53,6 +53,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ] as const
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
+const PROMO_MINUTE_OPTIONS = ['00', '30'] as const
 
 function pad2(n: number) {
   return String(n).padStart(2, '0')
@@ -79,16 +80,34 @@ function splitDateTimeLocal(v: string): { date: string; time: string } {
   return { date: d ?? '', time: t.length === 5 ? t : '12:00' }
 }
 
-function formatDateTimeReadable(s: string): string {
-  const d = parseDateTimeLocal(s)
-  if (!d) return 'Select date & time'
-  return d.toLocaleString('en-US', {
+function formatDateReadable(date: string): string {
+  if (!date) return 'Select date'
+  const d = new Date(`${date}T12:00`)
+  if (Number.isNaN(d.getTime())) return 'Select date'
+  return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
   })
+}
+
+function splitTimeParts(time: string): { hour: string; minute: string; period: 'AM' | 'PM' } {
+  const [hourRaw = '12', minuteRaw = '00'] = time.split(':')
+  const hour24 = Number(hourRaw)
+  const safeHour24 = Number.isFinite(hour24) ? hour24 : 12
+  const period = safeHour24 >= 12 ? 'PM' : 'AM'
+  const hour12 = safeHour24 % 12 === 0 ? 12 : safeHour24 % 12
+  const minute = PROMO_MINUTE_OPTIONS.includes(minuteRaw as (typeof PROMO_MINUTE_OPTIONS)[number])
+    ? minuteRaw
+    : '00'
+  return { hour: String(hour12), minute, period }
+}
+
+function toTimeValue(hour: string, minute: string, period: 'AM' | 'PM'): string {
+  const h12 = Math.min(12, Math.max(1, Number(hour) || 12))
+  let h24 = h12 % 12
+  if (period === 'PM') h24 += 12
+  return `${pad2(h24)}:${minute}`
 }
 
 function humanRangeSummary(fromStr: string, untilStr: string): string | null {
@@ -188,30 +207,35 @@ function presetThisWeekendRange(): { from: Date; until: Date } {
 
 // ─── DateTimePickerField ──────────────────────────────────────────────────────
 
-function DateTimePickerField({
+function PromotionDatePickerField({
   label,
   value,
   error,
   onChange,
+  isOpen,
+  onOpen,
+  onClose,
 }: {
   label: string
   value: string
   error?: string
-  onChange: (dateTimeLocal: string) => void
+  onChange: (date: string) => void
+  isOpen: boolean
+  onOpen: () => void
+  onClose: () => void
 }) {
-  const { date: datePart, time: timePart } = splitDateTimeLocal(value)
-  const initialMonth = datePart ? new Date(`${datePart}T12:00`) : new Date()
-  const [isOpen, setIsOpen] = useState(false)
+  const initialMonth = value ? new Date(`${value}T12:00`) : new Date()
   const [viewMonth, setViewMonth] = useState(
     new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1),
   )
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (!datePart) return
-    const d = new Date(`${datePart}T12:00`)
+    if (!value) return
+    const d = new Date(`${value}T12:00`)
     if (Number.isNaN(d.getTime())) return
     setViewMonth(new Date(d.getFullYear(), d.getMonth(), 1))
-  }, [datePart])
+  }, [value])
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
@@ -221,10 +245,18 @@ function DateTimePickerField({
     ...Array.from({ length: firstDay }, () => null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ]
-  const currentDateStr = datePart || toDateLocalPart(new Date())
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen, onClose])
 
   return (
-    <div className="event-mgmt__field event-mgmt__picker-field">
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
       <label>{label}</label>
       <button
         type="button"
@@ -233,15 +265,19 @@ function DateTimePickerField({
             ? 'event-mgmt__picker-trigger event-mgmt__input--error'
             : 'event-mgmt__picker-trigger'
         }
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => {
+          if (isOpen) onClose()
+          else onOpen()
+        }}
+        aria-expanded={isOpen}
       >
-        <span>{formatDateTimeReadable(value)}</span>
+        <span>{formatDateReadable(value)}</span>
         <span className="event-mgmt__picker-icon" aria-hidden>
           ▾
         </span>
       </button>
       {isOpen && (
-        <div className="event-time-picker__popover">
+        <div className="event-time-picker__popover promo-date-picker">
           <div className="event-mgmt__calendar-head">
             <button type="button" onClick={() => setViewMonth(new Date(year, month - 1, 1))}>
               ‹
@@ -267,23 +303,19 @@ function DateTimePickerField({
                   key={dateValue}
                   type="button"
                   className={
-                    datePart === dateValue
+                    value === dateValue
                       ? 'event-mgmt__calendar-day event-mgmt__calendar-day--active'
                       : 'event-mgmt__calendar-day'
                   }
-                  onClick={() => onChange(`${dateValue}T${timePart}`)}
+                  onClick={() => {
+                    onChange(dateValue)
+                    onClose()
+                  }}
                 >
                   {day}
                 </button>
               )
             })}
-          </div>
-          <div className="event-time-picker__time-embed">
-            <TimePickerField
-              label="Time"
-              value={timePart}
-              onChange={(t) => onChange(`${currentDateStr}T${t}`)}
-            />
           </div>
         </div>
       )}
@@ -292,6 +324,190 @@ function DateTimePickerField({
 }
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
+
+function PromotionTimeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (time: string) => void
+}) {
+  const parts = splitTimeParts(value)
+  const [isOpen, setIsOpen] = useState(false)
+  const [draftHour, setDraftHour] = useState(parts.hour)
+  const [openSubmenu, setOpenSubmenu] = useState<null | 'minute'>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+
+  // Keep draft in sync whenever the popover opens
+  useEffect(() => {
+    if (!isOpen) return
+    setDraftHour(parts.hour)
+  }, [isOpen, parts.hour])
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapperRef.current?.contains(e.target as Node)) return
+      setIsOpen(false)
+      setOpenSubmenu(null)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) setOpenSubmenu(null)
+  }, [isOpen])
+
+  function applyTime(next: { hour?: string; minute?: string; period?: 'AM' | 'PM' }) {
+    const nextHour = next.hour ?? draftHour
+    const hourNumber = Math.min(12, Math.max(1, Number(nextHour) || 12))
+    setDraftHour(String(hourNumber))
+    // toTimeValue handles AM/PM → 24h conversion: 1 PM → 13:00, 12 AM → 00:00, etc.
+    onChange(toTimeValue(String(hourNumber), next.minute ?? parts.minute, next.period ?? parts.period))
+  }
+
+  function commitHour(raw: string) {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 0) { setDraftHour(''); return }
+
+    const first = Number(digits[0])
+
+    if (digits.length === 1) {
+      setDraftHour(digits)
+      // 2–9 can never form a valid two-digit hour (10–12) → apply immediately
+      if (first >= 2 && first <= 9) {
+        onChange(toTimeValue(digits, parts.minute, parts.period))
+      }
+      // 0 or 1 → wait for possible second digit (10 / 11 / 12)
+      return
+    }
+
+    // Two digits received
+    const n = Number(digits)
+    if (n >= 10 && n <= 12) {
+      setDraftHour(digits)
+      onChange(toTimeValue(digits, parts.minute, parts.period))
+    } else {
+      // Invalid (e.g. 13, 96) → keep only the first digit
+      const safe = String(Math.min(12, Math.max(1, first)))
+      setDraftHour(safe)
+      onChange(toTimeValue(safe, parts.minute, parts.period))
+    }
+  }
+
+  function nudgeHour(direction: 1 | -1) {
+    const current = Math.min(12, Math.max(1, Number(draftHour) || 12))
+    const next = current + direction
+    const wrapped = next > 12 ? 1 : next < 1 ? 12 : next
+    setDraftHour(String(wrapped))
+    onChange(toTimeValue(String(wrapped), parts.minute, parts.period))
+  }
+
+  return (
+    <div ref={wrapperRef} className="event-mgmt__field event-mgmt__picker-field">
+      <label>{label}</label>
+      <button
+        type="button"
+        className="event-mgmt__picker-trigger"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+      >
+        <span>{`${parts.hour}:${parts.minute} ${parts.period}`}</span>
+        <span className="event-mgmt__picker-icon" aria-hidden>▾</span>
+      </button>
+
+      {isOpen && (
+        <div className="event-mgmt__time-popover">
+          <p className="event-mgmt__time-title">ENTER TIME</p>
+          <div className="event-mgmt__time-editor">
+            {/* Hour — typeable input (1–12). AM/PM toggle handles 13–24 conversion */}
+            <div className="event-mgmt__time-menu">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draftHour}
+                aria-label={`${label} hour`}
+                className="event-mgmt__time-menu-trigger"
+                onChange={(e) => commitHour(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp')   { e.preventDefault(); nudgeHour(1)  }
+                  if (e.key === 'ArrowDown') { e.preventDefault(); nudgeHour(-1) }
+                }}
+                onBlur={() => {
+                  const clamped = Math.min(12, Math.max(1, Number(draftHour) || Number(parts.hour) || 12))
+                  applyTime({ hour: String(clamped) })
+                }}
+              />
+            </div>
+            <span className="event-mgmt__time-colon">:</span>
+            {/* Minute — dropdown */}
+            <div className="event-mgmt__time-menu">
+              <button
+                type="button"
+                className="event-mgmt__time-menu-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={openSubmenu === 'minute'}
+                aria-label="Minute"
+                onClick={() => setOpenSubmenu((s) => (s === 'minute' ? null : 'minute'))}
+              >
+                {parts.minute === '30' ? '30' : '00'}
+              </button>
+              {openSubmenu === 'minute' && (
+                <ul className="event-mgmt__time-menu-list" role="listbox" aria-label={`${label} minutes`}>
+                  {PROMO_MINUTE_OPTIONS.map((m) => {
+                    const selected = (parts.minute === '30' ? '30' : '00') === m
+                    return (
+                      <li key={m} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          className={
+                            selected
+                              ? 'event-mgmt__time-menu-option event-mgmt__time-menu-option--selected'
+                              : 'event-mgmt__time-menu-option'
+                          }
+                          onClick={() => {
+                            applyTime({ minute: m })
+                            setOpenSubmenu(null)
+                          }}
+                        >
+                          {m}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+            {/* AM / PM toggle */}
+            <div className="event-mgmt__ampm-toggle">
+              {(['AM', 'PM'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={parts.period === p ? 'event-mgmt__ampm-btn event-mgmt__ampm-btn--active' : 'event-mgmt__ampm-btn'}
+                  onClick={() => applyTime({ period: p })}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="event-mgmt__time-actions">
+            <span className="event-mgmt__time-clock" aria-hidden>◷</span>
+            <div className="event-mgmt__time-action-buttons">
+              <button type="button" onClick={() => { setIsOpen(false); setOpenSubmenu(null) }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function IconPlus() {
   return (
@@ -682,11 +898,15 @@ function PromotionCard({
   onEdit,
   onDelete,
   onView,
+  onRepeat,
+  claimCount,
 }: {
   promo: PromotionRow
   onEdit: (promo: PromotionRow) => void
   onDelete: (promo: PromotionRow) => void
   onView: (promo: PromotionRow) => void
+  onRepeat?: (promo: PromotionRow) => void
+  claimCount?: { claimed: number; redeemed: number }
 }) {
   const isPassed = promoIsPassed(promo)
   const isDraft  = !isPassed && (promo.status === 'draft' || promo.status === 'pending')
@@ -751,24 +971,41 @@ function PromotionCard({
           )}
         </ul>
 
-        {promo.description && (
-          <p className="promo-mgmt__card-desc">{promo.description}</p>
-        )}
+        <div className="promo-mgmt__claim-row">
+          <span className="promo-mgmt__claim-badge promo-mgmt__claim-badge--claimed">
+            {claimCount?.claimed ?? 0} claimed
+          </span>
+          <span className="promo-mgmt__claim-badge promo-mgmt__claim-badge--redeemed">
+            {claimCount?.redeemed ?? 0} used
+          </span>
+        </div>
 
         {/* Stop propagation so action buttons don't open view modal */}
         <div
           className="promo-mgmt__card-actions"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="promo-mgmt__action--edit"
-            aria-label={`Edit ${promo.title}`}
-            onClick={() => onEdit(promo)}
-          >
-            <Pencil size={13} strokeWidth={2} aria-hidden />
-            Edit
-          </button>
+          {isPassed && onRepeat ? (
+            <button
+              type="button"
+              className="promo-mgmt__action--edit"
+              aria-label={`Repeat ${promo.title}`}
+              onClick={() => onRepeat(promo)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              Repeat
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="promo-mgmt__action--edit"
+              aria-label={`Edit ${promo.title}`}
+              onClick={() => onEdit(promo)}
+            >
+              <Pencil size={13} strokeWidth={2} aria-hidden />
+              Edit
+            </button>
+          )}
           <button
             type="button"
             className="promo-mgmt__action--delete"
@@ -804,6 +1041,7 @@ export default function ManagerPromotions() {
   const { club, clubId } = useManagerClub()
   const [promotions, setPromotions] = useState<PromotionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -812,14 +1050,25 @@ export default function ManagerPromotions() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [form, setForm] = useState<PromotionFormState>(EMPTY_FORM)
   const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null)
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all')
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('active')
+  const [openDateTimePicker, setOpenDateTimePicker] = useState<'valid_from' | 'valid_until' | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState('')
   const [viewPromo, setViewPromo] = useState<PromotionRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [globalTc, setGlobalTc] = useState('')
+  const [claimCounts, setClaimCounts] = useState<Record<string, { claimed: number; redeemed: number }>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowForm(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('action')
+      setSearchParams(next, { replace: true })
+    }
+  }, [])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
@@ -834,11 +1083,13 @@ export default function ManagerPromotions() {
     setForm(EMPTY_FORM)
     setFormErrors({})
     setEditingPromotionId(null)
+    setOpenDateTimePicker(null)
     resetImageState(imagePreviewUrl)
   }
 
   function closeModal() {
     setShowForm(false)
+    setOpenDateTimePicker(null)
     resetForm()
   }
 
@@ -847,6 +1098,20 @@ export default function ManagerPromotions() {
     setEditingPromotionId(null)
     setForm({ ...EMPTY_FORM, terms_conditions: globalTc })
     resetImageState(imagePreviewUrl)
+    setShowForm(true)
+  }
+
+  function openRepeatModal(promo: PromotionRow) {
+    setFormErrors({})
+    const fs = promotionRowToFormState(promo)
+    // Clear dates so manager sets new ones, and reset status to draft
+    fs.valid_from = ''
+    fs.valid_until = ''
+    if (!fs.terms_conditions && globalTc) fs.terms_conditions = globalTc
+    setForm(fs)
+    setEditingPromotionId(null) // null = create new, not edit existing
+    resetImageState(imagePreviewUrl)
+    setImagePreviewUrl(promo.image_url ?? '')
     setShowForm(true)
   }
 
@@ -874,6 +1139,19 @@ export default function ManagerPromotions() {
     resetImageState(imagePreviewUrl)
   }
 
+  function updatePromotionDateTime(
+    field: 'valid_from' | 'valid_until',
+    part: 'date' | 'time',
+    value: string,
+  ) {
+    setForm((current) => {
+      const existing = splitDateTimeLocal(current[field])
+      const nextDate = part === 'date' ? value : (existing.date || toDateLocalPart(new Date()))
+      const nextTime = part === 'time' ? value : existing.time
+      return { ...current, [field]: `${nextDate}T${nextTime}` }
+    })
+  }
+
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -898,6 +1176,26 @@ export default function ManagerPromotions() {
         setLoading(false)
       })
   }, [clubId, refreshKey])
+
+  // ── Fetch claim counts for all club promotions ────────────────────────────
+
+  useEffect(() => {
+    if (!clubId || !supabase || !isSupabaseConfigured || promotions.length === 0) return
+    const ids = promotions.map(p => p.promotion_id)
+    void supabase
+      .from('claimed_promotions')
+      .select('promotion_id, status')
+      .in('promotion_id', ids)
+      .then(({ data }) => {
+        const counts: Record<string, { claimed: number; redeemed: number }> = {}
+        for (const row of (data ?? []) as { promotion_id: string; status: string }[]) {
+          if (!counts[row.promotion_id]) counts[row.promotion_id] = { claimed: 0, redeemed: 0 }
+          counts[row.promotion_id].claimed += 1
+          if (row.status === 'redeemed') counts[row.promotion_id].redeemed += 1
+        }
+        setClaimCounts(counts)
+      })
+  }, [promotions, clubId])
 
   // ── Toast auto-dismiss ────────────────────────────────────────────────────
 
@@ -970,14 +1268,21 @@ export default function ManagerPromotions() {
         )
       case 'passed':
         return promotions.filter(promoIsPassed)
-      default:
-        return promotions
+      default: {
+        const order = (p: PromotionRow) =>
+          p.status === 'active' && !promoIsPassed(p) ? 0 :
+          (p.status === 'draft' || p.status === 'pending') && !promoIsPassed(p) ? 1 :
+          promoIsPassed(p) ? 2 : 3
+        return [...promotions].sort((a, b) => order(a) - order(b))
+      }
     }
   }, [promotions, activeFilter])
 
   // ── Date range helpers ────────────────────────────────────────────────────
 
   const promotionRangeSummary = humanRangeSummary(form.valid_from, form.valid_until)
+  const validFromParts = splitDateTimeLocal(form.valid_from)
+  const validUntilParts = splitDateTimeLocal(form.valid_until)
 
   function applyPromotionDatePreset(preset: 'today' | 'weekend' | 'week' | 'month') {
     setFormErrors((prev) => {
@@ -1369,16 +1674,38 @@ export default function ManagerPromotions() {
 
                       {/* Valid from + until */}
                       <div className="event-mgmt__field-grid">
-                        <DateTimePickerField
-                          label="Valid From"
-                          value={form.valid_from}
-                          onChange={(v) => setForm((f) => ({ ...f, valid_from: v }))}
+                        <PromotionDatePickerField
+                          label="Start Date"
+                          value={validFromParts.date}
+                          isOpen={openDateTimePicker === 'valid_from'}
+                          onOpen={() => setOpenDateTimePicker('valid_from')}
+                          onClose={() => setOpenDateTimePicker(null)}
+                          onChange={(v) => updatePromotionDateTime('valid_from', 'date', v)}
                         />
-                        <DateTimePickerField
-                          label="Valid Until"
-                          value={form.valid_until}
+                        <PromotionTimeField
+                          label="Start Time"
+                          value={validFromParts.time}
+                          onChange={(v) => {
+                            setOpenDateTimePicker(null)
+                            updatePromotionDateTime('valid_from', 'time', v)
+                          }}
+                        />
+                        <PromotionDatePickerField
+                          label="End Date"
+                          value={validUntilParts.date}
                           error={formErrors.valid_until}
-                          onChange={(v) => setForm((f) => ({ ...f, valid_until: v }))}
+                          isOpen={openDateTimePicker === 'valid_until'}
+                          onOpen={() => setOpenDateTimePicker('valid_until')}
+                          onClose={() => setOpenDateTimePicker(null)}
+                          onChange={(v) => updatePromotionDateTime('valid_until', 'date', v)}
+                        />
+                        <PromotionTimeField
+                          label="End Time"
+                          value={validUntilParts.time}
+                          onChange={(v) => {
+                            setOpenDateTimePicker(null)
+                            updatePromotionDateTime('valid_until', 'time', v)
+                          }}
                         />
                       </div>
 
@@ -1393,7 +1720,10 @@ export default function ManagerPromotions() {
                             key={p}
                             type="button"
                             className="event-time-picker__preset-chip"
-                            onClick={() => applyPromotionDatePreset(p)}
+                            onClick={() => {
+                              setOpenDateTimePicker(null)
+                              applyPromotionDatePreset(p)
+                            }}
                           >
                             {p === 'today'
                               ? 'Today only'
@@ -1578,7 +1908,7 @@ export default function ManagerPromotions() {
 
             {/* ── Filter tabs ──────────────────────────────────────────────── */}
             <div className="promo-mgmt__filter-tabs" role="tablist" aria-label="Filter promotions">
-              {(['all', 'active', 'draft', 'passed'] as const).map((tab) => (
+              {(['active', 'draft', 'passed', 'all'] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -1613,6 +1943,8 @@ export default function ManagerPromotions() {
                     onEdit={openEditModal}
                     onDelete={(p) => setDeleteTarget({ id: p.promotion_id, title: p.title })}
                     onView={setViewPromo}
+                    onRepeat={openRepeatModal}
+                    claimCount={claimCounts[promo.promotion_id]}
                   />
                 ))}
               </section>

@@ -159,11 +159,11 @@ export type AdminSuspensionRefunds = {
 }
 
 export function fetchAdminOverview(token: string) {
-  return getJsonAuth<AdminOverviewData>('/api/admin/overview', token)
+  return getJsonAuth<AdminOverviewData>('/admin/overview', token)
 }
 
 export function fetchAdminClubs(token: string) {
-  return getJsonAuth<AdminClubsData>('/api/admin/clubs', token)
+  return getJsonAuth<AdminClubsData>('/admin/clubs', token)
 }
 
 export function updateAdminClubStatus(
@@ -172,7 +172,7 @@ export function updateAdminClubStatus(
   status: AdminClub['status'],
 ) {
   return patchJsonAuth<{ success: true; refunds?: AdminSuspensionRefunds }>(
-    `/api/admin/clubs/${clubId}/status`,
+    `/admin/clubs/${clubId}/status`,
     token,
     { status },
   )
@@ -182,15 +182,15 @@ export function createAdminClub(
   token: string,
   payload: { name: string; email: string; address: string; phone?: string; description?: string },
 ) {
-  return postJsonAuth<{ success: true; clubId: string }>('/api/admin/clubs', token, payload)
+  return postJsonAuth<{ success: true; clubId: string }>('/admin/clubs', token, payload)
 }
 
 export function deleteAdminClub(token: string, clubId: string) {
-  return deleteJsonAuth<{ success: true }>(`/api/admin/clubs/${clubId}`, token)
+  return deleteJsonAuth<{ success: true }>(`/admin/clubs/${clubId}`, token)
 }
 
 export function fetchAdminUsers(token: string) {
-  return getJsonAuth<AdminUsersData>('/api/admin/users', token)
+  return getJsonAuth<AdminUsersData>('/admin/users', token)
 }
 
 export function updateAdminUserStatus(
@@ -198,13 +198,13 @@ export function updateAdminUserStatus(
   userId: string,
   status: AdminUser['status'],
 ) {
-  return patchJsonAuth<{ success: true }>(`/api/admin/users/${userId}/status`, token, { status })
+  return patchJsonAuth<{ success: true }>(`/admin/users/${userId}/status`, token, { status })
 }
 
 export function deleteAdminUser(token: string, userId: string) {
-  return deleteJsonAuth<{ success: true }>(`/api/admin/users/${userId}`, token)
+  return deleteJsonAuth<{ success: true }>(`/admin/users/${userId}`, token)
 }
 
 export function fetchAdminRevenue(token: string) {
-  return getJsonAuth<AdminRevenueData>('/api/admin/revenue', token)
+  return getJsonAuth<AdminRevenueData>('/admin/revenue', token)
 }

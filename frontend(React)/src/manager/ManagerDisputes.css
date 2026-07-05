@@ -95,10 +95,15 @@
 
 /* ── Dispute card ── */
 .manager-disputes__card {
-  padding: 18px 20px;
+  padding: 16px 20px;
   border-radius: 12px;
   background: #111111;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.15s ease;
+}
+
+.manager-disputes__card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .manager-disputes__card-top {
@@ -106,32 +111,14 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 12px;
 }
 
 .manager-disputes__card-left {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
-}
-
-.manager-disputes__card-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: #8a8a8a;
-}
-
-.manager-disputes__card-icon svg {
-  width: 16px;
-  height: 16px;
+  flex: 1;
 }
 
 .manager-disputes__card-title-row {
@@ -148,6 +135,18 @@
   color: #ffffff;
   letter-spacing: -0.01em;
 }
+
+/* Priority dot */
+.manager-disputes__priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.manager-disputes__priority-dot--high   { background: #f87171; }
+.manager-disputes__priority-dot--medium { background: #fbbf24; }
+.manager-disputes__priority-dot--low    { background: #60a5fa; }
 
 /* Status pills */
 .manager-disputes__status {
@@ -249,35 +248,42 @@
 
 /* Description */
 .manager-disputes__desc {
-  margin: 0 0 14px;
-  padding-left: 48px;
-  font-size: 0.84rem;
-  color: #a3a3a3;
-  line-height: 1.55;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #8a8a8a;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56ch;
 }
 
-/* Meta grid */
-.manager-disputes__meta {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  padding-left: 48px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-top: 12px;
+/* Inline meta row */
+.manager-disputes__meta-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #606060;
 }
 
-.manager-disputes__meta-cell p {
-  margin: 0 0 3px;
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: #5f5f5f;
-  text-transform: capitalize;
+.manager-disputes__meta-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #404040;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
-.manager-disputes__meta-cell strong {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: #e5e5e5;
+.manager-disputes__meta-link {
+  color: var(--color-primary, #a78bfa);
+  text-decoration: none;
+}
+
+.manager-disputes__meta-link:hover {
+  text-decoration: underline;
 }
 
 /* ── Toast ── */
@@ -447,4 +453,187 @@
 
 .manager-disputes__modal-dismiss:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Filter tabs ── */
+.manager-disputes__filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.manager-disputes__filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #8a8a8a;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.manager-disputes__filter-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e5e5;
+}
+
+.manager-disputes__filter-tab--active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+/* ── Clickable card ── */
+.manager-disputes__card--clickable {
+  cursor: pointer;
+}
+
+/* ── Preview popup ── */
+.manager-disputes__preview {
+  width: min(560px, calc(100vw - 32px));
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #111111;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: disputes-modal-in 200ms ease both;
+  overflow: hidden;
+}
+
+.manager-disputes__preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.manager-disputes__preview-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manager-disputes__preview-title-row h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+}
+
+.manager-disputes__preview-body {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.manager-disputes__preview-desc {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #c8c8c8;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.manager-disputes__preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+.manager-disputes__preview-field p {
+  margin: 0 0 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f5f5f;
+}
+
+.manager-disputes__preview-field strong,
+.manager-disputes__preview-field a {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.manager-disputes__preview-field--full {
+  grid-column: 1 / -1;
+}
+
+.manager-disputes__priority-text--high   { color: #f87171; }
+.manager-disputes__priority-text--medium { color: #fbbf24; }
+.manager-disputes__priority-text--low    { color: #60a5fa; }
+
+.manager-disputes__preview-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 22px 20px;
+}
+
+/* ── Confirm modal ── */
+.manager-disputes__confirm {
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 28px 28px 22px;
+  width: min(360px, calc(100vw - 40px));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: disputes-modal-in 180ms ease both;
+}
+
+.manager-disputes__confirm-msg {
+  margin: 0 0 20px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e5e5e5;
+  line-height: 1.5;
+}
+
+.manager-disputes__confirm-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .manager-disputes__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .manager-disputes__card-top {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .manager-disputes__actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .manager-disputes__desc {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .manager-disputes__preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-disputes__preview-footer {
+    flex-wrap: wrap;
+  }
 }

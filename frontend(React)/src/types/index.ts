@@ -30,6 +30,10 @@ export type Event = {
   isFeatured?: boolean
   /** ISO date string from event_starting_date — used for date filtering */
   rawDate?: string
+  /** Raw event_starting_date string from the catalog API, without client timezone shifting */
+  startDateTime?: string
+  /** Raw event_ending_date string from the catalog API, without client timezone shifting */
+  endDateTime?: string
   /** True when the event is table-reservation only */
   reservationOnly?: boolean
 }
@@ -69,11 +73,6 @@ export type Club = {
   /** From `club_email_id` when present */
   email?: string
 }
-
-/** Response from `GET /catalog/clubs/:clubId` */
-
-/** Full promotion detail (catalog row + enriched copy for the offer page). */
-
 
 /** Response from `GET /catalog/clubs/:clubId` */
 export type ClubPagePayload = {
@@ -172,8 +171,6 @@ export type PromotionOfferDetail = {
   lat?: number
   lng?: number
 }
-
-
 
 export type PromotionOfferCard = {
   id: string

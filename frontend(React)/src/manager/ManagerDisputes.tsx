@@ -59,20 +59,6 @@ const CUSTOMER_MESSAGE_BY_STATUS: Record<DisputeStatus, string> = {
   cancelled: 'This dispute was cancelled by the customer before review.',
 }
 
-function IconAlert() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 9v4m0 4h.01M10.3 3.2 3.1 17a2 2 0 0 0 1.8 2.8h14.2a2 2 0 0 0 1.8-2.8L13.7 3.2a2 2 0 0 0-3.4 0Z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function IconInfo() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -119,6 +105,7 @@ function IconEye() {
 }
 
 type Toast = { message: string; variant: 'resolved' | 'rejected' | 'default' }
+type ConfirmModal = { message: string; onConfirm: () => void }
 
 export default function ManagerDisputes() {
   const { club } = useManagerClub()
@@ -130,7 +117,12 @@ export default function ManagerDisputes() {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [detailDispute, setDetailDispute] = useState<Dispute | null>(null)
+  const [previewDispute, setPreviewDispute] = useState<Dispute | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal | null>(null)
+  const [filterTab, setFilterTab] = useState<'all' | DisputeStatus | 'archived'>('all')
+  const [archivedDisputes, setArchivedDisputes] = useState<Dispute[]>([])
+  const [loadingArchived, setLoadingArchived] = useState(false)
 
   const [editNotes, setEditNotes] = useState('')
   const [editStatus, setEditStatus] = useState<DisputeStatus>('open')
@@ -140,6 +132,12 @@ export default function ManagerDisputes() {
     setEditNotes(detailDispute?.manager_notes ?? '')
     setEditStatus(detailDispute?.status ?? 'open')
   }, [detailDispute?.id, detailDispute?.manager_notes, detailDispute?.status])
+
+  // Clear bell badge when this page is opened
+  useEffect(() => {
+    localStorage.setItem('partyon_disputes_last_seen', new Date().toISOString())
+    window.dispatchEvent(new Event('partyon_disputes_seen'))
+  }, [])
 
   const loadDisputes = useCallback(async () => {
     if (!client || !isSupabaseConfigured || !clubId) {
@@ -210,6 +208,42 @@ export default function ManagerDisputes() {
     return () => clearTimeout(t)
   }, [toast])
 
+  useEffect(() => {
+    if (filterTab !== 'archived' || !client || !clubId) return
+    setLoadingArchived(true)
+    void client
+      .from('disputes')
+      .select(`id, subject, description, priority, status, manager_notes, created_at, updated_at, reservation_id, events:event_id ( event_name ), profiles:user_id ( name, surname, email, phone_number )`)
+      .eq('club_id', clubId)
+      .not('manager_deleted_at', 'is', null)
+      .order('updated_at', { ascending: false })
+      .then(({ data }) => {
+        const items: Dispute[] = ((data ?? []) as Record<string, unknown>[]).map(d => {
+          const ev = Array.isArray(d.events) ? d.events[0] : d.events
+          const usr = Array.isArray(d.profiles) ? d.profiles[0] : d.profiles
+          const u = usr as { name?: string; surname?: string; email?: string; phone_number?: string } | undefined
+          const evObj = ev as { event_name?: string } | undefined
+          return {
+            id: d.id as string,
+            subject: d.subject as string,
+            description: d.description as string,
+            priority: String(d.priority ?? 'medium'),
+            status: d.status as DisputeStatus,
+            manager_notes: (d.manager_notes as string) ?? null,
+            created_at: d.created_at as string,
+            updated_at: (d.updated_at as string) ?? (d.created_at as string),
+            reservation_id: (d.reservation_id as string) ?? null,
+            event_name: evObj?.event_name ?? null,
+            user_name: [u?.name, u?.surname].filter(Boolean).join(' ') || null,
+            user_email: u?.email ?? null,
+            user_phone: u?.phone_number ?? null,
+          }
+        })
+        setArchivedDisputes(items)
+        setLoadingArchived(false)
+      })
+  }, [filterTab, client, clubId])
+
   const stats = useMemo(() => {
     const open = disputes.filter(d => d.status === 'open').length
     const inProgress = disputes.filter(d => d.status === 'in_progress').length
@@ -218,17 +252,20 @@ export default function ManagerDisputes() {
     return { pending: open, investigating: inProgress, resolved, atRisk: active }
   }, [disputes])
 
+  function askConfirm(message: string, onConfirm: () => void) {
+    setConfirmModal({ message, onConfirm })
+  }
+
   async function quickResolve(dispute: Dispute) {
-    if (!client || !confirm('Mark this dispute as resolved?')) return
-    const updatedAt = new Date().toISOString()
-    const { error } = await client.from('disputes').update({ status: 'resolved', updated_at: updatedAt }).eq('id', dispute.id)
-    if (error) {
-      setToast({ variant: 'default', message: error.message })
-      return
-    }
-    setDisputes(prev => prev.map(d => (d.id === dispute.id ? { ...d, status: 'resolved', updated_at: updatedAt } : d)))
-    setToast({ variant: 'resolved', message: 'Marked as resolved.' })
-    setDetailDispute(null)
+    if (!client) return
+    askConfirm('Mark this dispute as resolved?', async () => {
+      const updatedAt = new Date().toISOString()
+      const { error } = await client.from('disputes').update({ status: 'resolved', updated_at: updatedAt }).eq('id', dispute.id)
+      if (error) { setToast({ variant: 'default', message: error.message }); return }
+      setDisputes(prev => prev.map(d => (d.id === dispute.id ? { ...d, status: 'resolved', updated_at: updatedAt } : d)))
+      setToast({ variant: 'resolved', message: 'Marked as resolved.' })
+      setDetailDispute(null)
+    })
   }
 
   async function quickStartProgress(dispute: Dispute) {
@@ -268,15 +305,20 @@ export default function ManagerDisputes() {
   }
 
   async function archiveDispute(dispute: Dispute) {
-    if (!client || !confirm(`Archive this dispute? It will be hidden from your list.`)) return
-    const { error } = await client.from('disputes').update({ manager_deleted_at: new Date().toISOString() }).eq('id', dispute.id)
-    if (error) {
-      setToast({ variant: 'default', message: error.message })
-      return
-    }
-    setDisputes(prev => prev.filter(d => d.id !== dispute.id))
-    setDetailDispute(null)
+    if (!client) return
+    askConfirm('Archive this dispute? It will be hidden from your list.', async () => {
+      const { error } = await client.from('disputes').update({ manager_deleted_at: new Date().toISOString() }).eq('id', dispute.id)
+      if (error) { setToast({ variant: 'default', message: error.message }); return }
+      setDisputes(prev => prev.filter(d => d.id !== dispute.id))
+      setDetailDispute(null)
+    })
   }
+
+  const filteredDisputes = useMemo(() => {
+    if (filterTab === 'archived') return archivedDisputes
+    if (filterTab === 'all') return disputes
+    return disputes.filter(d => d.status === filterTab)
+  }, [disputes, archivedDisputes, filterTab])
 
   const STATUSES: DisputeStatus[] = ['open', 'in_progress', 'resolved', 'rejected', 'cancelled']
 
@@ -315,9 +357,7 @@ export default function ManagerDisputes() {
               <>
                 <section className="manager-disputes__stats" aria-label="Dispute statistics">
                   <article className="manager-disputes__stat manager-disputes__stat--pending">
-                    <span className="manager-disputes__stat-icon">
-                      <IconInfo />
-                    </span>
+                    <span className="manager-disputes__stat-icon"><IconInfo /></span>
                     <div className="manager-disputes__stat-body">
                       <strong>{stats.pending}</strong>
                       <p>Open</p>
@@ -325,9 +365,7 @@ export default function ManagerDisputes() {
                   </article>
 
                   <article className="manager-disputes__stat manager-disputes__stat--investigating">
-                    <span className="manager-disputes__stat-icon">
-                      <IconInfo />
-                    </span>
+                    <span className="manager-disputes__stat-icon"><IconInfo /></span>
                     <div className="manager-disputes__stat-body">
                       <strong>{stats.investigating}</strong>
                       <p>In progress</p>
@@ -335,9 +373,7 @@ export default function ManagerDisputes() {
                   </article>
 
                   <article className="manager-disputes__stat manager-disputes__stat--resolved">
-                    <span className="manager-disputes__stat-icon">
-                      <IconCheck />
-                    </span>
+                    <span className="manager-disputes__stat-icon"><IconCheck /></span>
                     <div className="manager-disputes__stat-body">
                       <strong>{stats.resolved}</strong>
                       <p>Resolved</p>
@@ -345,9 +381,7 @@ export default function ManagerDisputes() {
                   </article>
 
                   <article className="manager-disputes__stat manager-disputes__stat--risk">
-                    <span className="manager-disputes__stat-icon">
-                      <IconDollar />
-                    </span>
+                    <span className="manager-disputes__stat-icon"><IconDollar /></span>
                     <div className="manager-disputes__stat-body">
                       <strong>{stats.atRisk}</strong>
                       <p>Active (open + in progress)</p>
@@ -355,33 +389,62 @@ export default function ManagerDisputes() {
                   </article>
                 </section>
 
+                <div className="manager-disputes__filters">
+                  {(['all', 'open', 'in_progress', 'resolved', 'rejected', 'archived'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`manager-disputes__filter-tab${filterTab === tab ? ' manager-disputes__filter-tab--active' : ''}`}
+                      onClick={() => setFilterTab(tab)}
+                    >
+                      {tab === 'all' ? 'All' : tab === 'archived' ? 'Archived' : STATUS_LABELS[tab as DisputeStatus]}
+                    </button>
+                  ))}
+                </div>
+
                 <section className="manager-disputes__list" aria-label="Disputes list">
-                  {disputes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-8">No disputes for this venue.</p>
+                  {filterTab === 'archived' && loadingArchived ? (
+                    <p className="text-sm text-muted-foreground py-8">Loading archived disputes…</p>
+                  ) : filteredDisputes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-8">
+                      {filterTab === 'archived' ? 'No archived disputes.' : 'No disputes in this category.'}
+                    </p>
                   ) : (
-                    disputes.map(dispute => {
+                    filteredDisputes.map(dispute => {
                       const ui = statusUiClass(dispute.status)
                       return (
-                        <article key={dispute.id} className="manager-disputes__card">
+                        <article
+                          key={dispute.id}
+                          className="manager-disputes__card manager-disputes__card--clickable"
+                          onClick={() => setPreviewDispute(dispute)}
+                        >
                           <div className="manager-disputes__card-top">
                             <div className="manager-disputes__card-left">
-                              <span className="manager-disputes__card-icon" aria-hidden>
-                                <IconAlert />
-                              </span>
-                              <div>
-                                <div className="manager-disputes__card-title-row">
-                                  <h2 className="manager-disputes__card-title">{dispute.subject}</h2>
-                                  <span className={`manager-disputes__status manager-disputes__status--${ui}`}>
-                                    {STATUS_LABELS[dispute.status]}
-                                  </span>
-                                  <span className="manager-disputes__ticket">
-                                    {dispute.reservation_id ? dispute.reservation_id.slice(0, 10) : dispute.id.slice(0, 8)}
-                                  </span>
-                                </div>
+                              <div className="manager-disputes__card-title-row">
+                                <span className={`manager-disputes__priority-dot manager-disputes__priority-dot--${dispute.priority}`} />
+                                <h2 className="manager-disputes__card-title">{dispute.subject}</h2>
+                                <span className={`manager-disputes__status manager-disputes__status--${ui}`}>
+                                  {STATUS_LABELS[dispute.status]}
+                                </span>
+                              </div>
+                              <p className="manager-disputes__desc">{dispute.description}</p>
+                              <div className="manager-disputes__meta-inline">
+                                <span>{dispute.user_name ?? dispute.user_email ?? '—'}</span>
+                                {dispute.event_name ? <><span className="manager-disputes__meta-dot" /><span>{dispute.event_name}</span></> : null}
+                                <span className="manager-disputes__meta-dot" />
+                                <span>{formatDate(dispute.created_at)}</span>
+                                {dispute.user_email ? (
+                                  <><span className="manager-disputes__meta-dot" />
+                                  <a className="manager-disputes__meta-link" href={`mailto:${dispute.user_email}`} onClick={e => e.stopPropagation()}>{dispute.user_email}</a></>
+                                ) : null}
+                                {dispute.user_phone ? (
+                                  <><span className="manager-disputes__meta-dot" />
+                                  <a className="manager-disputes__meta-link" href={`tel:${dispute.user_phone}`} onClick={e => e.stopPropagation()}>{dispute.user_phone}</a></>
+                                ) : null}
                               </div>
                             </div>
 
-                            <div className="manager-disputes__actions">
+                            <div className="manager-disputes__actions" onClick={e => e.stopPropagation()}>
                               <button
                                 type="button"
                                 className="manager-disputes__btn manager-disputes__btn--details"
@@ -423,42 +486,6 @@ export default function ManagerDisputes() {
                               ) : null}
                             </div>
                           </div>
-
-                          <p className="manager-disputes__desc">{dispute.description}</p>
-
-                          <div className="manager-disputes__meta">
-                            <div className="manager-disputes__meta-cell">
-                              <p>Customer</p>
-                              <strong>{dispute.user_name ?? dispute.user_email ?? '—'}</strong>
-                            </div>
-                            <div className="manager-disputes__meta-cell">
-                              <p>Event</p>
-                              <strong>{dispute.event_name ?? '—'}</strong>
-                            </div>
-                            <div className="manager-disputes__meta-cell">
-                              <p>Priority</p>
-                              <strong>{dispute.priority}</strong>
-                            </div>
-                            <div className="manager-disputes__meta-cell">
-                              <p>Filed</p>
-                              <strong>{formatDate(dispute.created_at)}</strong>
-                            </div>
-                          </div>
-                          {dispute.user_email ? (
-                            <p className="text-xs text-muted-foreground mt-2">
-                              <a className="text-primary underline" href={`mailto:${dispute.user_email}`}>
-                                {dispute.user_email}
-                              </a>
-                              {dispute.user_phone ? (
-                                <>
-                                  {' · '}
-                                  <a className="text-primary underline" href={`tel:${dispute.user_phone}`}>
-                                    {dispute.user_phone}
-                                  </a>
-                                </>
-                              ) : null}
-                            </p>
-                          ) : null}
                         </article>
                       )
                     })
@@ -469,6 +496,142 @@ export default function ManagerDisputes() {
           </div>
         </div>
       </div>
+
+      {previewDispute && (
+        <div
+          className="manager-disputes__modal-overlay"
+          role="presentation"
+          onClick={() => setPreviewDispute(null)}
+        >
+          <div
+            className="manager-disputes__preview"
+            role="dialog"
+            aria-modal="true"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="manager-disputes__preview-head">
+              <div className="manager-disputes__preview-title-row">
+                <span className={`manager-disputes__priority-dot manager-disputes__priority-dot--${previewDispute.priority}`} />
+                <h2>{previewDispute.subject}</h2>
+                <span className={`manager-disputes__status manager-disputes__status--${statusUiClass(previewDispute.status)}`}>
+                  {STATUS_LABELS[previewDispute.status]}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="manager-disputes__modal-close"
+                onClick={() => setPreviewDispute(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="manager-disputes__preview-body">
+              <p className="manager-disputes__preview-desc">{previewDispute.description}</p>
+
+              <div className="manager-disputes__preview-grid">
+                <div className="manager-disputes__preview-field">
+                  <p>Customer</p>
+                  <strong>{previewDispute.user_name ?? '—'}</strong>
+                </div>
+                <div className="manager-disputes__preview-field">
+                  <p>Event</p>
+                  <strong>{previewDispute.event_name ?? '—'}</strong>
+                </div>
+                <div className="manager-disputes__preview-field">
+                  <p>Priority</p>
+                  <strong className={`manager-disputes__priority-text--${previewDispute.priority}`}>{previewDispute.priority}</strong>
+                </div>
+                <div className="manager-disputes__preview-field">
+                  <p>Filed</p>
+                  <strong>{formatDate(previewDispute.created_at)}</strong>
+                </div>
+                {previewDispute.user_email ? (
+                  <div className="manager-disputes__preview-field">
+                    <p>Email</p>
+                    <a className="manager-disputes__meta-link" href={`mailto:${previewDispute.user_email}`}>{previewDispute.user_email}</a>
+                  </div>
+                ) : null}
+                {previewDispute.user_phone ? (
+                  <div className="manager-disputes__preview-field">
+                    <p>Phone</p>
+                    <a className="manager-disputes__meta-link" href={`tel:${previewDispute.user_phone}`}>{previewDispute.user_phone}</a>
+                  </div>
+                ) : null}
+                {previewDispute.manager_notes ? (
+                  <div className="manager-disputes__preview-field manager-disputes__preview-field--full">
+                    <p>Manager notes</p>
+                    <strong>{previewDispute.manager_notes}</strong>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="manager-disputes__preview-footer">
+              <button
+                type="button"
+                className="manager-disputes__btn manager-disputes__btn--details"
+                onClick={() => { setDetailDispute(previewDispute); setPreviewDispute(null) }}
+              >
+                <IconEye />
+                Update status
+              </button>
+              {previewDispute.status !== 'resolved' &&
+              previewDispute.status !== 'rejected' &&
+              previewDispute.status !== 'cancelled' ? (
+                <button
+                  type="button"
+                  className="manager-disputes__btn manager-disputes__btn--resolve"
+                  onClick={() => { void quickResolve(previewDispute); setPreviewDispute(null) }}
+                >
+                  Resolve
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="manager-disputes__btn manager-disputes__btn--details"
+                onClick={() => setPreviewDispute(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div
+          className="manager-disputes__modal-overlay"
+          role="presentation"
+          onClick={() => setConfirmModal(null)}
+        >
+          <div
+            className="manager-disputes__confirm"
+            role="dialog"
+            aria-modal="true"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="manager-disputes__confirm-msg">{confirmModal.message}</p>
+            <div className="manager-disputes__confirm-btns">
+              <button
+                type="button"
+                className="manager-disputes__btn manager-disputes__btn--resolve"
+                onClick={() => { confirmModal.onConfirm(); setConfirmModal(null) }}
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                className="manager-disputes__btn manager-disputes__btn--details"
+                onClick={() => setConfirmModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {detailDispute && (
         <div

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { getJson } from '@/api'
 import type { Club, Event, Promotion } from '@/types'
+import { mockClubs, mockEvents, mockPromotions } from '@/data/mockData'
 
 type CatalogState = {
   events: Event[]
@@ -29,6 +30,18 @@ type CatalogPayload = {
   termsUpdatedAt?: string
 }
 
+const DEMO_FALLBACK_ENABLED =
+  import.meta.env.VITE_DISABLE_DEMO_CATALOG_FALLBACK !== 'true'
+
+function isEmptyCatalog(data: CatalogPayload | null): boolean {
+  return (
+    !data ||
+    (!Array.isArray(data.events) || data.events.length === 0) &&
+      (!Array.isArray(data.clubs) || data.clubs.length === 0) &&
+      (!Array.isArray(data.promotions) || data.promotions.length === 0)
+  )
+}
+
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<Event[]>([])
   const [clubs, setClubs] = useState<Club[]>([])
@@ -44,17 +57,25 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       const { data, error: err } = await getJson<CatalogPayload>('/catalog')
       if (cancelled) return
       if (err) {
-        setError(err)
-        setEvents([])
-        setClubs([])
-        setPromotions([])
+        if (DEMO_FALLBACK_ENABLED) {
+          setError(null)
+          setEvents(mockEvents)
+          setClubs(mockClubs)
+          setPromotions(mockPromotions)
+        } else {
+          setError(err)
+          setEvents([])
+          setClubs([])
+          setPromotions([])
+        }
         setTerms(null)
         setTermsUpdatedAt(null)
       } else {
         setError(null)
-        setEvents(Array.isArray(data?.events) ? data.events : [])
-        setClubs(Array.isArray(data?.clubs) ? data.clubs : [])
-        setPromotions(Array.isArray(data?.promotions) ? data.promotions : [])
+        const useFallback = DEMO_FALLBACK_ENABLED && isEmptyCatalog(data)
+        setEvents(useFallback ? mockEvents : Array.isArray(data?.events) ? data.events : [])
+        setClubs(useFallback ? mockClubs : Array.isArray(data?.clubs) ? data.clubs : [])
+        setPromotions(useFallback ? mockPromotions : Array.isArray(data?.promotions) ? data.promotions : [])
         setTerms(data?.terms ?? null)
         setTermsUpdatedAt(data?.termsUpdatedAt ?? null)
       }

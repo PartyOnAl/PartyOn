@@ -1629,6 +1629,328 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
+.promo-datetime-picker {
+  width: min(340px, calc(100vw - 48px));
+  padding: 18px;
+  border-color: rgba(236, 72, 153, 0.2);
+  background: #18181b;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.62);
+}
+
+.event-mgmt__field-grid > .event-mgmt__picker-field:nth-child(2) .promo-datetime-picker {
+  left: auto;
+  right: 0;
+}
+
+.promo-datetime-picker__time-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.promo-datetime-picker__time-label {
+  margin: 0;
+  color: #f7f7f8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.promo-datetime-picker__time-help {
+  margin: 3px 0 0;
+  color: #8f8f98;
+  font-size: 0.75rem;
+}
+
+.promo-datetime-picker__time-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.promo-datetime-picker__time-controls select {
+  width: 100%;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: #232326;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: center;
+  text-align-last: center;
+  outline: none;
+}
+
+.promo-datetime-picker__time-controls select:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.promo-datetime-picker__time-separator {
+  color: #f7f7f8;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.promo-datetime-picker__period-toggle {
+  display: grid;
+  gap: 4px;
+  width: 66px;
+}
+
+.promo-datetime-picker__period-btn {
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.promo-datetime-picker__period-btn--active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.promo-date-picker {
+  width: min(320px, calc(100vw - 48px));
+  padding: 18px;
+  border-color: rgba(236, 72, 153, 0.2);
+  background: #18181b;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.62);
+}
+
+.event-mgmt__field-grid > .event-mgmt__picker-field:nth-child(3) .promo-date-picker {
+  left: auto;
+  right: 0;
+}
+
+.promo-time-field__control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  height: 52px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #1f1f1f;
+  padding: 0 8px 0 0;
+}
+
+.promo-time-field__control input {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #f8f8f8;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0 14px;
+  outline: none;
+}
+
+.promo-time-field__control input::placeholder {
+  color: #737373;
+}
+
+.promo-time-field__control:focus-within {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.promo-time-field__period {
+  display: grid;
+  gap: 4px;
+  width: 64px;
+}
+
+.promo-time-field__period-btn {
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.promo-time-field__period-btn--active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.promo-time-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 45;
+  width: 276px;
+  padding: 24px 26px 18px;
+  border: 1px solid #2a2a2a;
+  border-radius: 13px;
+  background: #1a1a1a;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+
+.event-mgmt__field-grid > .promo-time-field:nth-child(4) .promo-time-popover {
+  left: auto;
+  right: 0;
+}
+
+.promo-time-popover__title {
+  margin: 0 0 14px;
+  color: #9ca3af;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.promo-time-popover__editor {
+  display: grid;
+  grid-template-columns: 72px auto 72px 64px;
+  align-items: start;
+  gap: 8px;
+}
+
+.promo-time-popover__hour,
+.promo-time-popover__minute {
+  width: 72px;
+  height: 50px;
+  border: 1px solid #333;
+  border-radius: 9px;
+  background: #202020;
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-align: center;
+  outline: none;
+}
+
+.promo-time-popover__hour:focus,
+.promo-time-popover__minute:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.22);
+}
+
+.promo-time-popover__colon {
+  padding-top: 11px;
+  color: #f4f4f5;
+  font-size: 1.55rem;
+  font-weight: 800;
+}
+
+.promo-time-popover__minute-wrap {
+  position: relative;
+}
+
+.promo-time-popover__minute-list {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 2;
+  width: 72px;
+  overflow: hidden;
+  border: 1px solid #333;
+  border-radius: 9px;
+  background: #202020;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.42);
+}
+
+.promo-time-popover__minute-option {
+  width: 100%;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.promo-time-popover__minute-option:hover,
+.promo-time-popover__minute-option--active {
+  background: rgba(236, 72, 153, 0.28);
+  color: hsl(var(--primary));
+}
+
+.promo-time-popover__period {
+  display: grid;
+  gap: 4px;
+}
+
+.promo-time-popover__period-btn {
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #8f8f98;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.promo-time-popover__period-btn--active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.promo-time-popover__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28px;
+}
+
+.promo-time-popover__clock {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #9ca3af;
+  border-radius: 999px;
+  position: relative;
+}
+
+.promo-time-popover__clock::before,
+.promo-time-popover__clock::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  border-radius: 999px;
+  background: #9ca3af;
+  transform-origin: top center;
+}
+
+.promo-time-popover__clock::before {
+  height: 6px;
+  transform: translate(-50%, -100%);
+}
+
+.promo-time-popover__clock::after {
+  height: 5px;
+  transform: translate(-50%, 0) rotate(90deg);
+}
+
+.promo-time-popover__close {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--primary));
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .event-time-picker__time-embed {
   margin-top: 14px;
   padding-top: 12px;

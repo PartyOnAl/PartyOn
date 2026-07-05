@@ -20,15 +20,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { getJson } from '@/api'
-import {
-  eventNeedsTicket,
-  isReservationFlow,
-  pickEventForFlow,
-} from '@/lib/eventCheckout'
-import { arrivalTimeFromEvent } from '@/lib/eventDates'
-import type { EventDetail } from '@/types'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Navbar } from '@/components/Navbar'
 import { LovableFooter } from '@/components/LovableFooter'
@@ -70,14 +62,27 @@ type ReservationSaved = {
   id: string
   reference: string
   createdAt: string
-  /** Value encoded in the QR (e.g. `reservation:<uuid>`). */
-  gatePayload: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const ACCENT = '#FF00AA'
 const MAX_RESERVATION_GUESTS = 8
+
+function eventNeedsTicket(ev: Event): boolean {
+  if (ev.ticketRequired === false) return false
+  return ev.price > 0
+}
+
+function extractBaseTime(ev: Event): string {
+  if (ev.doorsOpen?.trim()) {
+    const m = ev.doorsOpen.trim().match(/^(\d{1,2}):(\d{2})$/)
+    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`
+  }
+  const m = ev.date.match(/(\d{1,2}:\d{2})/)
+  if (m?.[1]) return m[1]
+  return '22:00'
+}
 
 function toDisplayDate(value: string): string {
   const d = new Date(value + 'T12:00:00')
@@ -231,16 +236,8 @@ async function remoteQrPngToDataUrl(url: string): Promise<string> {
 export default function ReservationFlow() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const location = useLocation()
-  const stateEvent = (location.state as { event?: Event } | null)?.event
-
-  const { user, profile, isLoading: authLoading } = useAuth()
   const { clubs, events } = useCatalog()
-
-  const [eventDetail, setEventDetail] = useState<EventDetail | null>(null)
-  const [eventDetailLoading, setEventDetailLoading] = useState(
-    Boolean((id ?? '').trim()) && !stateEvent,
-  )
+  const { user, profile } = useAuth()
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [people, setPeople] = useState(2)
@@ -258,34 +255,11 @@ export default function ReservationFlow() {
   const [clubTablesQueried, setClubTablesQueried] = useState(false)
   const [tablesLoadError, setTablesLoadError] = useState(false)
 
-  const fromCatalogList = useMemo(() => {
+  const event = useMemo(() => {
     const eventId = (id ?? '').trim()
-    if (!eventId) return undefined
-    return events.find((e) => e.id === eventId)
+    if (!eventId) return null
+    return events.find((e) => e.id === eventId) ?? null
   }, [events, id])
-
-  useEffect(() => {
-    const eventId = (id ?? '').trim()
-    if (!eventId) {
-      setEventDetailLoading(false)
-      return
-    }
-    if (stateEvent) {
-      setEventDetailLoading(false)
-      return
-    }
-    setEventDetailLoading(true)
-    getJson<EventDetail>(`/catalog/events/${eventId}`)
-      .then(({ data }) => {
-        if (data) setEventDetail(data)
-      })
-      .finally(() => setEventDetailLoading(false))
-  }, [id, stateEvent])
-
-  const event = useMemo(
-    () => pickEventForFlow(eventDetail, stateEvent, fromCatalogList),
-    [eventDetail, stateEvent, fromCatalogList],
-  )
 
   const clubId = (event?.clubId ?? '').trim()
   const currencySymbol = event?.currency === 'USD' ? '$' : '€'
@@ -326,35 +300,23 @@ export default function ReservationFlow() {
     if (first) setTableType(first.type)
   }, [tableGroups, tableType])
 
-  // ── Route guard + init event-specific defaults ──
+  // ── Init event-specific defaults ──
   useEffect(() => {
-    if (eventDetailLoading || !event) return
-    if (eventNeedsTicket(event) && !isReservationFlow(event)) {
-      navigate(`/payment/${encodeURIComponent(event.id)}`, {
-        replace: true,
-        state: { event },
-      })
+    if (!event) return
+    if (eventNeedsTicket(event)) {
+      navigate(`/payment/${encodeURIComponent(event.id)}`, { replace: true })
       return
     }
-    const raw = event.rawDate ?? event.date
-    if (raw) {
-      const parsed = new Date(raw)
-      if (!Number.isNaN(parsed.getTime())) {
-        setSelectedDate(parsed.toISOString().slice(0, 10))
-        return
-      }
-    }
+    // Pre-fill date from event
     const m = event.date.match(/[A-Za-z]{3},\s([A-Za-z]{3}\s\d{1,2})/)
     if (m?.[1]) {
       const parsed = new Date(`${m[1]}, ${new Date().getFullYear()}`)
       if (!Number.isNaN(parsed.getTime())) setSelectedDate(parsed.toISOString().slice(0, 10))
     }
-  }, [event, eventDetailLoading, navigate])
+  }, [event, navigate])
 
   // ── Pre-fill contact from profile ──
   useEffect(() => {
-    let active = true
-    if (authLoading) return
     if (!user) {
       navigate(`/login?from=${encodeURIComponent(`/reserve/${id ?? ''}`)}`, { replace: true })
       return
@@ -367,37 +329,7 @@ export default function ReservationFlow() {
       email: profile?.email?.trim() || prev.email || user.email || '',
       phone: profile?.phone_number?.trim() || prev.phone,
     }))
-
-    async function loadSlotStats() {
-      if (!supabase || !isSupabaseConfigured || !id) return
-      const { data } = await supabase
-        .from('reservations')
-        .select('expected_arrival_time')
-        .eq('event_id', id)
-        .in('status', ['confirmed', 'pending'])
-      if (!active || !data) return
-      const map: Record<string, number> = {}
-      for (const row of data as { expected_arrival_time: string | null }[]) {
-        const t = row.expected_arrival_time?.trim()
-        if (!t) continue
-        map[t] = (map[t] || 0) + 1
-      }
-      //setBookedSlots(map)
-    }
-    void loadSlotStats()
-    return () => {
-      active = false
-    }
-  }, [
-    id,
-    navigate,
-    profile?.email,
-    profile?.name,
-    profile?.phone_number,
-    profile?.surname,
-    user,
-    authLoading,
-  ])
+  }, [id, navigate, profile?.email, profile?.name, profile?.phone_number, profile?.surname, user])
 
   // ── Pricing ──
   const selectedGroup = tableGroups.find((g) => g.type === tableType) ?? null
@@ -453,7 +385,7 @@ export default function ReservationFlow() {
 
     const reference = generateReservationReference()
     const nowIso = new Date().toISOString()
-    const arrivalTime = arrivalTimeFromEvent(event)
+    const arrivalTime = extractBaseTime(event)
     const mergedNotes = [
       `Table type: ${formatTableTypeName(tableType)}`,
       specialRequests.trim() ? `Special requests: ${specialRequests.trim()}` : null,
@@ -468,117 +400,74 @@ export default function ReservationFlow() {
       number_of_people: people,
       time_slot: arrivalTime,
       special_requests: mergedNotes || null,
-      status: 'pending',
+      status: 'confirmed',
       reservation_reference: reference,
       created_at: nowIso,
       updated_at: nowIso,
-      table_type: tableType as string | null,
+      table_type: tableType,
     }
 
-    // Works with your current schema and with the newer requested schema.
-    let inserted:
-      | {
-          reservation_id?: string
-          id?: string
-          created_at?: string | null
-        }
-      | null = null
-    {
-      const { data: modernRow, error: modernError } = await supabase
-        .from('reservations')
-        .insert(modernPayload)
-        .select('reservation_id,id,created_at')
-        .maybeSingle()
+    let inserted: { reservation_id?: string; id?: string; created_at?: string | null } | null = null
 
-      if (!modernError && modernRow) {
-        const rid =
-          (modernRow as { reservation_id?: string; id?: string }).reservation_id ??
-          (modernRow as { reservation_id?: string; id?: string }).id
-        inserted = {
-          reservation_id: rid,
-          id: rid,
-          created_at:
-            (modernRow as { created_at?: string | null }).created_at ?? nowIso,
-        }
-      } else {
-        const legacyPayload: Record<string, unknown> = {
-          user_id: user.id,
-          event_id: event.id,
-          nr_of_people: people,
-          expected_arrival_time: arrivalTime,
-          notes: mergedNotes || null,
-          status: 'pending',
-          type: 'table',
-          qr_code: reference,
-          reservation_date: `${selectedDate}T00:00:00.000Z`,
-          created_at: nowIso,
-          table_type: tableType,
-        }
-        let { data: legacyData, error: legacyError } = await supabase
-          .from('reservations')
-          .insert(legacyPayload)
-          .select('reservation_id,created_at')
-          .single()
-        if (legacyError) {
-          delete legacyPayload.table_type
-          const retry1 = await supabase
-            .from('reservations')
-            .insert(legacyPayload)
-            .select('reservation_id,created_at')
-            .single()
-          legacyData = retry1.data
-          legacyError = retry1.error
-        }
-        if (legacyError) {
-          const fallback: Record<string, unknown> = { ...legacyPayload, type: 'table' }
-          delete fallback.table_type
-          const retry2 = await supabase
-            .from('reservations')
-            .insert(fallback)
-            .select('reservation_id,created_at')
-            .single()
-          legacyData = retry2.data
-          legacyError = retry2.error
-        }
-        if (legacyError || !legacyData) {
-          setSubmitting(false)
-          setError(legacyError?.message || modernError?.message || 'Could not save reservation.')
-          return
-        }
-        inserted = legacyData as {
-          id?: string
-          reservation_id?: string
-          created_at?: string | null
-        }
+    const { data: modernData, error: modernError } = await supabase
+      .from('reservations').insert(modernPayload).select('reservation_id,created_at').single()
+    if (!modernError) {
+      inserted = modernData as { id?: string; reservation_id?: string; created_at?: string | null } ?? { id: reference, created_at: nowIso }
+    } else {
+      const legacyPayload: Record<string, unknown> = {
+        user_id: user.id,
+        event_id: event.id,
+        nr_of_people: people,
+        expected_arrival_time: arrivalTime,
+        notes: mergedNotes || null,
+        status: 'confirmed',
+        type: 'table',
+        qr_code: reference,
+        reservation_date: `${selectedDate}T00:00:00.000Z`,
+        created_at: nowIso,
+        table_type: tableType,
       }
+      let { data: legacyData, error: legacyError } = await supabase
+        .from('reservations').insert(legacyPayload).select('reservation_id,created_at').single()
+      if (legacyError) {
+        delete legacyPayload.table_type
+        const r = await supabase.from('reservations').insert(legacyPayload).select('reservation_id,created_at').single()
+        legacyData = r.data; legacyError = r.error
+      }
+      if (legacyError || !legacyData) {
+        setSubmitting(false)
+        setError(legacyError?.message || modernError?.message || 'Could not save reservation.')
+        return
+      }
+      inserted = legacyData as { id?: string; reservation_id?: string; created_at?: string | null }
     }
 
-    if (!inserted) {
-      setSubmitting(false)
-      setError('Could not save reservation.')
-      return
-    }
-
-    const reservationUuid = (inserted?.reservation_id || inserted?.id || '').trim()
-    const gatePayload = reservationUuid ? `reservation:${reservationUuid}` : reference
-    if (reservationUuid) {
-      const gateQr = `reservation:${reservationUuid}`
-      const { error: qrErr } = await supabase
-        .from('reservations')
-        .update({ qr_code: gateQr })
-        .eq('reservation_id', reservationUuid)
-      if (qrErr) {
-        await supabase.from('reservations').update({ qr_code: gateQr }).eq('id', reservationUuid)
+    // Auto-assign a physical table of the selected type
+    const reservationId = (inserted as { reservation_id?: string } | null)?.reservation_id
+    if (reservationId && tableType && clubTables.length > 0 && event?.id) {
+      const tablesOfType = clubTables.filter(
+        t => (t.type ?? '').toLowerCase() === tableType.toLowerCase(),
+      )
+      if (tablesOfType.length > 0) {
+        const { data: takenRows } = await supabase
+          .from('reservations')
+          .select('table_id')
+          .eq('event_id', event.id)
+          .in('status', ['confirmed', 'pending'])
+          .not('table_id', 'is', null)
+        const takenIds = new Set((takenRows ?? []).map(r => (r as { table_id: string }).table_id))
+        const freeTable = tablesOfType.find(t => !takenIds.has(t.id))
+        if (freeTable) {
+          await supabase
+            .from('reservations')
+            .update({ table_id: freeTable.id })
+            .eq('reservation_id', reservationId)
+        }
       }
     }
 
     setSubmitting(false)
-    setSaved({
-      id: reservationUuid || reference,
-      reference,
-      createdAt: inserted?.created_at || nowIso,
-      gatePayload,
-    })
+    setSaved({ id: inserted?.reservation_id || inserted?.id || reference, reference, createdAt: inserted?.created_at || nowIso })
     setStep(3)
   }
 
@@ -587,9 +476,7 @@ export default function ReservationFlow() {
     if (!event || !saved) return
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF()
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(
-      saved.gatePayload,
-    )}`
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(saved.reference)}`
 
     doc.setFontSize(18)
     doc.text('PartyOn Reservation Confirmation', 14, 20)
@@ -618,8 +505,8 @@ export default function ReservationFlow() {
 
   function downloadIcs() {
     if (!event || !saved) return
-    const arrivalTime = arrivalTimeFromEvent(event)
-    const iso = `${selectedDate}T${arrivalTime}`
+    const arrivalTime = extractBaseTime(event)
+    const iso = `${selectedDate}T${arrivalTime}:00`
     const ics = buildIcs({
       title: `${event.title} - Reservation`,
       startIso: iso,
@@ -633,26 +520,10 @@ export default function ReservationFlow() {
     URL.revokeObjectURL(url)
   }
 
-  if (eventDetailLoading || (!event && (id ?? '').trim())) {
-    return (
-      <div className="min-h-screen bg-background text-foreground">
-        <Navbar />
-        <div className="po-container py-24 pt-20 text-center text-muted-foreground">Loading…</div>
-      </div>
-    )
-  }
-
   if (!event) {
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <Navbar />
-        <div className="po-container flex min-h-[50vh] flex-col items-center justify-center gap-4 py-24 pt-20 text-center">
-          <p className="text-muted-foreground">We couldn&apos;t find that event.</p>
-          <Button variant="outline" onClick={() => navigate(-1)}>
-            Go back
-          </Button>
-        </div>
-        <LovableFooter />
+        <div className="po-container py-24 text-center text-muted-foreground">Loading…</div>
       </div>
     )
   }
@@ -1091,9 +962,7 @@ export default function ReservationFlow() {
 
                 <div className="mx-auto w-full max-w-[200px] rounded-2xl border border-white/10 bg-white p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(
-                      saved.gatePayload,
-                    )}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(saved.reference)}`}
                     alt="Reservation QR code"
                     className="h-full w-full rounded-md"
                   />
@@ -1103,10 +972,10 @@ export default function ReservationFlow() {
                   <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={() => navigate('/my-bookings')}>
                     View My Bookings
                   </Button>
-                  <Button type="button" variant="outline" className="rounded-full" onClick={downloadIcs}>
+                  <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={downloadIcs}>
                     <CalendarPlus className="mr-2 h-4 w-4" />Add to Calendar
                   </Button>
-                  <Button type="button" variant="outline" className="rounded-full" onClick={() => void downloadPdf()}>
+                  <Button type="button" className="rounded-full gradient-primary text-primary-foreground" onClick={() => void downloadPdf()}>
                     <Download className="mr-2 h-4 w-4" />Download PDF
                   </Button>
                 </div>

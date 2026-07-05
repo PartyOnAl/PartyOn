@@ -5,6 +5,7 @@ import { MANAGER_NAV, ManagerSidebar, ManagerTopBar } from './ManagerNav'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent } from './eventPaidEntry'
+import { API_BASE_URL } from '../api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -304,7 +305,7 @@ export default function ManagerDashboard() {
 
     void (async () => {
       try {
-        const res = await fetch('/api/dashboard/stats', {
+        const res = await fetch(`${API_BASE_URL}/dashboard/stats`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })
 
@@ -373,11 +374,13 @@ export default function ManagerDashboard() {
       setClubEventPricing(clubEvents)
 
       // Active promotions — independent of events, fetch before any early-return
+      const today = new Date().toISOString().split('T')[0]
       const { data: promoData } = await supabase!
         .from('promotions')
         .select('promotion_id, title, category, discount_value, valid_until, status, image_url')
         .eq('club_id', clubId)
         .eq('status', 'active')
+        .gte('valid_until', today)
         .order('valid_until', { ascending: true })
         .limit(5)
       setActivePromotions((promoData ?? []) as ActivePromotion[])
@@ -725,7 +728,7 @@ export default function ManagerDashboard() {
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
-                  onClick={() => navigate('/manager/events')}
+                  onClick={() => navigate('/manager/events?action=new')}
                 >
                   <span className="manager-dash__qa-icon-wrap"><IconCalendar /></span>
                   <span className="manager-dash__qa-label">Create Event</span>
@@ -734,12 +737,13 @@ export default function ManagerDashboard() {
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
-                  onClick={() => navigate('/manager/promotions')}
+                  onClick={() => navigate('/manager/promotions?action=new')}
                 >
                   <span className="manager-dash__qa-icon-wrap"><IconDollar /></span>
                   <span className="manager-dash__qa-label">Add Promotion</span>
                   <IconPlus />
                 </button>
+
                 <button
                   type="button"
                   className="manager-dash__qa-btn"
@@ -759,6 +763,9 @@ export default function ManagerDashboard() {
             <div className="manager-dash__card manager-dash__card--list">
               <div className="manager-dash__card-head">
                 <h2 className="manager-dash__card-title">Upcoming Events</h2>
+                <Link to="/manager/events" className="manager-dash__link-all">
+                  View all →
+                </Link>
               </div>
               {listLoading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

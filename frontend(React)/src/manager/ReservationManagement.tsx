@@ -10,11 +10,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseConfigured, managerSupabase as supabase } from '../lib/supabase'
 import { isPaidTicketEvent, reservationGuestCount, totalGuestCount } from './eventPaidEntry'
 import {
-  NO_SHOW_STATUS,
-  getNoShowState,
-  incrementNoShowBadgeCount,
-  loadNoShowGraceMinutes,
-  reservationIsNoShow,
+  // NO_SHOW_STATUS,            // no-show: commented out
+  // getNoShowState,            // no-show: commented out
+  // incrementNoShowBadgeCount, // no-show: commented out
+  // loadNoShowGraceMinutes,    // no-show: commented out
+  // reservationIsNoShow,       // no-show: commented out
   normalizeReservationStatus,
 } from './noShow'
 
@@ -84,7 +84,7 @@ type TableDisplay = {
   guestName?: string
   eventLabel?: string
   linkedReservationId?: string
-  noShow?: boolean
+  // noShow?: boolean  // no-show: commented out
 }
 
 type VipPackageDraft = { minSpend: string; bottleNote: string }
@@ -361,7 +361,7 @@ function layoutTablesForFloor(rows: DbTableRow[]): FloorTableConfig[] {
 
 function getPrimaryReservationForTable(tableId: string, reservations: ReservationRow[]): ReservationRow | null {
   const list = reservations.filter(
-    (r) => r.table_id === tableId && ['pending', 'confirmed', 'noshow'].includes(normalizeReservationStatus(r.status)),
+    (r) => r.table_id === tableId && ['pending', 'confirmed' /*, 'noshow' // no-show: commented out */].includes(normalizeReservationStatus(r.status)),
   )
   list.sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -400,7 +400,7 @@ function computeTableDisplay(table: DbTableRow, reservations: ReservationRow[]):
       guestName: reservationGuestLabel(primary),
       eventLabel: primary.events?.event_name ?? undefined,
       linkedReservationId: primary.reservation_id,
-      noShow: reservationIsNoShow(primary.status),
+      // noShow: reservationIsNoShow(primary.status),  // no-show: commented out
     }
   }
 
@@ -538,14 +538,14 @@ function reservationIsCancelled(status: string | null) {
 }
 
 function reservationStatusLabel(status: string | null) {
-  if (reservationIsNoShow(status)) return 'No-Show'
+  // if (reservationIsNoShow(status)) return 'No-Show'  // no-show: commented out
   if (normalizeReservationStatus(status) === 'confirmed') return 'Confirmed'
   if (reservationIsCancelled(status)) return 'Cancelled'
   return 'Pending'
 }
 
 function reservationStatusClass(status: string | null) {
-  if (reservationIsNoShow(status)) return 'res-mgmt__pill res-mgmt__pill--noshow'
+  // if (reservationIsNoShow(status)) return 'res-mgmt__pill res-mgmt__pill--noshow'  // no-show: commented out
   if (normalizeReservationStatus(status) === 'confirmed') return 'res-mgmt__pill res-mgmt__pill--ok'
   if (reservationIsCancelled(status)) return 'res-mgmt__pill res-mgmt__pill--cancelled'
   return 'res-mgmt__pill res-mgmt__pill--pending'
@@ -682,11 +682,13 @@ export default function ReservationManagement() {
   const [deleteDialogReservationId, setDeleteDialogReservationId] = useState<string | null>(null)
   const [deleteDialogBusy, setDeleteDialogBusy] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  /* no-show: commented out
   const [noShowActionReservationId, setNoShowActionReservationId] = useState<string | null>(null)
   const [noShowActionBusy, setNoShowActionBusy] = useState(false)
   const [noShowGraceMinutes, setNoShowGraceMinutes] = useState(loadNoShowGraceMinutes)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const autoNoShowRef = useRef<Set<string>>(new Set())
+  */
 
   const cardRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
   const calendarRef = useRef<HTMLDivElement>(null)
@@ -812,6 +814,7 @@ export default function ReservationManagement() {
     return () => window.clearTimeout(t)
   }, [toastMessage])
 
+  /* no-show: commented out
   useEffect(() => {
     const t = window.setInterval(() => {
       setNowMs(Date.now())
@@ -822,6 +825,7 @@ export default function ReservationManagement() {
   useEffect(() => {
     setNoShowGraceMinutes(club?.no_show_grace_period_minutes ?? loadNoShowGraceMinutes())
   }, [club?.no_show_grace_period_minutes])
+  */
 
   async function handleApprove(reservationId: string) {
     if (!supabase) return
@@ -891,6 +895,7 @@ export default function ReservationManagement() {
     }
   }
 
+  /* no-show: commented out (only called from no-show functions)
   async function freeReservationTable(row: ReservationRow) {
     if (!supabase || !row.table_id) return
     const table = dbTables.find((t) => t.id === row.table_id)
@@ -899,7 +904,9 @@ export default function ReservationManagement() {
     if (position !== undefined) payload.position = position
     await supabase.from('tables').update(payload).eq('id', row.table_id)
   }
+  */
 
+  /* no-show: commented out
   async function markReservationNoShow(row: ReservationRow, openActions = false) {
     if (!supabase || reservationIsNoShow(row.status)) return
     const { error: err } = await supabase
@@ -999,6 +1006,7 @@ export default function ReservationManagement() {
       setNoShowActionBusy(false)
     }
   }
+  */ // end no-show: commented out
 
   // Close calendar when clicking outside
   useEffect(() => {
@@ -1022,6 +1030,7 @@ export default function ReservationManagement() {
     return m
   }, [dbTables, reservations])
 
+  /* no-show: commented out
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return
     for (const row of reservations) {
@@ -1041,6 +1050,7 @@ export default function ReservationManagement() {
       void markReservationNoShow(row, true)
     }
   }, [reservations, tableDisplays, noShowGraceMinutes, nowMs])
+  */
 
   const visibleRows = useMemo(() => {
     return reservations.filter((r) => {
@@ -1102,6 +1112,7 @@ export default function ReservationManagement() {
     [detailReservationId, reservations],
   )
 
+  /* no-show: commented out
   const noShowActionRow = useMemo(
     () =>
       noShowActionReservationId
@@ -1109,6 +1120,7 @@ export default function ReservationManagement() {
         : null,
     [noShowActionReservationId, reservations],
   )
+  */
 
   useEffect(() => {
     if (detailReservationId && !detailRow) setDetailReservationId(null)
@@ -1648,9 +1660,12 @@ export default function ReservationManagement() {
               const amount = resolvedAmount(row.payments)
               const paymentStatus = resolvedPaymentStatus(row.payments)
               const eventFree = reservationEventIsFree(row)
+              /* no-show: commented out
               const tableOccupied = row.table_id
                 ? (tableDisplays[row.table_id]?.status ?? 'available') === 'occupied'
                 : false
+              */
+              /* no-show: commented out
               const noShow = getNoShowState(
                 row.status,
                 row.events?.event_starting_date,
@@ -1658,17 +1673,12 @@ export default function ReservationManagement() {
                 nowMs,
                 tableOccupied,
               )
+              */
 
               return (
                 <tr
                   key={row.reservation_id}
-                  className={
-                    noShow.state === 'expired' || noShow.state === 'no_show'
-                      ? 'res-mgmt__row--noshow'
-                      : noShow.state === 'countdown'
-                        ? 'res-mgmt__row--late'
-                        : ''
-                  }
+                  className=""
                 >
                   <td>
                     <div className="res-mgmt__customer">
@@ -1696,6 +1706,7 @@ export default function ReservationManagement() {
                       <span className={reservationStatusClass(row.status)}>
                         {reservationStatusLabel(row.status)}
                       </span>
+                      {/* no-show countdown: commented out
                       {noShow.state === 'countdown' ? (
                         <span className="res-mgmt__noshow-countdown">
                           {(() => {
@@ -1705,6 +1716,7 @@ export default function ReservationManagement() {
                           })()}
                         </span>
                       ) : null}
+                      */}
                     </div>
                   </td>
                   <td>
@@ -1743,17 +1755,8 @@ export default function ReservationManagement() {
                         >
                           <Trash2 className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
                         </button>
-                      ) : reservationIsNoShow(row.status) ? (
-                        <button
-                          type="button"
-                          className="res-mgmt__icon-btn res-mgmt__icon-btn--noshow"
-                          title="No-show actions"
-                          aria-label={`Open no-show actions for ${guestName}`}
-                          onClick={() => setNoShowActionReservationId(row.reservation_id)}
-                        >
-                          <XCircle className="res-mgmt__lucide-action" size={16} strokeWidth={2} aria-hidden />
-                        </button>
                       ) : (
+                        /* no-show branch removed — was: reservationIsNoShow(row.status) ? noshow-actions : cancel */
                         <button
                           type="button"
                           className="res-mgmt__icon-btn res-mgmt__icon-btn--cancel"
@@ -2305,6 +2308,7 @@ export default function ReservationManagement() {
         </div>
       ) : null}
 
+      {/* no-show action modal: commented out
       {noShowActionRow ? (
         <div
           className="res-mgmt__sheet-backdrop"
@@ -2365,6 +2369,7 @@ export default function ReservationManagement() {
           </div>
         </div>
       ) : null}
+      */}
 
       {detailRow ? (
         <div
