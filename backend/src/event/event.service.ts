@@ -137,7 +137,7 @@ async createPayment(
     ? rawSuccess.split('__BATCH_ID__').join(batch_id)
     : defaultSuccess;
   const cancel_url =
-    opts?.stripeCancelUrl?.trim() || `${base}/cancel`;
+    opts?.stripeCancelUrl?.trim() || `${base}`;
 
   const session = await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
