@@ -2,7 +2,9 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Events } from 'generated-entities/entities/Events';
+import { Payments } from 'generated-entities/entities/Payments';
 import { Request } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import Stripe from 'stripe';
 
 export type EventListItem = {
@@ -23,13 +25,19 @@ export type EventListItem = {
   event_hours: string| null;
 };
 
+
+
 @Injectable()
 export class EventService {
   private stripe: InstanceType<typeof Stripe> | null = null;
-  constructor(
-    @InjectRepository(Events)
-    private readonly eventRepository: Repository<Events>,
-  ) {}
+      constructor(
+        @InjectRepository(Events)
+        private readonly eventRepository: Repository<Events>,
+        @InjectRepository(Payments)
+        private readonly paymentRepository: Repository<Payments>,
+      ) {}
+
+  
 
   constructEvent(req: Request, sig: string | string[] | undefined): any {
     return this.getStripe().webhooks.constructEvent(
@@ -100,8 +108,37 @@ export class EventService {
     return this.toListItem(events);
   }
 
-async createPayment(amount: number, quantity: number, events: any, successUrl?: string, cancelUrl?: string) {
-  const base = (process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173').replace(/\/$/, '')
+async createPayment(
+  amount: number,
+  quantity: number,
+  events: any,
+  opts?: { stripeSuccessUrl?: string; stripeCancelUrl?: string },
+) {
+  console.log('amount:', amount);
+  console.log('quantity:', quantity);
+  const base = (
+    process.env.FRONTEND_ORIGIN ??
+    'http://localhost:5173'
+  ).replace(/\/$/, '');
+  const batch_id = uuidv4();
+  const payment = Array.from({ length: quantity }, () => ({
+    amount: (amount * 0.01).toString(),
+    status: 'pending',
+    paymentDate: new Date(),
+    event: { eventId: events.event_id },
+    batch_id: batch_id,
+  }));
+
+  await this.paymentRepository.save(payment);
+
+  const defaultSuccess = `${base}/purchased-ticket/${events.event_id}/${quantity}/${batch_id}?checkout_session_id={CHECKOUT_SESSION_ID}`;
+  const rawSuccess = opts?.stripeSuccessUrl?.trim();
+  const success_url = rawSuccess
+    ? rawSuccess.split('__BATCH_ID__').join(batch_id)
+    : defaultSuccess;
+  const cancel_url =
+    opts?.stripeCancelUrl?.trim() || `${base}/cancel`;
+
   const session = await this.getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
@@ -117,10 +154,12 @@ async createPayment(amount: number, quantity: number, events: any, successUrl?: 
         quantity: quantity,
       },
     ],
-    success_url: successUrl ?? `${base}/purchased-ticket/${events.event_id}/${quantity}?checkout_session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: cancelUrl ?? `${base}/cancel`,
+    success_url,
+    cancel_url,
     metadata: {
-      amount: amount * 0.01 * quantity,
+      amount: String(amount * 0.01 * quantity),
+      event_id: String(events.event_id),
+      payment_id: batch_id,
     },
   })
   return { url: session.url }
@@ -168,15 +207,37 @@ async handleEvent(event: any) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
-      console.log('Payment success:', session.id);
-      const amount = session.amount_total ?? 0;
-      const email = session.customer_details?.email ?? 'unknown';
-      await this.eventRepository.create({
-      });
-      break;
+      const batchId = session.metadata?.payment_id;
+      if (!batchId) {
+        console.warn(
+          'checkout.session.completed: missing metadata.payment_id (session %s)',
+          session.id,
+        );
+      }
+
+      const pi = session.payment_intent
+      const intentId =
+        pi == null
+          ? null
+          : typeof pi === 'string'
+            ? pi
+            : typeof (pi as { id?: string }).id === 'string'
+              ? (pi as { id: string }).id
+              : null
+
+      const result = await this.paymentRepository.update(
+        { batch_id: String(batchId) },
+        { status: 'completed', intent: intentId },
+      );
+      if (result.affected === 0) {
+        console.warn(
+          'checkout.session.completed: no payments matched batch_id %s (session %s)',
+          batchId,
+          session.id,
+        );
+      }
+
     }
-    default:
-      break;
   }
 }
 

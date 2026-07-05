@@ -1327,7 +1327,7 @@ export class CatalogService {
     } catch {
       /* table may not exist on dev setups */
     }
-
+        console.log('events', events);
     return { events, clubs, promotions, terms, termsUpdatedAt };
   }
 

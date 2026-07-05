@@ -34,22 +34,37 @@ getById(@Param('id') id: string): Promise<EventListItem> {
 }
 
 @Post('pay')
-async createPayment(@Body() body: { amount: number; quantity: number; events: any; success_url?: string; cancel_url?: string }) {
+async createPayment(
+  @Body()
+  body: {
+    amount: number
+    quantity: number
+    events: any
+    success_url?: string
+    cancel_url?: string
+    /** @deprecated use success_url (React Native used this name previously) */
+    stripe_success_url?: string
+    /** @deprecated use cancel_url */
+    stripe_cancel_url?: string
+  },
+) {
   const result = await this.eventService.createPayment(
     body.amount,
     body.quantity,
     body.events,
-    body.success_url,
-    body.cancel_url,
-  );
-  return { url: result.url };
-}
-
+    {
+      stripeSuccessUrl: body.success_url ?? body.stripe_success_url,
+      stripeCancelUrl: body.cancel_url ?? body.stripe_cancel_url,
+    },
+  )
+  return { url: result.url }
+  }
 @Post('feature-pay')
 async createFeaturePayment(@Body() body: { eventId: string; fee: number }) {
   const result = await this.eventService.createFeaturePayment(body.eventId, body.fee);
   return { url: result.url };
 }
+
 
 @Post('webhook')
 async handleWebhook(@Req() req: Request) {

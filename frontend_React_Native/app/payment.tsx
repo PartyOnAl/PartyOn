@@ -1,0 +1,475 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
+} from 'react-native'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Ionicons } from '@expo/vector-icons'
+import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
+import * as Haptics from 'expo-haptics'
+import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
+import { usePlatformSettings } from '@/lib/platformSettings'
+import { useAuth } from '@/lib/AuthContext'
+import { postJson } from '@/lib/partyonApi'
+
+WebBrowser.maybeCompleteAuthSession()
+
+export default function PaymentScreen() {
+  const router = useRouter()
+  const insets = useSafeAreaInsets()
+  const { settings } = usePlatformSettings()
+  const { profile } = useAuth()
+
+  const params = useLocalSearchParams<{
+    eventId: string
+    eventName: string
+    ticketTypeId: string
+    ticketTypeName: string
+    price: string
+    isReservation?: string
+  }>()
+
+  const isReservation = params.isReservation === 'true'
+  const pricePerTicket = Number(params.price ?? 0)
+  const [quantity, setQuantity] = useState(1)
+  const [updates, setUpdates] = useState(false)
+  const [paying, setPaying] = useState(false)
+
+  const buyerName = useMemo(() => {
+    const full = [profile?.name, profile?.surname].filter(Boolean).join(' ').trim()
+    return full || profile?.username || profile?.email?.split('@')[0] || 'Me'
+  }, [profile])
+
+  const [attendeeNames, setAttendeeNames] = useState<string[]>([buyerName])
+
+  useEffect(() => {
+    if (isReservation && params.eventId) {
+      router.replace({ pathname: '/reserve/[id]', params: { id: params.eventId } })
+    }
+  }, [isReservation, params.eventId, router])
+
+  useEffect(() => {
+    setAttendeeNames((prev) =>
+      Array.from({ length: quantity }, (_, i) => (i === 0 ? buyerName : prev[i] ?? '')),
+    )
+  }, [quantity, buyerName])
+
+  function setAttendeeName(i: number, v: string) {
+    setAttendeeNames((prev) => prev.map((n, idx) => (idx === i ? v : n)))
+  }
+
+  const subtotal = pricePerTicket * quantity
+  const vatAmount =
+    settings.vat_enabled && subtotal > 0 ? subtotal * (settings.vat_rate / 100) : 0
+  const processingFee =
+    subtotal > 0
+      ? (subtotal + vatAmount) * (settings.stripe_fee_percent / 100) + settings.stripe_fee_fixed
+      : 0
+  const grandTotal = subtotal + vatAmount + processingFee
+
+  async function openStripeCheckout() {
+    if (!params.eventId) {
+      Alert.alert('Missing event', 'Could not start checkout.')
+      return
+    }
+    if (quantity > 1) {
+      const guestNames = attendeeNames.slice(1).map((n) => n.trim())
+      if (guestNames.some((n) => n.length === 0)) {
+        Alert.alert('Add guest names', 'Please enter the name of every additional ticket holder.')
+        return
+      }
+    }
+
+    const unitCents = Math.max(50, Math.round((grandTotal / quantity) * 100))
+    const returnUrl = Linking.createURL('/purchased-ticket')
+    let successUrl = Linking.createURL('purchased-ticket', {
+      queryParams: {
+        eventId: params.eventId,
+        quantity: String(quantity),
+        payment_id: '__BATCH_ID__',
+        ticketTypeName: params.ticketTypeName ?? 'General Admission',
+        eventName: params.eventName ?? 'Event',
+        total: String(grandTotal.toFixed(2)),
+        isReservation: 'false',
+      },
+    })
+    if (!successUrl.includes('checkout_session_id')) {
+      successUrl += `${successUrl.includes('?') ? '&' : '?'}checkout_session_id={CHECKOUT_SESSION_ID}`
+    }
+    const cancelUrl = Linking.createURL('/(tabs)')
+
+    setPaying(true)
+    try {
+      const { data, error } = await postJson<{ url?: string }>('/event/pay', {
+        amount: unitCents,
+        quantity,
+        events: { event_id: params.eventId },
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      })
+      if (error || !data?.url) {
+        Alert.alert('Checkout', error ?? 'Could not start payment.')
+        return
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, returnUrl)
+      if (result.type === 'success' && result.url) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        const parsed = Linking.parse(result.url)
+        const q = parsed.queryParams ?? {}
+        router.replace({
+          pathname: '/purchased-ticket',
+          params: {
+            eventId: String(q.eventId ?? params.eventId),
+            quantity: String(q.quantity ?? quantity),
+            payment_id: String(q.payment_id ?? ''),
+            ticketTypeName: String(q.ticketTypeName ?? params.ticketTypeName ?? ''),
+            eventName: String(q.eventName ?? params.eventName ?? ''),
+            total: String(q.total ?? grandTotal.toFixed(2)),
+            isReservation: 'false',
+          },
+        })
+        return
+      }
+      if (result.type === 'cancel') {
+        Alert.alert('Cancelled', 'You can try again when you are ready.')
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Payment could not start.'
+      Alert.alert('Error', msg)
+    } finally {
+      setPaying(false)
+    }
+  }
+
+  if (isReservation) {
+    return (
+      <View style={[styles.container, styles.centered, { paddingTop: insets.top }]}>
+        <ActivityIndicator color={COLORS.purple} size="large" />
+      </View>
+    )
+  }
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Buy ticket</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={{ padding: SPACING.md, paddingBottom: insets.bottom + 180 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.eventCard}>
+            <Text style={styles.eventLabel}>Event</Text>
+            <Text style={styles.eventName} numberOfLines={2}>
+              {params.eventName}
+            </Text>
+            <Text style={styles.ticketType}>{params.ticketTypeName}</Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Quantity</Text>
+            <View style={styles.qtyRow}>
+              <TouchableOpacity
+                style={[styles.qtyBtn, quantity <= 1 && styles.qtyBtnDisabled]}
+                disabled={quantity <= 1}
+                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+              >
+                <Ionicons name="remove" size={20} color={COLORS.white} />
+              </TouchableOpacity>
+              <Text style={styles.qtyValue}>{quantity}</Text>
+              <TouchableOpacity style={styles.qtyBtn} onPress={() => setQuantity((q) => q + 1)}>
+                <Ionicons name="add" size={20} color={COLORS.white} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.divider} />
+            <View style={styles.lineItem}>
+              <Text style={styles.lineLabel}>Price per ticket</Text>
+              <Text style={styles.lineValue}>€{pricePerTicket.toFixed(2)}</Text>
+            </View>
+            {quantity > 1 && (
+              <View style={styles.lineItem}>
+                <Text style={styles.lineLabel}>Subtotal ({quantity}×)</Text>
+                <Text style={styles.lineValue}>€{subtotal.toFixed(2)}</Text>
+              </View>
+            )}
+            {settings.vat_enabled && vatAmount > 0 && (
+              <View style={styles.lineItem}>
+                <Text style={styles.lineLabel}>VAT ({settings.vat_rate}%)</Text>
+                <Text style={styles.lineValue}>€{vatAmount.toFixed(2)}</Text>
+              </View>
+            )}
+            {processingFee > 0 && (
+              <View style={styles.lineItem}>
+                <Text style={styles.lineLabel}>
+                  Service fee ({settings.stripe_fee_percent}% + €
+                  {settings.stripe_fee_fixed.toFixed(2)})
+                </Text>
+                <Text style={styles.lineValue}>€{processingFee.toFixed(2)}</Text>
+              </View>
+            )}
+            <View style={styles.divider} />
+            <View style={styles.lineItem}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalValue}>€{grandTotal.toFixed(2)}</Text>
+            </View>
+          </View>
+
+          {quantity > 1 && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Ticket holders</Text>
+              <Text style={styles.attendeeHint}>
+                Each ticket gets its own QR after payment.
+              </Text>
+              {attendeeNames.map((value, i) => (
+                <View key={i} style={styles.attendeeField}>
+                  <View style={styles.attendeeBadge}>
+                    <Text style={styles.attendeeBadgeText}>{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.attendeeLabel}>
+                      {i === 0 ? 'Ticket 1 — You' : `Ticket ${i + 1} — Guest`}
+                    </Text>
+                    <TextInput
+                      style={[styles.attendeeInput, i === 0 && styles.attendeeInputDisabled]}
+                      value={value}
+                      onChangeText={(t) => setAttendeeName(i, t)}
+                      placeholder={i === 0 ? buyerName : 'Full name'}
+                      placeholderTextColor={COLORS.mutedDark}
+                      editable={i !== 0}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.optinRow}
+            onPress={() => setUpdates((v) => !v)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.checkbox, updates && styles.checkboxActive]}>
+              {updates && <Ionicons name="checkmark" size={14} color="#fff" />}
+            </View>
+            <Text style={styles.optinText}>Get updates from this organizer about future events</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.legal}>
+            Secure checkout opens in your browser (Stripe). You will return to PartyOn when payment
+            completes.
+          </Text>
+        </ScrollView>
+
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
+          <TouchableOpacity
+            style={styles.cta}
+            onPress={() => void openStripeCheckout()}
+            disabled={paying || pricePerTicket <= 0}
+            activeOpacity={0.85}
+          >
+            {paying ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.ctaText}>Continue to payment</Text>
+                <Ionicons name="open-outline" size={18} color="#fff" />
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.bg },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.bgCard,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
+  eventCard: {
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  eventLabel: {
+    color: COLORS.muted,
+    fontSize: FONT.sm,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  eventName: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
+  ticketType: { color: COLORS.purple, fontSize: FONT.sm, marginTop: 4 },
+  card: {
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cardTitle: { color: COLORS.white, fontSize: FONT.base, fontWeight: '700', marginBottom: SPACING.md },
+  qtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xl,
+  },
+  qtyBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.bgInput,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyBtnDisabled: { opacity: 0.35 },
+  qtyValue: {
+    color: COLORS.white,
+    fontSize: FONT.xl,
+    fontWeight: '800',
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.sm },
+  lineItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  lineLabel: { color: COLORS.muted, fontSize: FONT.base, flex: 1 },
+  lineValue: { color: COLORS.white, fontSize: FONT.base },
+  totalLabel: { color: COLORS.white, fontSize: FONT.md, fontWeight: '700' },
+  totalValue: { color: COLORS.purple, fontSize: FONT.md, fontWeight: '800' },
+  optinRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm, padding: SPACING.sm },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  checkboxActive: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },
+  optinText: { color: COLORS.muted, fontSize: FONT.sm, flex: 1 },
+  legal: {
+    color: COLORS.mutedDark,
+    fontSize: FONT.sm,
+    textAlign: 'center',
+    lineHeight: FONT.sm * 1.45,
+    paddingHorizontal: SPACING.sm,
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.bgCard,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    padding: SPACING.md,
+    paddingTop: SPACING.sm,
+  },
+  cta: {
+    backgroundColor: COLORS.purple,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md + 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+  },
+  ctaText: { color: COLORS.white, fontWeight: '800', fontSize: FONT.base },
+  attendeeHint: {
+    color: COLORS.muted,
+    fontSize: FONT.sm,
+    marginTop: -SPACING.sm,
+    marginBottom: SPACING.md,
+    lineHeight: FONT.sm * 1.4,
+  },
+  attendeeField: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  attendeeBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(167,139,250,0.15)',
+    borderWidth: 1,
+    borderColor: COLORS.purple,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 22,
+  },
+  attendeeBadgeText: { color: COLORS.purple, fontSize: 11, fontWeight: '800' },
+  attendeeLabel: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  attendeeInput: {
+    backgroundColor: COLORS.bgInput,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    color: COLORS.white,
+    fontSize: FONT.base,
+  },
+  attendeeInputDisabled: { opacity: 0.6 },
+})

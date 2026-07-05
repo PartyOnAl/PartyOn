@@ -8,6 +8,7 @@ import {
 } from "typeorm";
 import { Reservations } from "./Reservations";
 import { Clubs } from "./Clubs";
+import { Payments } from "./Payments";
 
 @Index("tables_pkey", ["id"], { unique: true })
 @Entity("tables", { schema: "public" })
@@ -52,6 +53,14 @@ export class Tables {
   })
   tableStatus: string | null;
 
+  /** Headcount seated for the reservation currently holding this table (hostess check-ins). */
+  @Column("integer", {
+    name: "seated",
+    nullable: false,
+    default: () => "0",
+  })
+  seated: number;
+
   @Column("timestamp with time zone", {
     name: "created_at",
     nullable: true,
@@ -61,6 +70,9 @@ export class Tables {
 
   @OneToMany(() => Reservations, (reservations) => reservations.table)
   reservations: Reservations[];
+
+  @OneToMany(() => Payments, (payments) => payments.table)
+  payments: Payments[];
 
   @ManyToOne(() => Clubs, (clubs) => clubs.tables, { onDelete: "CASCADE" })
   @JoinColumn([{ name: "club_id", referencedColumnName: "clubId" }])
