@@ -42,12 +42,17 @@ export type HostessTableItem = {
 };
 
 export type HostessClientItem = {
+  /** Batch id when merged; otherwise the lone `payment_id`. */
   payment_id: string;
+  batch_id: string | null;
+  payment_ids: string[];
   event_id: string | null;
   user_id: string | null;
   name: string;
   ticket_label: string;
   quantity: number;
+  checked_count: number;
+  seated: number;
   amount: number | null;
   payment_date: Date | null;
   status: string | null;
@@ -157,7 +162,6 @@ export class HostessService {
       .leftJoinAndSelect('reservation.ticketType', 'ticketType')
       .where('club.clubId = :clubId', { clubId })
       .andWhere('payment.status = :status', { status: 'completed' })
-      .andWhere('payment.timesUsed = :timesUsed', { timesUsed: 1 })
       .andWhere(
         'payment.paymentDate BETWEEN event.eventStartingDate AND event.eventEndingDate',
       )
@@ -184,9 +188,9 @@ export class HostessService {
         .filter((r) => this.shouldIncludeReservation(r))
         .map((r) => this.toGuestItem(r)),
       tables: tables.map((t) => this.toTableItem(t)),
-      clients: paymentsInHours
-        .filter((p) => this.shouldIncludeClient(p))
-        .map((p) => this.toClientItem(p)),
+      clients: this.mergeClientsByBatch(
+        paymentsInHours.filter((p) => this.shouldIncludeClient(p)),
+      ),
     };
   }
 
@@ -273,32 +277,56 @@ export class HostessService {
       throw new BadRequestException('No update payload. Send table_id.');
     }
 
-    let payment = await this.paymentsRepository.findOne({
-      where: { paymentId: id },
-      relations: [...PAYMENT_PATCH_RELATIONS],
-    });
-    if (!payment) {
-      throw new NotFoundException('Payment not found');
-    }
+    const members = await this.findPaymentsByBatchOrId(id);
+    const anchor = members[0];
+    const tableId = dto.table_id ?? null;
 
-    payment = await this.applyPaymentTableChange(payment, dto.table_id ?? null);
-    await this.paymentsRepository.save(payment);
+    await this.assignTableToPaymentBatch(anchor, tableId);
 
-    const refreshed = await this.paymentsRepository.findOne({
-      where: { paymentId: id },
-      relations: [...PAYMENT_PATCH_RELATIONS],
-    });
-    if (!refreshed) {
-      throw new NotFoundException('Payment not found after update');
-    }
-
-    const clubId = refreshed.event?.club?.clubId ?? refreshed.reservation?.event?.club?.clubId;
+    const refreshed = await this.findPaymentsByBatchOrId(id);
+    const clubId =
+      refreshed[0]?.event?.club?.clubId ??
+      refreshed[0]?.reservation?.event?.club?.clubId;
     if (!clubId) {
       throw new NotFoundException('Club not found for payment event');
     }
 
     return {
-      client: this.toClientItem(refreshed),
+      client: this.toMergedClientItem(refreshed),
+      tables: (await this.listTablesForClub(clubId)).map((t) => this.toTableItem(t)),
+    };
+  }
+
+  /** Updates `tables.seated` for the table linked to a paid-ticket batch (or single payment). */
+  async patchPaymentSeated(id: string, dto: PatchHostessSeatedDto) {
+    const v = Number(dto.seated);
+    if (!Number.isFinite(v)) {
+      throw new BadRequestException('seated must be a number.');
+    }
+
+    const members = await this.findPaymentsByBatchOrId(id);
+    const withTable = members.find((m) => (m as any).table?.id);
+    const table = (withTable as any).table;
+    if (!table?.id) {
+      throw new BadRequestException(
+        'Link a table to this ticket batch before recording seated guests.',
+      );
+    }
+
+    const cap = members.length;
+    table.seated = Math.max(0, Math.min(Math.floor(v), cap));
+    await this.tablesRepository.save(table);
+
+    const refreshed = await this.findPaymentsByBatchOrId(id);
+    const clubId =
+      refreshed[0]?.event?.club?.clubId ??
+      refreshed[0]?.reservation?.event?.club?.clubId;
+    if (!clubId) {
+      throw new NotFoundException('Club not found for payment event');
+    }
+
+    return {
+      client: this.toMergedClientItem(refreshed),
       tables: (await this.listTablesForClub(clubId)).map((t) => this.toTableItem(t)),
     };
   }
@@ -313,12 +341,12 @@ export class HostessService {
 
     let carrySeated = 0;
     if (prev && nextTableId && prev.id !== nextTableId) {
-      carrySeated = Math.min(cap, Math.max(0, Math.floor(Number(prev.seated ?? 0))));
+      carrySeated = Math.min(cap, Math.max(0, Math.floor(Number((prev as any).seated ?? 0))));
     }
 
     if (prev && (!nextTableId || prev.id !== nextTableId)) {
       prev.tableStatus = 'available';
-      prev.seated = 0;
+      (prev as any).seated = 0;
       await this.tablesRepository.save(prev);
     }
 
@@ -350,7 +378,7 @@ export class HostessService {
     table.tableStatus = 'reserved';
 
     if (switchingToDifferentTable || !prev) {
-      table.seated = switchingToDifferentTable ? carrySeated : 0;
+      (table as any).seated = switchingToDifferentTable ? carrySeated : 0;
     }
 
     await this.tablesRepository.save(table);
@@ -363,9 +391,8 @@ export class HostessService {
    * Paid-ticket seating: persist only via `payments.table_id` (+ `tables` row fields). Never mutates reservations.
    */
   private async applyPaymentTableChange(payment: Payments, nextTableId: string | null): Promise<Payments> {
-    const seatCap =
-      payment.reservation != null ? this.partySize(payment.reservation) : 1;
-    const previousTable = payment.table ?? null;
+    const seatCap = await this.paymentSeatCap(payment);
+    const previousTable = (payment as any).table ?? null;
 
     let carrySeated = 0;
     if (previousTable && nextTableId && previousTable.id !== nextTableId) {
@@ -382,7 +409,7 @@ export class HostessService {
     }
 
     if (!nextTableId) {
-      payment.table = null;
+      (payment as any).table = null;
       return payment;
     }
 
@@ -411,11 +438,11 @@ export class HostessService {
 
     nextTable.tableStatus = 'reserved';
     if (switchingToDifferentTable || !previousTable) {
-      nextTable.seated = switchingToDifferentTable ? carrySeated : 0;
+      (nextTable as any).seated = switchingToDifferentTable ? carrySeated : 0;
     }
 
     await this.tablesRepository.save(nextTable);
-    payment.table = nextTable;
+    (payment as any).table = nextTable;
 
     return payment;
   }
@@ -440,7 +467,7 @@ export class HostessService {
       throw new BadRequestException('Link a table to the reservation before recording seated guests.');
     }
 
-    table.seated = Math.max(0, Math.min(Math.floor(v), this.partySize(reservation)));
+    (table as any).seated = Math.max(0, Math.min(Math.floor(v), this.partySize(reservation)));
     await this.tablesRepository.save(table);
 
     reservation = await this.reservationsRepository.findOne({
@@ -510,7 +537,7 @@ export class HostessService {
       reservation.createdAt?.toISOString() ||
       null;
     const size = this.partySize(reservation);
-    const rawSeated = Math.floor(Number(reservation.table?.seated ?? 0));
+    const rawSeated = Math.floor(Number((reservation.table as any).seated ?? 0));
     const seated = Math.max(0, Math.min(size, Number.isFinite(rawSeated) ? rawSeated : 0));
 
     return {
@@ -533,7 +560,7 @@ export class HostessService {
   }
 
   private toTableItem(table: Tables): HostessTableItem {
-    const raw = Math.floor(Number(table.seated ?? 0));
+    const raw = Math.floor(Number((table as any).seated ?? 0));
     return {
       id: table.id,
       table_number: table.tableNumber,
@@ -548,41 +575,169 @@ export class HostessService {
     };
   }
 
-  private toClientItem(client: Payments): HostessClientItem {
-    const nameParts = [client.user?.name, client.user?.surname].filter(Boolean);
-    const guardStatus = this.toClientGuardStatus(client);
-    const hostessStatus = this.toClientHostessStatus(client);
-    const optionalReservation = client.reservation ?? undefined;
+  private mergeClientsByBatch(payments: Payments[]): HostessClientItem[] {
+    const groups = new Map<string, Payments[]>();
+    for (const payment of payments) {
+      const key = payment.batch_id?.trim() || payment.paymentId;
+      const list = groups.get(key) ?? [];
+      list.push(payment);
+      groups.set(key, list);
+    }
+
+    return [...groups.values()]
+      .map((members) => this.toMergedClientItem(members))
+      .sort((a, b) => {
+        const ta = a.payment_date ? new Date(a.payment_date).getTime() : 0;
+        const tb = b.payment_date ? new Date(b.payment_date).getTime() : 0;
+        return tb - ta;
+      });
+  }
+
+  /**
+   * Resolves every payment row for a hostess PATCH id: batch uuid, or any `payment_id` in that batch.
+   */
+  private async findPaymentsByBatchOrId(id: string): Promise<Payments[]> {
+    const trimmed = id.trim();
+    if (!trimmed) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    const byBatchKey = await this.paymentsRepository.find({
+      where: { batch_id: trimmed },
+      relations: [...PAYMENT_PATCH_RELATIONS],
+      order: { paymentDate: 'ASC' },
+    });
+    if (byBatchKey.length > 0) {
+      return byBatchKey;
+    }
+
+    const anchor = await this.paymentsRepository.findOne({
+      where: { paymentId: trimmed },
+      relations: [...PAYMENT_PATCH_RELATIONS],
+    });
+    if (!anchor) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    const batchId = anchor.batch_id?.trim();
+    if (batchId) {
+      const siblings = await this.paymentsRepository.find({
+        where: { batch_id: batchId },
+        relations: [...PAYMENT_PATCH_RELATIONS],
+        order: { paymentDate: 'ASC' },
+      });
+      if (siblings.length > 0) {
+        return siblings;
+      }
+    }
+
+    return [anchor];
+  }
+
+  /**
+   * Applies table assignment to the anchor row (table status / seated carry), then writes `table_id`
+   * on every payment with the same `batch_id`.
+   */
+  private async assignTableToPaymentBatch(
+    anchor: Payments,
+    tableId: string | null,
+  ): Promise<void> {
+    const updated = await this.applyPaymentTableChange(anchor, tableId);
+    await this.paymentsRepository.save(updated);
+
+    const batchId = anchor.batch_id?.trim();
+    if (!batchId) {
+      return;
+    }
+
+    await this.paymentsRepository.update(
+      { batch_id: batchId },
+      { table: tableId ? ({ id: tableId } as unknown as Tables) : null },
+    );
+  }
+
+  private async paymentSeatCap(payment: Payments): Promise<number> {
+    const batchId = payment.batch_id?.trim();
+    if (batchId) {
+      const count = await this.paymentsRepository.count({
+        where: { batch_id: batchId, status: 'completed' },
+      });
+      return Math.max(1, count);
+    }
+    if (payment.reservation != null) {
+      return this.partySize(payment.reservation);
+    }
+    return 1;
+  }
+
+  private toMergedClientItem(members: Payments[]): HostessClientItem {
+    const sorted = [...members].sort(
+      (a, b) =>
+        (a.paymentDate?.getTime() ?? 0) - (b.paymentDate?.getTime() ?? 0),
+    );
+    const primary = sorted[0];
+    const batchId = primary.batch_id?.trim() || null;
+    const quantity = members.length;
+    const checkedCount = members.filter(
+      (m) => Number(m.timesUsed ?? 0) > 0,
+    ).length;
+    const withTable = members.find((m) => m.table?.id) ?? primary;
+    const linkedTable = withTable.table ?? null;
+    const seatCap = quantity;
+    const rawSeated = Math.floor(Number(linkedTable?.seated ?? 0));
+    const seated = Math.max(
+      0,
+      Math.min(seatCap, Number.isFinite(rawSeated) ? rawSeated : 0),
+    );
+
+    const nameParts = [primary.user?.name, primary.user?.surname].filter(Boolean);
+    const optionalReservation = primary.reservation ?? undefined;
     const ticketLabel =
       optionalReservation?.ticketType?.name?.trim()
-        ?? (client.event?.eventName ? `${client.event.eventName} ticket` : 'Paid ticket');
-    const quantity = optionalReservation ? this.partySize(optionalReservation) : 1;
-    const linkedTable = client.table ?? null;
+        ?? (primary.event?.eventName
+          ? `${primary.event.eventName} ticket`
+          : 'Paid ticket');
+    const guardStatus: HostessClientGuardStatus =
+      checkedCount > 0 ? 'checked' : 'paid';
+    const hostessStatus: HostessClientStatus =
+      guardStatus === 'checked' ? 'ready' : 'pending';
+    const totalAmount = members.reduce(
+      (sum, m) => sum + (m.amount ? parseFloat(m.amount) : 0),
+      0,
+    );
 
     return {
-      payment_id: client.paymentId,
-      event_id: client.event?.eventId ?? null,
-      user_id: client.user?.id ?? null,
+      payment_id: batchId ?? primary.paymentId,
+      batch_id: batchId,
+      payment_ids: members.map((m) => m.paymentId),
+      event_id: primary.event?.eventId ?? null,
+      user_id: primary.user?.id ?? null,
       name:
-        nameParts.length > 0 ? nameParts.join(' ') : client.user?.email ?? 'Ticket holder',
+        nameParts.length > 0
+          ? nameParts.join(' ')
+          : primary.user?.email ?? 'Ticket holder',
       ticket_label: ticketLabel,
       quantity,
-      amount: client.amount ? parseFloat(client.amount) : null,
-      payment_date: client.paymentDate,
-      status: client.status,
-      times_used: client.timesUsed,
-      event_starting_date: client.event.eventStartingDate,
-      event_ending_date: client.event.eventEndingDate,
-      event_hours: client.event.eventHours ?? null,
-      event_name: client.event.eventName ?? null,
+      checked_count: checkedCount,
+      seated,
+      amount: totalAmount > 0 ? totalAmount : null,
+      payment_date: primary.paymentDate,
+      status: primary.status,
+      times_used: checkedCount,
+      event_starting_date: primary.event?.eventStartingDate ?? null,
+      event_ending_date: primary.event?.eventEndingDate ?? null,
+      event_hours: primary.event?.eventHours ?? null,
+      event_name: primary.event?.eventName ?? null,
       guard_status: guardStatus,
       hostess_status: hostessStatus,
       table_id: linkedTable?.id ?? null,
       table_number: linkedTable?.tableNumber ?? null,
       note: this.fallbackClientNote(
         guardStatus,
-        client.event?.eventName ?? null,
+        primary.event?.eventName ?? null,
         ticketLabel,
+        checkedCount,
+        quantity,
       ),
     };
   }
@@ -598,22 +753,6 @@ export class HostessService {
 
   private shouldIncludeClient(client: Payments) {
     return (client.status ?? '').toLowerCase() === 'completed';
-  }
-
-  private toClientGuardStatus(client: Payments): HostessClientGuardStatus {
-    return Number(client.timesUsed ?? 0) > 0 ? 'checked' : 'paid';
-  }
-
-  /**
-   * Paid ticket lane: backend only distinguishes guard vs hostess-queue (`pending` | `ready`).
-   * Closing a ticket visually is confirmed on the device (popup), not stored on `payments`.
-   */
-  private toClientHostessStatus(client: Payments): HostessClientStatus {
-    if (this.toClientGuardStatus(client) !== 'checked') {
-      return 'pending';
-    }
-
-    return 'ready';
   }
 
   private toSource(reservation: Reservations): HostessGuestSource {
@@ -645,8 +784,15 @@ export class HostessService {
     status: HostessClientGuardStatus,
     eventName: string | null,
     ticketLabel: string,
+    checkedCount = 1,
+    quantity = 1,
   ) {
     if (status === 'checked') {
+      if (quantity > 1 && checkedCount < quantity) {
+        return eventName
+          ? `${checkedCount} of ${quantity} tickets checked for ${eventName}.`
+          : `${checkedCount} of ${quantity} tickets checked at the door.`;
+      }
       return eventName
         ? `${ticketLabel} already checked at the door for ${eventName}.`
         : `${ticketLabel} already checked at the door.`;

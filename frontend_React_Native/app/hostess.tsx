@@ -84,11 +84,15 @@ type HostessTableWire = Partial<HostessTable> & {
 
 type HostessClient = {
   payment_id: string
+  batch_id?: string | null
+  payment_ids?: string[]
   event_id: string | null
   user_id: string | null
   name: string
   ticket_label: string
   quantity: number
+  checked_count?: number
+  seated?: number
   amount: number | null
   payment_date: string | null
   status: string | null
@@ -102,6 +106,33 @@ type HostessClient = {
   table_id: string | null
   table_number: string | null
   note: string
+}
+
+function clientCheckedCount(client: HostessClient): number {
+  if (typeof client.checked_count === 'number') {
+    return Math.max(0, Math.floor(client.checked_count))
+  }
+  return client.guard_status === 'checked' ? Math.max(1, client.quantity) : 0
+}
+
+function clientSeatedCount(client: HostessClient): number {
+  const raw =
+    typeof client.seated === 'number' ? client.seated : Number(client.seated ?? 0)
+  const seated = Number.isFinite(raw) ? Math.floor(raw) : 0
+  return Math.max(0, Math.min(client.quantity, seated))
+}
+
+function normalizeHostessClient(raw: HostessClient): HostessClient {
+  const quantity = Math.max(1, Math.floor(Number(raw.quantity)) || 1)
+  const checked_count = Math.min(quantity, clientCheckedCount(raw))
+  const seated = clientSeatedCount({ ...raw, quantity })
+  return {
+    ...raw,
+    quantity,
+    checked_count,
+    seated,
+    payment_ids: Array.isArray(raw.payment_ids) ? raw.payment_ids : undefined,
+  }
 }
 
 type HostessFlowResponse = {
@@ -287,6 +318,16 @@ function normalizeHostessGuest(raw: HostessGuestWire): HostessGuest {
   }
 }
 
+/** Matches backend: only `available` (or empty) tables can be newly assigned. */
+function isTableAssignable(
+  table: HostessTable,
+  holderTableId: string | null,
+): boolean {
+  if (holderTableId && holderTableId === table.id) return true
+  const status = (table.table_status ?? '').toLowerCase().trim()
+  return status === '' || status === 'available'
+}
+
 function normalizeHostessTable(raw: HostessTableWire): HostessTable {
   const capRaw = raw.seating_capacity ?? raw.seatingCapacity
   const cap = Math.max(0, Math.floor(Number(capRaw)) || 0)
@@ -358,6 +399,8 @@ export default function HostessScreen() {
   const [tableClientId, setTableClientId] =
     useState<string | null>(null)
   const [seatConfirmGuestId, setSeatConfirmGuestId] =
+    useState<string | null>(null)
+  const [seatConfirmClientPaymentId, setSeatConfirmClientPaymentId] =
     useState<string | null>(null)
   const [selectedTableByGuestId, setSelectedTableByGuestId] =
     useState<Record<string, string | null>>({})
@@ -466,6 +509,10 @@ export default function HostessScreen() {
   const seatConfirmGuest =
     guests.find(
       (guest) => guest.reservation_id === seatConfirmGuestId,
+    ) ?? null
+  const seatConfirmClient =
+    clients.find(
+      (client) => client.payment_id === seatConfirmClientPaymentId,
     ) ?? null
 
   const availableTables = useMemo(() => {
@@ -602,12 +649,10 @@ export default function HostessScreen() {
             : [],
         )
 
-        setClients(
-          Array.isArray(payload.clients)
-            ? payload.clients
-            : [],
-        )
-        const nextClients = Array.isArray(payload.clients) ? payload.clients : []
+        const nextClients = Array.isArray(payload.clients)
+          ? payload.clients.map((c) => normalizeHostessClient(c as HostessClient))
+          : []
+        setClients(nextClients)
         setPaidTicketDeskClosedIds((prev) => {
           return new Set(
             [...prev].filter((pid) =>
@@ -961,6 +1006,15 @@ export default function HostessScreen() {
   ) {
     if (!tableGuest) return
 
+    const hasDraft = Object.prototype.hasOwnProperty.call(
+      selectedTableByGuestId,
+      tableGuest.reservation_id,
+    )
+    const holderTableId = hasDraft
+      ? selectedTableByGuestId[tableGuest.reservation_id] ?? null
+      : tableGuest.table_id ?? null
+    if (!isTableAssignable(table, holderTableId)) return
+
     setSelectedTableByGuestId((current) => ({
       ...current,
       [tableGuest.reservation_id]: table.id,
@@ -1013,6 +1067,123 @@ export default function HostessScreen() {
 
     setSeatConfirmGuestId(null)
     await persistSeatedCount(seatConfirmGuest, nextSeated)
+  }
+
+  async function persistPaidTicketSeated(
+    client: HostessClient,
+    seatedAbsolute: number,
+  ) {
+    const clamped = Math.max(
+      0,
+      Math.min(client.quantity, Math.floor(Number(seatedAbsolute))),
+    )
+
+    if (!isLiveData || client.payment_id.startsWith('demo-')) {
+      updateClientLocally(client.payment_id, { seated: clamped })
+      const tableId = client.table_id
+      if (tableId) {
+        setTables((current) =>
+          current.map((t) => (t.id === tableId ? { ...t, seated: clamped } : t)),
+        )
+      }
+      return
+    }
+
+    setSyncingClientId(client.payment_id)
+    try {
+      const response = await fetch(
+        `${API_BASE}/hostess/payments/${client.payment_id}/seated`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seated: clamped }),
+        },
+      )
+
+      if (!response.ok) {
+        let backendMessage = `Ticket seated update failed with ${response.status}`
+        try {
+          const errorPayload = (await response.json()) as {
+            message?: string | string[]
+          }
+          if (Array.isArray(errorPayload.message)) {
+            backendMessage = errorPayload.message.join('\n')
+          } else if (
+            typeof errorPayload.message === 'string' &&
+            errorPayload.message.trim().length > 0
+          ) {
+            backendMessage = errorPayload.message
+          }
+        } catch {
+          //
+        }
+        throw new Error(backendMessage)
+      }
+
+      const result = (await response.json()) as {
+        client?: HostessClient
+        tables?: HostessTable[]
+      }
+
+      if (result.client) {
+        const normalized = normalizeHostessClient(result.client)
+        setClients((current) =>
+          current.map((item) =>
+            item.payment_id === normalized.payment_id ? normalized : item,
+          ),
+        )
+      }
+
+      if (result.tables?.length) {
+        setTables(result.tables.map((t) => normalizeHostessTable(t as HostessTableWire)))
+      }
+    } catch (error) {
+      const detail =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not save seated count.'
+      Alert.alert('Update failed', detail)
+    } finally {
+      setSyncingClientId(null)
+    }
+  }
+
+  async function handleIncrementPaidTicketSeated(
+    client: HostessClient,
+    hasLinkedTable: boolean,
+  ) {
+    if (!hasLinkedTable) {
+      Alert.alert(
+        'Assign a table first',
+        'Seat counts are saved on the linked table. Choose a table, then record each guest as they arrive.',
+      )
+      return
+    }
+    const seated = clientSeatedCount(client)
+    if (seated >= client.quantity) {
+      return
+    }
+    const nextSeated = seated + 1
+    const run = () => persistPaidTicketSeated(client, nextSeated)
+
+    if (effectivePaidTicketHostessStatus(client) === 'finalised') {
+      setSeatConfirmClientPaymentId(client.payment_id)
+      return
+    }
+
+    await run()
+  }
+
+  async function handleConfirmPaidTicketSeatedIncrement() {
+    if (!seatConfirmClient) return
+
+    const nextSeated = Math.min(
+      seatConfirmClient.quantity,
+      clientSeatedCount(seatConfirmClient) + 1,
+    )
+
+    setSeatConfirmClientPaymentId(null)
+    await persistPaidTicketSeated(seatConfirmClient, nextSeated)
   }
 
   async function syncClientUpdate(
@@ -1075,9 +1246,10 @@ export default function HostessScreen() {
       }
 
       if (result.client) {
+        const normalized = normalizeHostessClient(result.client)
         setClients((current) =>
           current.map((item) =>
-            item.payment_id === result.client?.payment_id ? result.client : item,
+            item.payment_id === normalized.payment_id ? normalized : item,
           ),
         )
       }
@@ -1102,6 +1274,7 @@ export default function HostessScreen() {
     table: HostessTable,
   ) {
     if (!tableClient) return
+    if (!isTableAssignable(table, tableClient.table_id ?? null)) return
 
     const paymentId = tableClient.payment_id
     const saved = await syncClientUpdate(tableClient, {
@@ -1135,10 +1308,10 @@ export default function HostessScreen() {
   }
 
   function handleOpenPaidTicketDeskConfirm(client: HostessClient) {
-    if (client.guard_status !== 'checked') {
+    if (clientCheckedCount(client) < 1) {
       Alert.alert(
         'Waiting on guard',
-        'Door check must finish before closing this ticket on the desk.',
+        'At least one ticket in this batch must be checked at the door before desk handoff.',
       )
       return
     }
@@ -1603,17 +1776,38 @@ export default function HostessScreen() {
 
                     <View style={styles.seatSummaryRow}>
                       <View style={styles.seatSummaryCard}>
-                        <Text style={styles.seatSummaryLabel}>Seated</Text>
+                        <Text
+                          style={styles.seatSummaryLabel}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.82}
+                        >
+                          Seated
+                        </Text>
                         <Text style={styles.seatSummaryValue}>{guest.seated}</Text>
                       </View>
                       <View style={styles.seatSummaryDivider} />
                       <View style={styles.seatSummaryCard}>
-                        <Text style={styles.seatSummaryLabel}>Expected</Text>
+                        <Text
+                          style={styles.seatSummaryLabel}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.82}
+                        >
+                          Expected
+                        </Text>
                         <Text style={styles.seatSummaryValue}>{guest.party_size}</Text>
                       </View>
                       <View style={styles.seatSummaryDivider} />
                       <View style={styles.seatSummaryCard}>
-                        <Text style={styles.seatSummaryLabel}>Table</Text>
+                        <Text
+                          style={styles.seatSummaryLabel}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.82}
+                        >
+                          Table
+                        </Text>
                         <Text style={styles.seatSummaryValueSmall}>
                           {displayTableNumber ?? 'Pending'}
                         </Text>
@@ -1926,7 +2120,10 @@ export default function HostessScreen() {
           {clients.map((client, index) => {
             const ticketHostess = effectivePaidTicketHostessStatus(client)
             const namePill = ticketCardNamePillMeta(client, ticketHostess)
-            const isChecked = client.guard_status === 'checked'
+            const checkedCount = clientCheckedCount(client)
+            const seatedCount = clientSeatedCount(client)
+            const isChecked = checkedCount > 0
+            const allTicketsChecked = checkedCount >= client.quantity
             const isTicketFinalised = ticketHostess === 'finalised'
             const isTicketReady = ticketHostess === 'ready'
             const isClientSaving = syncingClientId === client.payment_id
@@ -1935,6 +2132,17 @@ export default function HostessScreen() {
             )
             const tableReadyForClose =
               hasTicketLinkedTable && isChecked && !isTicketFinalised
+            const seatedProgress = Math.max(
+              0,
+              Math.min(
+                100,
+                Math.round((seatedCount / Math.max(client.quantity, 1)) * 100),
+              ),
+            )
+            const remainingGuests = Math.max(client.quantity - seatedCount, 0)
+            const seatBlockComplete = seatedCount >= client.quantity
+            const seatButtonLabel =
+              seatedCount === 0 ? 'Record first arrival' : 'Record another arrival'
             const ticketTableLabel = client.table_number
               ? `Table ${client.table_number}`
               : hasTicketLinkedTable
@@ -2005,7 +2213,11 @@ export default function HostessScreen() {
                     <View style={[styles.sourceBadge, isChecked && styles.ticketCheckedBadge]}>
                       <CheckCircle2 size={12} color={isChecked ? COLORS.green : YELLOW} />
                       <Text style={[styles.sourceText, isChecked && styles.ticketCheckedText]}>
-                        {isChecked ? 'Guard checked' : 'Paid ticket'}
+                        {isChecked
+                          ? client.quantity > 1
+                            ? `${checkedCount}/${client.quantity} checked`
+                            : 'Guard checked'
+                          : 'Paid ticket'}
                       </Text>
                     </View>
                     <View style={[styles.sourceBadge, hasTicketLinkedTable && styles.tableBadge]}>
@@ -2022,22 +2234,120 @@ export default function HostessScreen() {
 
                   <View style={styles.cardPreviewRow}>
                     <View style={styles.cardPreviewPill}>
-                      <Text style={styles.cardPreviewLabel}>Quantity</Text>
+                      <Text style={styles.cardPreviewLabel}>Tickets</Text>
                       <Text style={styles.cardPreviewValue}>{client.quantity}</Text>
                     </View>
                     <View style={styles.cardPreviewPill}>
-                      <Text style={styles.cardPreviewLabel}>Amount</Text>
-                      <Text style={styles.cardPreviewValue}>{formatAmount(client.amount)}</Text>
+                      <Text style={styles.cardPreviewLabel}>Seated</Text>
+                      <Text style={styles.cardPreviewValue}>{seatedCount}/{client.quantity}</Text>
                     </View>
                     <View style={styles.cardPreviewPill}>
                       <Text style={styles.cardPreviewLabel}>Status</Text>
-                      <Text style={styles.cardPreviewValue}>{isTicketFinalised ? 'Closed' : isChecked ? 'Checked' : 'Pending'}</Text>
+                      <Text style={styles.cardPreviewValue}>
+                        {isTicketFinalised
+                          ? 'Closed'
+                          : allTicketsChecked
+                            ? 'All checked'
+                            : isChecked
+                              ? 'Partial'
+                              : 'Pending'}
+                      </Text>
                     </View>
                   </View>
 
                   {isClientExpanded ? (
                     <View style={styles.cardExpandedContent}>
                       <Text style={styles.guestNote}>{client.note}</Text>
+
+                      <View style={styles.seatBlock}>
+                        <View style={styles.seatBlockHeader}>
+                          <Text style={styles.seatBlockTitle}>Arrival seating</Text>
+                          <Text style={styles.seatBlockPercent}>{seatedProgress}%</Text>
+                        </View>
+                        <View style={styles.seatSummaryRow}>
+                          <View style={styles.seatSummaryCard}>
+                            <Text
+                              style={styles.seatSummaryLabel}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.82}
+                            >
+                              Seated
+                            </Text>
+                            <Text style={styles.seatSummaryValue}>{seatedCount}</Text>
+                          </View>
+                          <View style={styles.seatSummaryDivider} />
+                          <View style={styles.seatSummaryCard}>
+                            <Text
+                              style={styles.seatSummaryLabel}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.82}
+                            >
+                              Expected
+                            </Text>
+                            <Text style={styles.seatSummaryValue}>{client.quantity}</Text>
+                          </View>
+                          <View style={styles.seatSummaryDivider} />
+                          <View style={styles.seatSummaryCard}>
+                            <Text
+                              style={styles.seatSummaryLabel}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.75}
+                            >
+                              Left
+                            </Text>
+                            <Text style={styles.seatSummaryValue}>{remainingGuests}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.seatProgressTrack}>
+                          <View
+                            style={[
+                              styles.seatProgressFill,
+                              { width: `${seatedProgress}%` },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.seatProgressCaption}>
+                          {seatedCount}/{client.quantity} seated
+                          {seatBlockComplete ? ' — all arrivals recorded' : ''}
+                        </Text>
+                        {!hasTicketLinkedTable && !seatBlockComplete ? (
+                          <Text style={styles.seatHint}>
+                            Assign a table to unlock one-tap arrival check-ins for this ticket batch.
+                          </Text>
+                        ) : null}
+                        {hasTicketLinkedTable && !seatBlockComplete ? (
+                          <TouchableOpacity
+                            style={styles.seatButton}
+                            activeOpacity={0.82}
+                            disabled={isClientSaving}
+                            onPress={() =>
+                              handleIncrementPaidTicketSeated(client, hasTicketLinkedTable)
+                            }
+                          >
+                            {isClientSaving ? (
+                              <ActivityIndicator size="small" color="#050505" />
+                            ) : (
+                              <>
+                                <View style={styles.seatButtonIcon}>
+                                  <UserPlus size={16} color="#050505" />
+                                </View>
+                                <View style={styles.seatButtonCopy}>
+                                  <Text style={styles.seatButtonHint}>
+                                    {isTicketFinalised
+                                      ? 'Batch closed — confirm to add another'
+                                      : 'Tap when a guest sits down'}
+                                  </Text>
+                                  <Text style={styles.seatButtonText}>{seatButtonLabel}</Text>
+                                </View>
+                                <ChevronRight size={16} color="#050505" />
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
 
                       <View style={styles.actionsRow}>
                     <TouchableOpacity
@@ -2090,9 +2400,11 @@ export default function HostessScreen() {
                         ]}
                       >
                         {isTicketFinalised
-                          ? 'Desk handoff saved — ticket closed visually on this shift.'
+                          ? 'Desk handoff saved — you can still record more seated guests in this batch.'
                           : isChecked
-                            ? 'Checked at the door and visible to hostess'
+                            ? client.quantity > 1
+                              ? `${checkedCount} of ${client.quantity} tickets checked at the door`
+                              : 'Checked at the door and visible to hostess'
                             : 'Paid and waiting for guard check'}
                       </Text>
                     </View>
@@ -2202,7 +2514,7 @@ export default function HostessScreen() {
                       activeOpacity={isTicketFinalised ? 1 : 0.82}
                       disabled={
                         isTicketFinalised
-                        || !isChecked
+                        || checkedCount < 1
                         || !hasTicketLinkedTable
                         || isClientSaving
                       }
@@ -2224,7 +2536,7 @@ export default function HostessScreen() {
                               ? hasTicketLinkedTable
                                 ? 'Confirm hostess finalisation'
                                 : 'Assign a table first'
-                              : 'Waiting for guard check'}
+                              : 'Waiting for first guard check'}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -2324,12 +2636,18 @@ export default function HostessScreen() {
       <Modal
         transparent
         animationType="fade"
-        visible={!!seatConfirmGuest}
-        onRequestClose={() => setSeatConfirmGuestId(null)}
+        visible={Boolean(seatConfirmGuest || seatConfirmClient)}
+        onRequestClose={() => {
+          setSeatConfirmGuestId(null)
+          setSeatConfirmClientPaymentId(null)
+        }}
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setSeatConfirmGuestId(null)}
+          onPress={() => {
+            setSeatConfirmGuestId(null)
+            setSeatConfirmClientPaymentId(null)
+          }}
         >
           <Pressable
             style={styles.seatConfirmSheet}
@@ -2343,14 +2661,19 @@ export default function HostessScreen() {
               <TouchableOpacity
                 style={styles.closeButton}
                 activeOpacity={0.8}
-                onPress={() => setSeatConfirmGuestId(null)}
+                onPress={() => {
+                  setSeatConfirmGuestId(null)
+                  setSeatConfirmClientPaymentId(null)
+                }}
               >
                 <X size={18} color={COLORS.white} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.seatConfirmCopy}>
-              <Text style={styles.seatConfirmEyebrow}>Late arrival update</Text>
+              <Text style={styles.seatConfirmEyebrow}>
+                {seatConfirmClient ? 'Paid ticket batch' : 'Late arrival update'}
+              </Text>
               <Text style={styles.seatConfirmTitle}>Confirm another seated guest</Text>
               <Text style={styles.seatConfirmText}>
                 {seatConfirmGuest
@@ -2358,7 +2681,12 @@ export default function HostessScreen() {
                       seatConfirmGuest.party_size,
                       seatConfirmGuest.seated + 1,
                     )} of ${seatConfirmGuest.party_size} seated.`
-                  : ''}
+                  : seatConfirmClient
+                    ? `${seatConfirmClient.name} will move to ${Math.min(
+                        seatConfirmClient.quantity,
+                        clientSeatedCount(seatConfirmClient) + 1,
+                      )} of ${seatConfirmClient.quantity} seated.`
+                    : ''}
               </Text>
             </View>
 
@@ -2366,7 +2694,8 @@ export default function HostessScreen() {
               <View style={styles.seatConfirmStatCard}>
                 <Text style={styles.seatConfirmStatLabel}>Current</Text>
                 <Text style={styles.seatConfirmStatValue}>
-                  {seatConfirmGuest?.seated ?? 0}
+                  {seatConfirmGuest?.seated ??
+                    (seatConfirmClient ? clientSeatedCount(seatConfirmClient) : 0)}
                 </Text>
               </View>
               <View style={styles.seatConfirmStatDivider} />
@@ -2378,14 +2707,19 @@ export default function HostessScreen() {
                         seatConfirmGuest.party_size,
                         seatConfirmGuest.seated + 1,
                       )
-                    : 0}
+                    : seatConfirmClient
+                      ? Math.min(
+                          seatConfirmClient.quantity,
+                          clientSeatedCount(seatConfirmClient) + 1,
+                        )
+                      : 0}
                 </Text>
               </View>
               <View style={styles.seatConfirmStatDivider} />
               <View style={styles.seatConfirmStatCard}>
                 <Text style={styles.seatConfirmStatLabel}>Expected</Text>
                 <Text style={styles.seatConfirmStatValue}>
-                  {seatConfirmGuest?.party_size ?? 0}
+                  {seatConfirmGuest?.party_size ?? seatConfirmClient?.quantity ?? 0}
                 </Text>
               </View>
             </View>
@@ -2401,17 +2735,35 @@ export default function HostessScreen() {
               <TouchableOpacity
                 style={styles.seatConfirmSecondaryButton}
                 activeOpacity={0.82}
-                onPress={() => setSeatConfirmGuestId(null)}
+                onPress={() => {
+                  setSeatConfirmGuestId(null)
+                  setSeatConfirmClientPaymentId(null)
+                }}
               >
                 <Text style={styles.seatConfirmSecondaryButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.seatConfirmPrimaryButton}
                 activeOpacity={0.82}
-                disabled={!seatConfirmGuest || syncingGuestId === seatConfirmGuest.reservation_id}
-                onPress={() => void handleConfirmSeatedIncrement()}
+                disabled={
+                  (!seatConfirmGuest && !seatConfirmClient)
+                  || (seatConfirmGuest != null
+                    && syncingGuestId === seatConfirmGuest.reservation_id)
+                  || (seatConfirmClient != null
+                    && syncingClientId === seatConfirmClient.payment_id)
+                }
+                onPress={() => {
+                  if (seatConfirmGuest) {
+                    void handleConfirmSeatedIncrement()
+                  } else {
+                    void handleConfirmPaidTicketSeatedIncrement()
+                  }
+                }}
               >
-                {seatConfirmGuest && syncingGuestId === seatConfirmGuest.reservation_id ? (
+                {((seatConfirmGuest
+                  && syncingGuestId === seatConfirmGuest.reservation_id)
+                  || (seatConfirmClient
+                    && syncingClientId === seatConfirmClient.payment_id)) ? (
                   <ActivityIndicator size="small" color="#050505" />
                 ) : (
                   <>
@@ -2444,17 +2796,32 @@ export default function HostessScreen() {
             <View style={styles.tableGrid}>
               {availableTables.map((table) => {
                 const isCurrent = tableClient?.table_id === table.id
+                const canSelect = isTableAssignable(table, tableClient?.table_id ?? null)
                 return (
                   <TouchableOpacity
                     key={table.id}
-                    style={[styles.tableChip, isCurrent && styles.tableChipCurrent]}
-                    activeOpacity={0.82}
+                    style={[
+                      styles.tableChip,
+                      isCurrent && styles.tableChipCurrent,
+                      !canSelect && styles.tableChipUnavailable,
+                    ]}
+                    activeOpacity={canSelect ? 0.82 : 1}
+                    disabled={!canSelect}
                     onPress={() => handleAssignClientTable(table)}
                   >
-                    <Text style={[styles.tableChipText, isCurrent && styles.tableChipTextCurrent]}>{table.table_number}</Text>
-                    <Text style={styles.tableChipMeta}>
-                      {table.seating_capacity} cap
-                      {table.seated > 0 ? ` · ${table.seated} seated` : ''}
+                    <Text
+                      style={[
+                        styles.tableChipText,
+                        isCurrent && styles.tableChipTextCurrent,
+                        !canSelect && styles.tableChipTextUnavailable,
+                      ]}
+                    >
+                      {table.table_number}
+                    </Text>
+                    <Text style={[styles.tableChipMeta, !canSelect && styles.tableChipMetaUnavailable]}>
+                      {!canSelect
+                        ? 'Reserved'
+                        : `${table.seating_capacity} cap${table.seated > 0 ? ` · ${table.seated} seated` : ''}`}
                     </Text>
                   </TouchableOpacity>
                 )
@@ -2502,17 +2869,32 @@ export default function HostessScreen() {
                     : tableGuest.table_id ?? null
                   : null
                 const isCurrent = currentTableId === table.id
+                const canSelect = isTableAssignable(table, currentTableId)
                 return (
                   <TouchableOpacity
                     key={table.id}
-                    style={[styles.tableChip, isCurrent && styles.tableChipCurrent]}
-                    activeOpacity={0.82}
+                    style={[
+                      styles.tableChip,
+                      isCurrent && styles.tableChipCurrent,
+                      !canSelect && styles.tableChipUnavailable,
+                    ]}
+                    activeOpacity={canSelect ? 0.82 : 1}
+                    disabled={!canSelect}
                     onPress={() => handleAssignTable(table)}
                   >
-                    <Text style={[styles.tableChipText, isCurrent && styles.tableChipTextCurrent]}>{table.table_number}</Text>
-                    <Text style={styles.tableChipMeta}>
-                      {table.seating_capacity} cap
-                      {table.seated > 0 ? ` · ${table.seated} seated` : ''}
+                    <Text
+                      style={[
+                        styles.tableChipText,
+                        isCurrent && styles.tableChipTextCurrent,
+                        !canSelect && styles.tableChipTextUnavailable,
+                      ]}
+                    >
+                      {table.table_number}
+                    </Text>
+                    <Text style={[styles.tableChipMeta, !canSelect && styles.tableChipMetaUnavailable]}>
+                      {!canSelect
+                        ? 'Reserved'
+                        : `${table.seating_capacity} cap${table.seated > 0 ? ` · ${table.seated} seated` : ''}`}
                     </Text>
                   </TouchableOpacity>
                 )
@@ -3705,9 +4087,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,185,129,0.12)',
     borderColor: COLORS.green,
   },
+  tableChipUnavailable: {
+    opacity: 0.42,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
   tableChipText: { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
   tableChipTextCurrent: { color: COLORS.green },
+  tableChipTextUnavailable: { color: 'rgba(255,255,255,0.45)' },
   tableChipMeta: { color: COLORS.mutedDark, fontSize: 10, fontWeight: '700' },
+  tableChipMetaUnavailable: { color: 'rgba(255,255,255,0.32)' },
   emptyTables: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -3734,7 +4123,7 @@ const styles = StyleSheet.create({
   },
   seatBlockHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: SPACING.sm,
   },
@@ -3778,9 +4167,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     marginTop: 2,
   },
+  seatBlockPercent: {
+    color: YELLOW,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+    textAlign: 'right',
+  },
   seatSummaryRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
+    gap: SPACING.xs,
     borderRadius: RADIUS.md,
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderWidth: 1,
@@ -3790,30 +4187,52 @@ const styles = StyleSheet.create({
   },
   seatSummaryCard: {
     flex: 1,
-    gap: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+    minWidth: 0,
   },
   seatSummaryDivider: {
     width: 1,
     alignSelf: 'stretch',
     backgroundColor: COLORS.border,
-    marginHorizontal: SPACING.sm,
+    marginVertical: 4,
   },
   seatSummaryLabel: {
     color: COLORS.mutedDark,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    textAlign: 'center',
+    width: '100%',
+    lineHeight: 12,
   },
   seatSummaryValue: {
     color: COLORS.white,
     fontSize: 18,
     fontWeight: '900',
+    textAlign: 'center',
+    width: '100%',
+    lineHeight: 22,
+    fontVariant: ['tabular-nums'],
+  },
+  seatProgressCaption: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 17,
   },
   seatSummaryValueSmall: {
     color: COLORS.white,
     fontSize: 14,
     fontWeight: '800',
+    textAlign: 'center',
+    width: '100%',
+    lineHeight: 18,
   },
   seatProgressTrack: {
     height: 9,

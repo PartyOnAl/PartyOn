@@ -21,21 +21,19 @@ import {
   ChevronRight,
   Clock3,
   ImageUp,
-  ListChecks,
   LogOut,
   QrCode,
   Search,
   ShieldCheck,
   Sparkles,
   UserCheck,
-  Users,
   XCircle,
 } from 'lucide-react-native'
 import { API_BASE } from '@/lib/apiBase'
 import { COLORS, FONT, RADIUS, SPACING } from '@/lib/theme'
 import { useAuth } from '@/lib/AuthContext'
 
-type ScanMode = 'camera' | 'photo' | 'queue'
+type ScanMode = 'camera' | 'photo'
 type ScanState = 'idle' | 'checking' | 'valid' | 'warning'
 type ScanFeedback = {
   title: string
@@ -43,19 +41,28 @@ type ScanFeedback = {
   code?: string
 }
 
+type RecentScan = {
+  id: string
+  name: string
+  pass: string
+  time: string
+  status: 'ready' | 'hold'
+}
+
 const YELLOW = '#f5c518'
+const MAX_RECENT_SCANS = 25
 
-const queue = [
-  { id: 'A-1048', name: 'Maya Chen', pass: 'VIP Table', time: '22:14', status: 'ready' },
-  { id: 'B-2210', name: 'Jonas Keller', pass: 'General Entry', time: '22:18', status: 'ready' },
-  { id: 'C-7719', name: 'Rina Sol', pass: 'Guest List', time: '22:21', status: 'hold' },
-]
+function formatScanTime(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
 
-const metrics = [
-  { label: 'Checked in', value: '186', accent: COLORS.green },
-  { label: 'In queue', value: '24', accent: YELLOW },
-  { label: 'Flagged', value: '3', accent: COLORS.red },
-]
+function shortScanId(code: string | undefined, fallback: string) {
+  const t = (code ?? '').trim()
+  if (!t) return fallback
+  const colon = t.indexOf(':')
+  const id = colon >= 0 ? t.slice(colon + 1).trim() : t
+  return id.length > 10 ? `${id.slice(0, 8)}…` : id
+}
 
 const FEEDBACK_TONE = {
   checking: {
@@ -89,6 +96,7 @@ export default function GuardScreen() {
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null)
   const [photoUri, setPhotoUri] = useState<string | null>(null)
   const [photoScanning, setPhotoScanning] = useState(false)
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([])
   const scanLock = useRef(false)
   const cameraReveal = useRef(new Animated.Value(0)).current
   const photoReveal = useRef(new Animated.Value(0)).current
@@ -263,6 +271,27 @@ export default function GuardScreen() {
     }
   }, [mode, photoScanning, photoUri, scanFeedback, scanState, scannerActive])
 
+  const metrics = useMemo(
+    () => [
+      {
+        label: 'Checked in',
+        value: String(recentScans.filter((s) => s.status === 'ready').length),
+        accent: COLORS.green,
+      },
+      {
+        label: 'Flagged',
+        value: String(recentScans.filter((s) => s.status === 'hold').length),
+        accent: COLORS.red,
+      },
+      {
+        label: 'Total scans',
+        value: String(recentScans.length),
+        accent: YELLOW,
+      },
+    ],
+    [recentScans],
+  )
+
   const StatusIcon = status.icon
   const cameraOpacity = cameraReveal
   const cameraScale = cameraReveal.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
@@ -370,14 +399,6 @@ export default function GuardScreen() {
     }
   }
 
-  function handleQueueScan() {
-    setMode('queue')
-    setScanState('idle')
-    setScanFeedback(null)
-    setScannerActive(false)
-    scanLock.current = false
-  }
-
   function toMinutes(time: string) {
     const [h, m] = time.split(':').map(Number)
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
@@ -427,9 +448,26 @@ export default function GuardScreen() {
     return now >= start || now <= end
   }
 
-  function showValidationResult(state: Exclude<ScanState, 'idle' | 'checking'>, feedback: ScanFeedback) {
+  function showValidationResult(
+    state: Exclude<ScanState, 'idle' | 'checking'>,
+    feedback: ScanFeedback,
+    meta?: { passLabel?: string },
+  ) {
     setScanState(state)
     setScanFeedback(feedback)
+    const scanId = shortScanId(feedback.code, `scan-${Date.now()}`)
+    setRecentScans((prev) =>
+      [
+        {
+          id: scanId,
+          name: feedback.title,
+          pass: meta?.passLabel ?? feedback.detail,
+          time: formatScanTime(),
+          status: state === 'valid' ? 'ready' : 'hold',
+        },
+        ...prev,
+      ].slice(0, MAX_RECENT_SCANS),
+    )
   }
 
   async function validateTicketQr(data: string) {
@@ -533,11 +571,15 @@ export default function GuardScreen() {
         return
       }
 
-      showValidationResult('valid', {
-        title: 'Ticket verified',
-        detail: 'Payment complete, unused ticket, and event time is active.',
-        code: displayCode,
-      })
+      showValidationResult(
+        'valid',
+        {
+          title: 'Ticket verified',
+          detail: 'Payment complete, unused ticket, and event time is active.',
+          code: displayCode,
+        },
+        { passLabel: 'Paid ticket' },
+      )
 
       const patchRes = await fetch(`${API_BASE}/payment/ticket-uses/${ticketId}`, {
         method: 'PATCH',
@@ -646,11 +688,15 @@ export default function GuardScreen() {
         return
       }
 
-      showValidationResult('valid', {
-        title: 'Reservation verified',
-        detail: 'Reservation is active, and event time allows entry.',
-        code: displayCode,
-      })
+      showValidationResult(
+        'valid',
+        {
+          title: 'Reservation verified',
+          detail: 'Reservation is active, and event time allows entry.',
+          code: displayCode,
+        },
+        { passLabel: 'Table reservation' },
+      )
 
       const patchRes = await fetch(
         `${API_BASE}/payment/reservation/${reservationId}/check-in`,
@@ -798,7 +844,7 @@ export default function GuardScreen() {
                 </Animated.View>
               )}
               {mode !== 'photo' && <View pointerEvents="none" style={[styles.cameraScrim, scannerActive && styles.cameraScrimLive]} />}
-              {!scannerActive && mode !== 'queue' && scanState !== 'idle' && (
+              {!scannerActive && scanState !== 'idle' && (
                 <>
                   <Animated.View
                     pointerEvents="none"
@@ -831,7 +877,7 @@ export default function GuardScreen() {
               <View style={[styles.corner, styles.cornerBottomLeft, mode === 'photo' && styles.photoCorner]} />
               <View style={[styles.corner, styles.cornerBottomRight, mode === 'photo' && styles.photoCorner]} />
               {!scannerActive && mode !== 'photo' && scanState === 'idle' && <QrCode size={74} color="rgba(255,255,255,0.86)" />}
-              {!scannerActive && mode !== 'queue' && scanState !== 'idle' && scanFeedback && (
+              {!scannerActive && scanState !== 'idle' && scanFeedback && (
                 <Animated.View
                   style={[
                     styles.resultBoard,
@@ -941,7 +987,6 @@ export default function GuardScreen() {
         <View style={styles.modeTabs}>
           <ModeTab label="Scanner" icon={Camera} active={mode === 'camera'} onPress={() => setMode('camera')} />
           <ModeTab label="Photo" icon={ImageUp} active={mode === 'photo'} onPress={enterPhotoMode} />
-          <ModeTab label="Queue" icon={ListChecks} active={mode === 'queue'} onPress={handleQueueScan} />
         </View>
 
         <View style={styles.actions}>
@@ -966,21 +1011,6 @@ export default function GuardScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={styles.hostessLink}
-          activeOpacity={0.84}
-          onPress={() => router.push({ pathname: '/hostess', params: user?.id ? { id: user.id } : {} })}
-        >
-          <View style={styles.hostessLinkIcon}>
-            <Users size={18} color="#050505" />
-          </View>
-          <View style={styles.hostessLinkCopy}>
-            <Text style={styles.hostessLinkTitle}>Open Hostess Desk</Text>
-            <Text style={styles.hostessLinkText}>Hand validated guests over to PR for arrivals, tables, and finalisation.</Text>
-          </View>
-          <ChevronRight size={18} color="rgba(255,255,255,0.42)" />
-        </TouchableOpacity>
-
         <View style={styles.metricsGrid}>
           {metrics.map((item) => (
             <View key={item.label} style={styles.metricCard}>
@@ -992,38 +1022,44 @@ export default function GuardScreen() {
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{mode === 'queue' ? 'Queue Scan' : 'Recent Scans'}</Text>
-          <TouchableOpacity style={styles.sectionAction} activeOpacity={0.75} onPress={handleQueueScan}>
-            <Text style={styles.sectionActionText}>Open queue</Text>
-            <ChevronRight size={14} color={YELLOW} />
-          </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Recent Scans</Text>
         </View>
 
         <View style={styles.queueCard}>
-          {queue.map((guest, index) => (
-            <View key={guest.id}>
-              <TouchableOpacity style={styles.queueRow} activeOpacity={0.8}>
-                <View style={[styles.avatar, guest.status === 'hold' && styles.avatarHold]}>
-                  {guest.status === 'hold' ? (
-                    <Clock3 size={18} color={YELLOW} />
-                  ) : (
-                    <UserCheck size={18} color={COLORS.green} />
-                  )}
-                </View>
-                <View style={styles.queueInfo}>
-                  <Text style={styles.queueName}>{guest.name}</Text>
-                  <Text style={styles.queueMeta}>{guest.pass} - {guest.id}</Text>
-                </View>
-                <View style={styles.queueRight}>
-                  <Text style={styles.queueTime}>{guest.time}</Text>
-                  <Text style={[styles.queueStatus, guest.status === 'hold' && styles.queueStatusHold]}>
-                    {guest.status === 'hold' ? 'Hold' : 'Ready'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              {index < queue.length - 1 && <View style={styles.divider} />}
+          {recentScans.length === 0 ? (
+            <View style={styles.recentEmpty}>
+              <QrCode size={22} color={COLORS.mutedDark} />
+              <Text style={styles.recentEmptyTitle}>No scans yet</Text>
+              <Text style={styles.recentEmptyText}>Verified and flagged QR checks appear here.</Text>
             </View>
-          ))}
+          ) : (
+            recentScans.map((guest, index) => (
+              <View key={`${guest.id}-${guest.time}-${index}`}>
+                <View style={styles.queueRow}>
+                  <View style={[styles.avatar, guest.status === 'hold' && styles.avatarHold]}>
+                    {guest.status === 'hold' ? (
+                      <Clock3 size={18} color={YELLOW} />
+                    ) : (
+                      <UserCheck size={18} color={COLORS.green} />
+                    )}
+                  </View>
+                  <View style={styles.queueInfo}>
+                    <Text style={styles.queueName}>{guest.name}</Text>
+                    <Text style={styles.queueMeta} numberOfLines={1}>
+                      {guest.pass} · {guest.id}
+                    </Text>
+                  </View>
+                  <View style={styles.queueRight}>
+                    <Text style={styles.queueTime}>{guest.time}</Text>
+                    <Text style={[styles.queueStatus, guest.status === 'hold' && styles.queueStatusHold]}>
+                      {guest.status === 'hold' ? 'Flagged' : 'Verified'}
+                    </Text>
+                  </View>
+                </View>
+                {index < recentScans.length - 1 && <View style={styles.divider} />}
+              </View>
+            ))
+          )}
         </View>
 
         <View style={styles.photoCard}>
@@ -1417,27 +1453,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hostessLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: SPACING.md,
-  },
-  hostessLinkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: YELLOW,
-  },
-  hostessLinkCopy: { flex: 1 },
-  hostessLinkTitle: { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
-  hostessLinkText: { color: COLORS.mutedDark, fontSize: 12, lineHeight: 17, marginTop: 2 },
   metricsGrid: { flexDirection: 'row', gap: SPACING.sm },
   metricCard: {
     flex: 1,
@@ -1458,8 +1473,14 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
   },
   sectionTitle: { color: COLORS.white, fontSize: FONT.md, fontWeight: '800' },
-  sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  sectionActionText: { color: YELLOW, fontSize: FONT.sm, fontWeight: '800' },
+  recentEmpty: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  recentEmptyTitle: { color: COLORS.white, fontSize: FONT.base, fontWeight: '800' },
+  recentEmptyText: { color: COLORS.mutedDark, fontSize: 12, textAlign: 'center', lineHeight: 17 },
   queueCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.xl,
