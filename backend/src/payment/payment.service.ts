@@ -228,7 +228,7 @@ private getStripe(): InstanceType<typeof Stripe> {
 async updatePayment(id: string, dto: Partial<Payments>) {
   // optional: check if exists
   const payment = await this.paymentRepository.findOne({
-    where: { batchId: id },
+    where: { batch_id: id },
   });
 
   if (!payment) {
@@ -236,11 +236,11 @@ async updatePayment(id: string, dto: Partial<Payments>) {
   }
 
   // update
-  await this.paymentRepository.update({ batchId: id }, dto);
+  await this.paymentRepository.update({ batch_id: id }, dto);
 
   // return updated record
   return this.paymentRepository.findOne({
-    where: { batchId: id },
+    where: { batch_id: id },
   });
 }
 
@@ -283,7 +283,7 @@ async handleEvent(event: any) {
 async findPaymentIds(batch_id: string) {
   console.log("HIT FIND PAYMENT IDS ROUTE");
   const payments = await this.paymentRepository.find({
-    where: { batchId: batch_id },
+    where: { batch_id: batch_id },
     select: ['paymentId'], // 🔥 only fetch IDs
   });
 
