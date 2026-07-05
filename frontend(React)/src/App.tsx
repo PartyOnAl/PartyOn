@@ -196,7 +196,7 @@ function App() {
               <Route path="/my-tickets" element={<Navigate to="/my-bookings" replace />} />
               <Route path="/my-bookings/:bookingId" element={<PurchasedTicket />} />
               <Route path="/purchased-ticket" element={<Navigate to="/my-bookings" replace />} />
-              <Route path="/purchased-ticket/:id/:quantity" element={<PurchasedTicket />} />
+              <Route path="/purchased-ticket/:id/:quantity/:batch_id" element={<PurchasedTicket />} />
               <Route path="/success" element={<Success />} />
               <Route path="/cancel" element={<Cancel />} />
               <Route path="/top-clubs" element={<TopClubs />} />
