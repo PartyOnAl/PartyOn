@@ -1,5 +1,5 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { QRCode } from 'react-qr-code'
+import { QRCodeCanvas } from "qrcode.react";
 import { AlertTriangle, CalendarDays, ChevronRight, Copy, Gift, MapPin, ReceiptText, ScanLine, Share2, Star, Ticket, Trash2, X } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Navbar } from '@/components/Navbar'
@@ -1168,7 +1168,7 @@ function MyBookingsPage() {
                             className="rounded-lg border border-white/15 bg-white p-1.5 shadow-sm"
                             onClick={() => setQrModalOffer(offer)}
                           >
-                            <QRCode
+                            <QRCodeCanvas
                               value={claimCode}
                               size={56}
                               bgColor="#ffffff"
@@ -1412,7 +1412,7 @@ function MyBookingsPage() {
             {/* QR Code */}
             <div className="flex flex-col items-center gap-3 px-4 pb-4 sm:gap-4 sm:px-5 sm:pb-5">
               <div ref={qrModalQrRef} className="rounded-2xl border-4 border-white bg-white p-3 shadow-[0_0_40px_rgba(168,85,247,0.25)] sm:p-4">
-                <QRCode
+                <QRCodeCanvas
                   value={getClaimCode(qrModalOffer)}
                   size={176}
                   bgColor="#ffffff"

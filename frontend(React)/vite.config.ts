@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    optimizeDeps: {
+      include: ["react-qr-code"]
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

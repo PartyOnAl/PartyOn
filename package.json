@@ -2,7 +2,8 @@
   "dependencies": {
     "@stripe/stripe-js": "^9.1.0",
     "expo": "^49.0.23",
-    "react-qr-code": "^2.0.21",
+    "qrcode.react": "^4.2.0",
+    "react-qr-code": "^2.2.0",
     "react-router-dom": "^7.14.0",
     "resend": "^6.12.2",
     "stripe": "^22.0.1"
