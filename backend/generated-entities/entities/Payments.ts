@@ -34,7 +34,7 @@ export class Payments {
   })
   status: string | null;
 
-  @Column("text", {
+  @Column("uuid", {
     name: "batch_id",
     nullable: true,
   })

@@ -33,6 +33,7 @@ function promotionBadgeColor(category: string): string {
   return 'bg-primary';
 }
 
+
 function pickString(row: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
     const v = row[k];
@@ -77,6 +78,14 @@ function pickOptionalBoolean(
     if (s === 'false' || s === '0' || s === 'no') return false;
   }
   return undefined;
+}
+
+function rawDateTimeString(value: unknown): string | undefined {
+  if (value == null || value === '') return undefined;
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return String(value);
 }
 
 /** One cell from a JSON/text[] list: string, number, or `{ title, description }`-like row. */
@@ -334,8 +343,12 @@ function hasClubImageInRow(row: Record<string, unknown>): boolean {
   return rawClubImageFromRow(row).length > 0;
 }
 
+const CATALOG_CACHE_TTL_MS = 60_000; // 60 seconds
+
 @Injectable()
 export class CatalogService {
+  private catalogCache: { data: CatalogBundleDto; expiresAt: number } | null = null;
+
   constructor(
     @InjectRepository(Events)
     private readonly eventsRepo: Repository<Events>,
@@ -496,7 +509,6 @@ export class CatalogService {
         undefined,
       doorsOpen:
         pickString(row, [
-          'event_hours',
           'doors_open',
           'doors_time',
           'door_time',
@@ -551,15 +563,10 @@ export class CatalogService {
         row.club_id != null && String(row.club_id).trim() !== ''
           ? String(row.club_id)
           : undefined,
-      isFeatured:
-        row.is_featured === true &&
-        row.featured_request_status === 'approved'
-          ? true
-          : undefined,
-      rawDate:
-        row.event_starting_date != null
-          ? new Date(String(row.event_starting_date)).toISOString()
-          : undefined,
+      isFeatured: row.is_featured === true ? true : undefined,
+      rawDate: rawDateTimeString(row.event_starting_date),
+      startDateTime: rawDateTimeString(row.event_starting_date),
+      endDateTime: rawDateTimeString(row.event_ending_date),
     };
   }
 
@@ -933,23 +940,32 @@ export class CatalogService {
     return [...s];
   }
 
-  /** Calendar-day comparison: event occurs today or later. */
+  /** Calendar-day comparison: event is still running today or starts today/later. */
   private isEventUpcomingRow(row: Record<string, unknown>): boolean {
-    const raw =
+    const startRaw =
       row.event_starting_date ??
       row.starts_at ??
       row.start_date ??
       row.event_date ??
       row.date ??
       row.start_time;
-    if (raw == null) return false;
-    const d = new Date(String(raw));
+    const endRaw =
+      row.event_ending_date ??
+      row.ends_at ??
+      row.end_date ??
+      row.end_time;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (endRaw != null) {
+      const end = new Date(String(endRaw));
+      if (!Number.isNaN(end.getTime())) return end >= todayStart;
+    }
+    if (startRaw == null) return false;
+    const d = new Date(String(startRaw));
     if (Number.isNaN(d.getTime())) return false;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
     const day = new Date(d);
     day.setHours(0, 0, 0, 0);
-    return day.getTime() >= start.getTime();
+    return day.getTime() >= todayStart.getTime();
   }
 
   private eventRowSortMs(row: Record<string, unknown>): number {
@@ -1172,7 +1188,17 @@ export class CatalogService {
   }
 
   async getCatalog(): Promise<CatalogBundleDto> {
-    return this.getCatalogFromPostgres();
+    const now = Date.now();
+    if (this.catalogCache && this.catalogCache.expiresAt > now) {
+      return this.catalogCache.data;
+    }
+    const data = await this.getCatalogFromPostgres();
+    this.catalogCache = { data, expiresAt: now + CATALOG_CACHE_TTL_MS };
+    return data;
+  }
+
+  invalidateCatalogCache(): void {
+    this.catalogCache = null;
   }
 
   /**
@@ -1213,17 +1239,38 @@ export class CatalogService {
     let eventEntities: Events[] = [];
     try {
       const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
       eventEntities = await this.eventsRepo
         .createQueryBuilder('e')
         .leftJoinAndSelect('e.club', 'c')
         .where(
           new Brackets((qb) => {
-            qb.where("e.event_status = 'published'").orWhere(
-              'e.event_status IS NULL',
-            );
+            qb.where("e.event_status = 'published'")
+              .orWhere('e.event_status IS NULL')
+              .orWhere(
+                new Brackets((inner) => {
+                  inner
+                    .where('e.is_featured = true')
+                    .andWhere("(e.event_status IS NULL OR e.event_status != 'cancelled')");
+                }),
+              );
           }),
         )
-        .andWhere('e.event_starting_date >= :now', { now })
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where('e.event_ending_date >= :todayStart', { todayStart })
+              .orWhere(
+                new Brackets((inner) => {
+                  inner
+                    .where('e.event_ending_date IS NULL')
+                    .andWhere('e.event_starting_date >= :todayStart', {
+                      todayStart,
+                    });
+                }),
+              );
+          }),
+        )
         .orderBy('e.event_starting_date', 'ASC', 'NULLS LAST')
         .addOrderBy('e.event_id', 'ASC')
         .getMany();

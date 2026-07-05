@@ -30,6 +30,11 @@ import { AdminModule } from './admin/admin.module';
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
       synchronize: false,
+      extra: {
+        max: 2,
+        idleTimeoutMillis: 10000,
+        connectionTimeoutMillis: 20000,
+      },
     }),
     AuthModule,
     EventModule,

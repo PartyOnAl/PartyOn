@@ -57,7 +57,7 @@ export class PaymentService {
   async findAll(): Promise<PaymentListItem[]> {
   
     const payments = await this.paymentRepository.find({
-      relations: ['reservation', 'user'],
+      relations: ['reservation', 'user', 'event'],
     });
   
     return payments.map((payment) => this.toListItem(payment));
@@ -69,7 +69,9 @@ export class PaymentService {
     time?: string,
   ): Promise<PaymentListItem[]> {
   
-    const qb = this.paymentRepository.createQueryBuilder('payment')
+    const qb = this.paymentRepository
+      .createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.event', 'event')
   
     // 👇 ONLY add join if you really need club data
     qb.leftJoinAndSelect('event.club', 'club')
@@ -226,7 +228,7 @@ private getStripe(): InstanceType<typeof Stripe> {
 async updatePayment(id: string, dto: Partial<Payments>) {
   // optional: check if exists
   const payment = await this.paymentRepository.findOne({
-    where: { batch_id: id },
+    where: { batchId: id },
   });
 
   if (!payment) {
@@ -234,11 +236,11 @@ async updatePayment(id: string, dto: Partial<Payments>) {
   }
 
   // update
-  await this.paymentRepository.update({batch_id: id}, dto);
+  await this.paymentRepository.update({ batchId: id }, dto);
 
   // return updated record
   return this.paymentRepository.findOne({
-    where: { batch_id: id },
+    where: { batchId: id },
   });
 }
 
@@ -281,7 +283,7 @@ async handleEvent(event: any) {
 async findPaymentIds(batch_id: string) {
   console.log("HIT FIND PAYMENT IDS ROUTE");
   const payments = await this.paymentRepository.find({
-    where: { batch_id: batch_id },
+    where: { batchId: batch_id },
     select: ['paymentId'], // 🔥 only fetch IDs
   });
 
@@ -296,12 +298,12 @@ async findPaymentIds(batch_id: string) {
       amount: Number(payment.amount),
       payment_date: payment.paymentDate,
       status: payment.status,
-      event_id: payment.event.eventId,
+      event_id: payment.event?.eventId ?? null,
       times_used: payment.timesUsed,
       intent: payment.intent ?? null,
-      event_starting_date: payment.event.eventStartingDate,
-      event_ending_date: payment.event.eventEndingDate,
-      event_hours: payment.event.eventHours,
+      event_starting_date: payment.event?.eventStartingDate ?? null,
+      event_ending_date: payment.event?.eventEndingDate ?? null,
+      event_hours: payment.event?.eventHours ?? null,
     };
   }
 }
