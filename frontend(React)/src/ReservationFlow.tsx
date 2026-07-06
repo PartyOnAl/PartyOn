@@ -422,7 +422,7 @@ export default function ReservationFlow() {
         notes: mergedNotes || null,
         status: 'confirmed',
         type: 'table',
-        qr_code: reference,
+        qr_code: id ?? 'PartyOn',
         reservation_date: `${selectedDate}T00:00:00.000Z`,
         created_at: nowIso,
         table_type: tableType,
@@ -476,7 +476,7 @@ export default function ReservationFlow() {
     if (!event || !saved) return
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF()
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(saved.reference)}`
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(id ?? 'PartyOn')}`
 
     doc.setFontSize(18)
     doc.text('PartyOn Reservation Confirmation', 14, 20)
@@ -962,7 +962,7 @@ export default function ReservationFlow() {
 
                 <div className="mx-auto w-full max-w-[200px] rounded-2xl border border-white/10 bg-white p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(saved.reference)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&bgcolor=ffffff&color=000000&data=${encodeURIComponent(id ?? 'PartyOn')}`}
                     alt="Reservation QR code"
                     className="h-full w-full rounded-md"
                   />
