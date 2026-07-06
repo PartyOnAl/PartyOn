@@ -18,7 +18,6 @@ async function bootstrap() {
   });
   
   const express = require('express');
-  app.use('/payment/webhook', express.raw({ type: 'application/json' }));
   app.use('/event/webhook', express.raw({ type: 'application/json' }));
 
   await app.listen(port,'0.0.0.0');
