@@ -204,6 +204,7 @@ private getStripe(): InstanceType<typeof Stripe> {
 }
 
 async handleEvent(event: any) {
+  console.log('reached the webhook');
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as any;
