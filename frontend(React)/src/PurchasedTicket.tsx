@@ -119,7 +119,7 @@ async function imageUrlToDataUrl(url: string): Promise<string> {
 
 export default function PurchasedTicket() {
   const navigate = useNavigate()
-  const { bookingId, id, quantity } = useParams()
+  const { bookingId, id, quantity, batch_id } = useParams()
   const checkoutSessionId =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('checkout_session_id')
@@ -133,15 +133,8 @@ export default function PurchasedTicket() {
 
   // One QR per person for ticket bookings, single QR for table reservations
   const qrSrcs = useMemo(() => {
-    if (!booking) return [makeQrUrl('PartyOn')]
-    const base = booking.qrValue || booking.reservationId
-    if (booking.bookingType === 'ticket' && booking.quantity > 1) {
-      return Array.from({ length: booking.quantity }, (_, i) =>
-        makeQrUrl(`${base}-T${i + 1}`)
-      )
-    }
-    return [makeQrUrl(base)]
-  }, [booking])
+    return [makeQrUrl(batch_id || 'PartyOn')]
+  }, [batch_id])
 
   // Reset QR index when booking changes
   useEffect(() => { setQrIndex(0) }, [booking])
